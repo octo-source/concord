@@ -191,6 +191,35 @@ Coder profile: server started with `--coder <goldsetId>:<coderId>` serves ONLY `
 
 ---
 
+## Contract amendments after Wave-1 review (AUTHORITATIVE — supersedes anything above that conflicts)
+
+**core:**
+- `store.updateProject(slug, mutatorFn)` is THE way routes mutate projects (per-slug lock; mutator edits in place or returns a replacement). `saveProject` exists but raw read-modify-write is forbidden in routes.
+- `loadProject` re-seals frozen instruments (`rehydrateProject`); `createInstrument` REJECTS `frozen: true` input. `versionInstrument` on the unfrozen path resets `level → "exploratory"` and drops `stability`/`silver`/`certificate`.
+- `ConcordError(code, message, details, {status, cause})`; router status map: NOT_FOUND 404 · TOO_LARGE 413 · PRIVACY_BLOCKED 403 · RATE_LIMITED_EXHAUSTED 503 · default 400; explicit `status` wins.
+- `sse(res)` → `{send, close, closed, onClose(fn)}`. `parseMultipart` limits: 200MB/file, 10 files, 200 fields.
+- NDJSON torn-tail policy: a final line without trailing `\n` is a never-completed append — appends heal it, reads skip it, `ledger.verify` reports `{ok, length, tornTail?}`; mid-file corruption is a hard verify failure (`failedAt`).
+- ONE process writes a bundle. The coder profile is a role inside the SAME server process (Task I), never a second process.
+- `canonical()` honors `toJSON`. `listProjects()` may include `{slug, corrupt: true}` entries.
+
+**Ledger event taxonomy** (F/G/I must agree; `refs` carry object ids):
+`project.created` · `privacy.mode_changed` · `privacy.override` · `corpus.imported` · `corpus.unitized` · `pii.pseudonymized` · `construct.created` · `construct.edited` · `instrument.created` · `instrument.versioned` · `instrument.compiled` · `instrument.silver_tuned` · `instrument.stability` · `instrument.frozen` · `goldset.created` · `goldset.sampled` · `goldset.label` (one per submitted label) · `goldset.agreement` · `goldset.adjudicated` · `goldset.completed` · `run.preflight` · `run.started` · `run.completed` · `run.aborted` · `run.escalation_summary` · `analysis.created` · `export.methods` · `export.replication`.
+
+**providers:**
+- `registry.getAdapter` memoizes adapter instances (mock oracle state survives across calls); privacy gates still evaluated on EVERY call; `clearAdapterCache()` on settings change.
+- Pool retries `PROVIDER_UNREACHABLE` 3× (idempotent calls); run engine treats a still-failing unit as RESUMABLE, not quarantined. Schema failures (SCHEMA_INVALID after repairs) quarantine.
+- `completeWithRepair` returns `{…, repairs}` (repairs > 0 feeds the escalation predicate). OpenAI refusal → `PROVIDER_REFUSAL`; length-truncation with schema → `TRUNCATED`; neither enters the repair loop.
+- Mock honors `req.seed` — stability checks MUST pass distinct seeds per rerun; `mock.setHandler(name, fn)` fires when the system message contains `[[handler:name]]` (Director scripting in tests/keyless mode).
+
+**stats:**
+- String-label ordinal/weighted statistics REQUIRE `{order: [...]}` (constructs' declared category order); pass it through from routes. `gwetAC2(data, {weights, order})` exists. `ppiMean` supports `lambda: "auto"` with overlap-correct variance (gold ⊂ corpus). `bootstrapCI` → `{lo, hi, method}`. `crosstab` → includes `minExpected`. `descriptives.timeTrend(rows, {dateKey, valueKey?, bucket})` exists. Coefficient rows report `z: null, p: null, note` when se = 0. Agreement functions reject `""`/NaN values and duplicate (unitId, coder) rows.
+
+**dictionary:** `parseDic` → `{payload, warnings}` (LIWC conditional lines skipped with warnings). Misplaced `*` throws. Categories named `empty`/`NOT_*` rejected. `compile` memoizes raw payloads. Count mode sums every hit; percentOfWords dedupes token positions.
+
+**ingest:** `pii.pseudonymize` accumulates into an existing vault (idempotent; `VAULT_CONFLICT` on remap). Transcript same-speaker merge gap ≤ 30s (`{maxMergeGapSeconds}` overrides).
+
+---
+
 ## Task A — Foundation (`server/core/*`, server skeleton) [Task #1]
 
 **Files:** `package.json`, `start.bat`, `server/index.js`, `server/router.js`, `server/core/{ids,errors,store,ledger,objects,cache}.js`, `tests/unit/core.test.js`
