@@ -9,7 +9,7 @@
 import path from "node:path";
 import { ConcordError } from "../core/errors.js";
 import { readNdjson } from "../core/store.js";
-import { generate as generateMethods, loadAnalysis, fmt, LEVEL_MARKS, LEVEL_NAMES } from "./methods.js";
+import { generate as generateMethods, generatePreview as previewMethods, loadAnalysis, fmt, LEVEL_MARKS, LEVEL_NAMES } from "./methods.js";
 
 const KINDS = new Set(["chart", "table", "quote", "text", "methods-excerpt"]);
 
@@ -270,7 +270,10 @@ function mdToHtml(md) {
       out.push("</tbody></table>");
       inTable = false;
     }
-    if (t.startsWith("## ")) {
+    if (t.startsWith("> ")) {
+      flush();
+      out.push(`<p class="preview-banner">${inlineMd(t.slice(2))}</p>`);
+    } else if (t.startsWith("## ")) {
       flush();
       out.push(`<h4>${inlineMd(t.slice(3))}</h4>`);
     } else if (t.startsWith("# ")) {
@@ -322,6 +325,7 @@ tr.diff-row td{border-top:1.5px solid var(--ink);font-weight:600}
 .quote footer{font-family:"IBM Plex Mono",Consolas,monospace;font-size:.7rem;color:var(--muted);margin-top:.5rem}
 .block-methods{background:#FFFDF8;border:1px solid var(--rule);padding:1rem 1.4rem;border-radius:4px}
 .block-methods h3{margin-top:.2rem}
+.preview-banner{font-family:"IBM Plex Mono",Consolas,monospace;font-size:.7rem;letter-spacing:.08em;text-transform:uppercase;color:var(--signal);border:1px dashed var(--signal);border-radius:3px;padding:.3rem .6rem;display:inline-block}
 .cite{font-family:"IBM Plex Mono",Consolas,monospace;font-size:.66rem;font-style:normal;background:#EFE8D8;color:var(--muted);border-radius:3px;padding:0 .32em;white-space:nowrap}
 table.md-table{border-collapse:collapse;margin:.6rem 0}
 table.md-table td{border-bottom:1px solid var(--rule);padding:.25rem .6rem;font-size:.88rem}
@@ -430,9 +434,15 @@ export async function render(project, layout, { projectDir } = {}) {
       continue;
     }
     if (b.kind === "methods-excerpt") {
+      // Side-effect-free by default: rendering a report canvas must not mint
+      // export.methods events of record (canvas redraws would inflate the
+      // ledger and stamp previews as exports). A block opts into a real
+      // export with {sideEffectFree: false}; the exports route uses
+      // methods.generate directly.
+      const sideEffectFree = b.sideEffectFree !== false;
       const md = typeof b.content === "string"
         ? b.content
-        : (await generateMethods(project, b.ref, { projectDir })).markdown;
+        : (await (sideEffectFree ? previewMethods : generateMethods)(project, b.ref, { projectDir })).markdown;
       blocksHtml.push(`<section class="block block-methods">\n${mdToHtml(md)}\n</section>`);
       continue;
     }

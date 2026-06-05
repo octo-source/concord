@@ -26,9 +26,15 @@ function fail(message, details = {}) {
 
 // RFC 4180: quote any field containing a quote, comma or line break; double
 // embedded quotes. Arrays (multilabel) join with "; ".
+//
+// Formula-injection hardening: a TEXT cell beginning with =, +, - or @ gets a
+// leading apostrophe so spreadsheet apps will not execute it as a formula.
+// Numbers and booleans are never prefixed (they must parse numerically in
+// R/pandas). The convention is documented in the archive README.
 export function csvField(v) {
   if (v === null || v === undefined) return "";
-  const s = Array.isArray(v) ? v.join("; ") : String(v);
+  let s = Array.isArray(v) ? v.join("; ") : String(v);
+  if (typeof v !== "number" && typeof v !== "boolean" && /^[=+\-@]/.test(s)) s = `'${s}`;
   return /[",\n\r]/.test(s) ? `"${s.replace(/"/g, '""')}"` : s;
 }
 
@@ -55,7 +61,8 @@ async function loadUnitsMap(projectDir, corpusIds) {
 // analysis is not a DSL fit the scripts know how to re-derive.
 function dslPlan(analysis, run) {
   const r = analysis.results ?? {};
-  if (analysis.level !== "corrected" || !/^dsl/.test(String(r.estimator ?? ""))) return null;
+  const estimator = r.estimator ?? analysis.spec?.estimator ?? "";
+  if (analysis.level !== "corrected" || !/^dsl/.test(String(estimator))) return null;
   if (!Array.isArray(r.cells) || r.cells.length === 0) return null;
   const runId = analysis.spec?.runId ?? run?.id;
   const goldsetId = analysis.spec?.goldsetId;
@@ -90,13 +97,26 @@ function readmeMd(project, analyses, includeGoldText) {
   lines.push("");
   lines.push("## How to reproduce the corrected estimates");
   lines.push("");
-  lines.push("- R: `Rscript reproduce.R` — targets the public `dsl` package (CRAN), which");
-  lines.push("  implements the design-based supervised learning estimator. The script reads");
-  lines.push("  the CSVs in this archive and prints the corrected fits beside Concord's");
-  lines.push("  stored numbers (shown in comments).");
+  lines.push("- R: `Rscript reproduce.R` — computes the DSL pseudo-outcome estimator INLINE");
+  lines.push("  in base R and ASSERTS near-equality (1e-6) with Concord's stored results via");
+  lines.push("  stopifnot. The public `dsl` package (CRAN) is then run as a clearly labeled");
+  lines.push("  methodological cross-check: same estimand, different machinery, so it is not");
+  lines.push("  expected to match to printed precision and may fail on tiny gold samples.");
   lines.push("- Python: `python reproduce.py` — implements the DSL pseudo-outcome estimator");
   lines.push("  inline (numpy/pandas, no Concord code) and ASSERTS equality with Concord's");
   lines.push("  stored results to 1e-6.");
+  lines.push("");
+  lines.push("Panel runs: `outputs/<runId>.csv` then carries a `juror` column with one row");
+  lines.push("per juror per unit PLUS one row with juror == \"aggregate\" — the panel's");
+  lines.push("aggregated verdict, which is the label Concord analyzes. Both reproduce");
+  lines.push("scripts filter to the aggregate rows before merging; do the same in your own");
+  lines.push("reanalysis or every unit will be duplicated.");
+  lines.push("");
+  lines.push("CSV conventions: unit-meta columns are prefixed `meta_` so merges can never");
+  lines.push("collide with unitId/label/pi/adjudicated. To block spreadsheet formula");
+  lines.push("injection, any TEXT cell beginning with =, +, - or @ carries a leading");
+  lines.push("apostrophe (') — strip it when consuming such cells as raw text; numeric");
+  lines.push("cells are never prefixed.");
   lines.push("");
   lines.push("## Contents");
   lines.push("");
@@ -104,8 +124,10 @@ function readmeMd(project, analyses, includeGoldText) {
   lines.push("- `instruments/<id>.json` — frozen instrument versions, full payloads and prompts.");
   lines.push("- `dictionaries/<id>.json` — dictionary instruments with complete term lists.");
   lines.push("- `gold/<goldsetId>.csv` — designed sample: unitId, pi, per-coder labels, adjudicated" + (includeGoldText ? ", unit text." : ". Unit text was withheld at export (includeGoldText: false)."));
-  lines.push("- `outputs/<runId>.csv` — machine labels: unitId, label, confidence, escalated, cacheHit.");
-  lines.push("- `units/<corpusId>.csv` — unit metadata (grouping variables for the analyses; no text).");
+  lines.push("- `outputs/<runId>.csv` — machine labels: unitId, label, confidence, escalated, cacheHit");
+  lines.push("  (+ a `juror` column for panel runs; see the panel note above).");
+  lines.push("- `units/<corpusId>.csv` — unit metadata (grouping variables for the analyses; no");
+  lines.push("  text). Meta columns carry the `meta_` prefix.");
   lines.push("- `agreement.json` — calibration certificates: machine-vs-gold and human-vs-human agreement.");
   lines.push("- `analyses/<id>.json` — analysis spec, stored results, evidence links, ladder level.");
   lines.push("- `MANIFEST.json` — sha256 of every member (excluding itself); verify before trusting.");
@@ -184,10 +206,13 @@ async function outputsCsv(projectDir, runId) {
   return toCsv(rows);
 }
 
+// Unit meta carries arbitrary researcher keys — including, possibly, "label",
+// "pi", "adjudicated" or "unitId". The meta_ prefix keeps the reproduce-script
+// merges collision-free by construction (documented in the README).
 function unitsCsv(unitsMap, corpusId) {
   const units = [...unitsMap.values()].filter((u) => u.corpusId === corpusId);
   const metaKeys = [...new Set(units.flatMap((u) => Object.keys(u.meta ?? {})))].sort();
-  const rows = [["unitId", ...metaKeys]];
+  const rows = [["unitId", ...metaKeys.map((k) => `meta_${k}`)]];
   for (const u of units) rows.push([u.id, ...metaKeys.map((k) => u.meta?.[k] ?? "")]);
   return toCsv(rows);
 }
@@ -196,51 +221,124 @@ function unitsCsv(unitsMap, corpusId) {
 
 function rScript(plans, project) {
   const L = [];
-  L.push("# reproduce.R — re-derive Concord's DSL-corrected estimates with the public");
-  L.push("# `dsl` R package (Egami, Hinck, Stewart and Wei; CRAN package `dsl`), which");
-  L.push("# implements design-based supervised learning: machine labels on every unit,");
-  L.push("# human gold on a designed subsample with known inclusion probabilities.");
+  L.push("# reproduce.R — verify Concord's DSL-corrected estimates OUTSIDE Concord.");
+  L.push("#");
+  L.push("# PRIMARY VERIFICATION (base R, no packages): the design-based supervised");
+  L.push("# learning pseudo-outcome estimator (Egami, Hinck, Stewart, and Wei (2023);");
+  L.push("# Angelopoulos, Bates, Fannjiang, Jordan, and Zrnic (2023)) is computed");
+  L.push("# INLINE below — pseudo = yhat + (y - yhat)/pi on gold rows, else yhat; a");
+  L.push("# cell's estimate is mean(pseudo) with HC0 sandwich");
+  L.push("# se = sqrt(mean((pseudo - est)^2)/n) — and stopifnot asserts near-equality");
+  L.push("# with Concord's stored numbers to 1e-6.");
+  L.push("#");
+  L.push("# METHODOLOGICAL CROSS-CHECK (optional): each block ends by refitting the");
+  L.push("# same estimand with the public CRAN dsl package. Its SuperLearner-anchored");
+  L.push("# estimator (grf random forests, cross-fitting, internal randomness) targets");
+  L.push("# the same estimand but will not match Concord's numbers to printed");
+  L.push("# precision, and may fail outright on tiny gold samples. A cross-check");
+  L.push("# failure does NOT invalidate the stopifnot verification above it.");
   L.push(`# Project: ${project.name} (${project.id})`);
   L.push("#   install.packages(\"dsl\")");
-  L.push("library(dsl)");
   L.push("");
   if (plans.length === 0) {
     L.push("# No DSL-corrected analyses were included in this archive; nothing to refit.");
     return L.join("\n") + "\n";
   }
   for (const p of plans) {
+    const col = p.groupBy ? `meta_${p.groupBy}` : null;
     L.push(`# ---- analysis ${p.id}: DSL-corrected proportion of ${p.outcome}${p.groupBy ? ` by ${p.groupBy}` : ""} ----`);
-    L.push(`outputs <- read.csv("outputs/${p.runId}.csv")   # machine labels for every unit`);
-    L.push(`units   <- read.csv("units/${p.corpusId}.csv")  # unit metadata (grouping variables)`);
-    L.push(`gold    <- read.csv("gold/${p.goldsetId}.csv")  # designed gold subsample with pi`);
+    L.push(`outputs <- read.csv("outputs/${p.runId}.csv", check.names = FALSE)  # machine labels`);
+    L.push(`units   <- read.csv("units/${p.corpusId}.csv", check.names = FALSE) # unit meta (meta_ prefixed)`);
+    L.push(`gold    <- read.csv("gold/${p.goldsetId}.csv", check.names = FALSE) # designed gold subsample with pi`);
+    L.push(`# Panel runs write one row per juror per unit PLUS one row with juror ==`);
+    L.push(`# "aggregate" — the panel's aggregated verdict, which is the label Concord`);
+    L.push(`# analyzes. Keep only aggregate rows, or the merges below duplicate units.`);
+    L.push(`if ("juror" %in% names(outputs)) outputs <- subset(outputs, juror == "aggregate")`);
     L.push(`d <- merge(outputs, units, by = "unitId")`);
     L.push(`d <- merge(d, gold[, c("unitId", "adjudicated", "pi")], by = "unitId", all.x = TRUE)`);
+    L.push(`# (meta columns are meta_ prefixed in units.csv, so these merges cannot`);
+    L.push(`# collide with unitId/label/pi/adjudicated)`);
     L.push(`d$${p.outcome}_pred <- d$label        # machine label (prediction)`);
     L.push(`d$${p.outcome} <- d$adjudicated       # human gold; NA off the gold sample`);
-    L.push(`# Every unit carries its DESIGN inclusion probability. Under this archive's`);
-    L.push(`# sampling design the recorded pi applies to sampled and unsampled units alike.`);
+    L.push(`# The inline estimator uses pi only on gold rows, where the CSV records it.`);
+    L.push(`# The dsl() cross-check needs pi on every row; under this archive's design`);
+    L.push(`# the recorded pi applies to sampled and unsampled units alike.`);
     if (p.uniformPi !== null && p.uniformPi !== undefined) {
       L.push(`d$pi[is.na(d$pi)] <- ${p.uniformPi}`);
     } else {
-      L.push(`# (Non-uniform design: fill d$pi for unsampled units from the stratum table.)`);
+      L.push(`# (Non-uniform design: fill d$pi for unsampled units from the stratum table`);
+      L.push(`# before running the cross-check.)`);
     }
-    const formula = p.groupBy ? `${p.outcome} ~ 0 + factor(${p.groupBy})` : `${p.outcome} ~ 1`;
-    L.push("fit <- dsl(model = \"lm\",");
-    L.push(`           formula = ${formula},`);
-    L.push(`           predicted_var = "${p.outcome}",`);
-    L.push(`           prediction = "${p.outcome}_pred",`);
-    L.push(`           sample_prob = "pi",`);
-    L.push("           data = d)");
-    L.push("summary(fit)");
-    L.push(`# With 0 + factor(${p.groupBy ?? "1"}) coding each coefficient is a corrected cell`);
-    L.push("# proportion. Concord stored (DSL pseudo-outcome mean, sandwich SE):");
+    L.push("");
+    L.push("# inline pseudo-outcome estimator + verification");
+    L.push(`d$pseudo <- d$${p.outcome}_pred`);
+    L.push(`on_gold <- !is.na(d$${p.outcome})`);
+    L.push(`d$pseudo[on_gold] <- d$${p.outcome}_pred[on_gold] +`);
+    L.push(`  (d$${p.outcome}[on_gold] - d$${p.outcome}_pred[on_gold]) / d$pi[on_gold]`);
+    p.cells.forEach((c, i) => {
+      const k = i + 1;
+      L.push(col
+        ? `ps <- d$pseudo[as.character(d[["${col}"]]) == ${JSON.stringify(c.group)}]`
+        : "ps <- d$pseudo");
+      L.push(`est_${k} <- mean(ps)`);
+      L.push(`se_${k} <- sqrt(mean((ps - est_${k})^2) / length(ps))`);
+      L.push(`stopifnot(abs(est_${k} - ${String(c.est)}) < 1e-6, abs(se_${k} - ${String(c.se)}) < 1e-6)`);
+    });
+    if (p.diff) {
+      const ia = p.cells.findIndex((c) => c.group === p.diff.a) + 1;
+      const ib = p.cells.findIndex((c) => c.group === p.diff.b) + 1;
+      if (ia > 0 && ib > 0) {
+        L.push(`# corrected difference ${p.diff.a} - ${p.diff.b} (independent groups)`);
+        L.push(`est_diff <- est_${ia} - est_${ib}`);
+        L.push(`se_diff <- sqrt(se_${ia}^2 + se_${ib}^2)`);
+        L.push(`stopifnot(abs(est_diff - ${String(p.diff.est)}) < 1e-6, abs(se_diff - ${String(p.diff.se)}) < 1e-6)`);
+      }
+    }
+    L.push(`cat("OK: analysis ${p.id} reproduced Concord's stored numbers to 1e-6\\n")`);
+    L.push("# Concord stored (DSL pseudo-outcome mean, HC0 sandwich SE):");
     for (const c of p.cells) {
       L.push(`#   ${p.groupBy ?? "all"}=${c.group}: est = ${c.est.toFixed(6)}, se = ${c.se.toFixed(6)}, 95% CI [${c.ciLo.toFixed(6)}, ${c.ciHi.toFixed(6)}]`);
     }
     if (p.diff) {
       L.push(`#   difference ${p.diff.a} - ${p.diff.b}: est = ${p.diff.est.toFixed(6)}, se = ${p.diff.se.toFixed(6)}`);
-      L.push(`# (Refit with ${p.outcome} ~ factor(${p.groupBy}) to read the difference as a slope.)`);
     }
+    L.push("");
+    L.push("# ---- METHODOLOGICAL CROSS-CHECK (not the verification) ----");
+    L.push("# The CRAN dsl package refits the same estimand with its own machinery");
+    L.push("# (SuperLearner-anchored outcome models via grf, cross-fitting, internal");
+    L.push("# randomness). Even with the pinned seed it will not match the numbers");
+    L.push("# above to printed precision, and it may fail on tiny gold samples (too");
+    L.push("# few gold rows per fold). Args pinned for the record; failure here does");
+    L.push("# not invalidate the stopifnot verification above.");
+    if (p.groupBy) {
+      L.push("# Factor coding note: with ~ 0 + factor(.) each coefficient is a cell");
+      L.push("# proportion. With treatment coding (~ factor(.)) R takes the");
+      L.push("# alphabetically first level as the reference and each slope estimates");
+      L.push("# (level - reference), so a printed difference may need its sign flipped");
+      const ref = [...p.cells.map((c) => c.group)].sort()[0];
+      if (p.diff && p.cells.length === 2) {
+        const flips = ref === p.diff.a;
+        L.push(`# relative to the ${p.diff.a} - ${p.diff.b} contrast: here the reference is "${ref}",`);
+        L.push(flips
+          ? `# so the treatment-coded slope estimates ${p.diff.b} - ${p.diff.a} — the NEGATIVE of`
+          : `# so the treatment-coded slope estimates ${p.diff.a} - ${p.diff.b} — the same sign as`);
+        L.push("# the difference verified above.");
+      } else {
+        L.push(`# relative to a reported contrast (the reference here would be "${ref}").`);
+      }
+    }
+    const formula = col ? `${p.outcome} ~ 0 + factor(\`${col}\`)` : `${p.outcome} ~ 1`;
+    L.push("cross_check <- tryCatch({");
+    L.push("  library(dsl)");
+    L.push("  set.seed(20231201)");
+    L.push("  fit <- dsl(model = \"lm\",");
+    L.push(`             formula = ${formula},`);
+    L.push(`             predicted_var = "${p.outcome}",`);
+    L.push(`             prediction = "${p.outcome}_pred",`);
+    L.push(`             sample_prob = "pi",`);
+    L.push("             data = d)");
+    L.push("  print(summary(fit))");
+    L.push('}, error = function(e) message("dsl cross-check skipped: ", conditionMessage(e)))');
     L.push("");
   }
   return L.join("\n") + "\n";
@@ -253,8 +351,8 @@ function pyScript(plans, project) {
   L.push("CSVs and ASSERT equality with Concord's stored results to 1e-6.");
   L.push("");
   L.push("Estimator (design-based supervised learning / prediction-powered inference;");
-  L.push("Egami, Jacobs-Harukawa, Stewart and Wei 2023; Angelopoulos, Bates, Fannjiang,");
-  L.push("Jordan and Zrnic 2023): with machine labels yhat on every unit and human gold y");
+  L.push("Egami, Hinck, Stewart, and Wei (2023); Angelopoulos, Bates, Fannjiang,");
+  L.push("Jordan, and Zrnic (2023)): with machine labels yhat on every unit and human gold y");
   L.push("on a designed subsample with inclusion probability pi, the pseudo-outcome");
   L.push("    pseudo_i = yhat_i + (R_i / pi_i) * (y_i - yhat_i)");
   L.push("replaces y in the moment condition. For a proportion: est = mean(pseudo) and");
@@ -297,7 +395,13 @@ function pyScript(plans, project) {
     L.push(`# ---- analysis ${p.id}: corrected proportion of ${p.outcome}${p.groupBy ? ` by ${p.groupBy}` : ""} ----`);
     L.push(`print("analysis ${p.id}")`);
     L.push(`outputs = pd.read_csv("outputs/${p.runId}.csv")`);
-    L.push(`units = pd.read_csv("units/${p.corpusId}.csv")`);
+    L.push("# Panel runs write one row per juror per unit PLUS one row with");
+    L.push('# juror == "aggregate" — the panel\'s aggregated verdict, which is the label');
+    L.push("# Concord analyzes. Keep only aggregate rows, or the merges below would");
+    L.push("# duplicate every unit and silently corrupt the estimates.");
+    L.push('if "juror" in outputs.columns:');
+    L.push('    outputs = outputs[outputs["juror"] == "aggregate"]');
+    L.push(`units = pd.read_csv("units/${p.corpusId}.csv")  # unit meta (meta_ prefixed)`);
     L.push(`gold = pd.read_csv("gold/${p.goldsetId}.csv")`);
     L.push('d = outputs.merge(units, on="unitId").merge(');
     L.push('    gold[["unitId", "adjudicated", "pi"]], on="unitId", how="left")');
@@ -308,7 +412,7 @@ function pyScript(plans, project) {
     }
     L.push("]:");
     if (p.groupBy) {
-      L.push(`    sub = d[d[${JSON.stringify(p.groupBy)}].astype(str) == group]`);
+      L.push(`    sub = d[d[${JSON.stringify(`meta_${p.groupBy}`)}].astype(str) == group]`);
     } else {
       L.push("    sub = d");
     }
