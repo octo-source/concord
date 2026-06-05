@@ -59,7 +59,16 @@ export async function startServer({
   const version = JSON.parse(await readFile(path.join(repoRoot, "package.json"), "utf8")).version;
 
   router.addRoute("GET", "/api/health", async (req, res) => {
-    sendJson(res, 200, { ok: true, version, providers: {} });
+    // provider reachability lives with the routes layer (configured keys /
+    // local discovery / mock); absent routes the stub map still answers
+    let providers = {};
+    try {
+      const { providerHealth } = await import("./routes/catalog.js");
+      providers = await providerHealth();
+    } catch {
+      // routes not built yet — health stays minimal
+    }
+    sendJson(res, 200, { ok: true, version, providers });
   });
 
   await mountRoutes(router, routesDir);
@@ -85,6 +94,49 @@ export async function startServer({
     close: () => new Promise((resolve) => {
       server.close(resolve);
       // live SSE/keep-alive connections would hold close() open forever
+      server.closeAllConnections?.();
+    }),
+  };
+}
+
+// Same-process restricted listener for one blind coder (the recorded design
+// decision: ONE process writes a bundle — the coder profile is a role inside
+// THIS server process on its own ephemeral port, never a second writer).
+// Serves ONLY static files plus GET /api/coder/next, POST /api/coder/label,
+// GET /api/coder/progress for the bound (project, goldset, coder). The
+// restricted handlers live in routes/goldsets.js and never expose machine
+// labels or other coders' labels.
+export async function startCoderListener(projectSlug, goldsetId, coderId, {
+  appDir = path.join(repoRoot, "app"),
+} = {}) {
+  if (!projectSlug || !goldsetId || !coderId) {
+    throw new ConcordError("VALIDATION", "startCoderListener requires projectSlug, goldsetId and coderId", {});
+  }
+  const { coderRoutes } = await import("./routes/goldsets.js");
+  const router = createRouter({ appDir });
+  for (const { method, pattern, handler } of coderRoutes(projectSlug, goldsetId, coderId)) {
+    router.addRoute(method, pattern, handler);
+  }
+  const server = http.createServer((req, res) => {
+    router.handle(req, res).catch(() => {
+      if (!res.writableEnded) {
+        try { res.statusCode = 500; res.end(); } catch { /* socket gone */ }
+      }
+    });
+  });
+  await new Promise((resolve, reject) => {
+    server.once("error", reject);
+    server.listen(0, "127.0.0.1", resolve);
+  });
+  const port = server.address().port;
+  return {
+    server,
+    port,
+    url: `http://127.0.0.1:${port}`,
+    coderId,
+    goldsetId,
+    close: () => new Promise((resolve) => {
+      server.close(resolve);
       server.closeAllConnections?.();
     }),
   };

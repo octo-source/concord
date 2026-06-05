@@ -346,7 +346,10 @@ test("server: /api/health returns ok + version + providers", async (t) => {
   const body = await r.json();
   assert.equal(body.ok, true);
   assert.match(body.version, /^\d+\.\d+\.\d+/);
-  assert.deepEqual(body.providers, {});
+  // Task A shipped a stub providers map; the Task I routes layer now fills it
+  // (configured keys present / local discovery / mock always reachable).
+  assert.equal(typeof body.providers, "object");
+  assert.equal(body.providers.mock, true);
 });
 
 test("server: unknown /api/* route gets a JSON 404 envelope", async (t) => {
