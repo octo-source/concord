@@ -1,0 +1,38 @@
+// Escalation second opinions: the run engine flags units (low confidence,
+// panel entropy, schema repairs, atypical length) and calls the escalator the
+// Director module hands it. The Director judges the unit independently under
+// the same codebook; if it agrees with the worker the original output stands
+// (null), if it disagrees it returns a replacement Output marked
+// escalated: true whose rationale leads with a one-line reason the
+// researcher can read in the escalation queue.
+import { callDirector } from "./director.js";
+import { escalationPrompt, escalationSchema } from "./prompts.js";
+
+const same = (a, b) => JSON.stringify(a) === JSON.stringify(b);
+
+// makeEscalator(project, construct) → async (unit, output) → Output | null
+export function makeEscalator(project, construct) {
+  const schema = escalationSchema(construct);
+  return async function escalate(unit, output) {
+    const { system, user } = escalationPrompt({ construct, unit, output });
+    const res = await callDirector(project, {
+      messages: [{ role: "system", content: system }, { role: "user", content: user }],
+      schema,
+      maxTokens: 512,
+    });
+    const second = res.json;
+    if (same(second.label, output.label)) return null; // worker's call stands
+
+    const reason = String(second.reason ?? "").trim();
+    return {
+      unitId: unit.id ?? output.unitId,
+      juror: "director",
+      label: second.label,
+      confidence: second.confidence,
+      // one-line reason first — it is what the escalation queue shows —
+      // followed by the Director's own grounded rationale
+      rationale: reason ? `${reason} — ${second.rationale}` : second.rationale,
+      escalated: true,
+    };
+  };
+}
