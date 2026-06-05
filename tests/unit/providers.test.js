@@ -16,6 +16,7 @@ import { OpenAIAdapter } from "../../server/providers/openai.js";
 import { OpenRouterAdapter } from "../../server/providers/openrouter.js";
 import { OllamaAdapter } from "../../server/providers/ollama.js";
 import { MockAdapter } from "../../server/providers/mock.js";
+import * as registry from "../../server/providers/registry.js";
 import { getAdapter } from "../../server/providers/registry.js";
 import { estimateRun, meter, checkBudget } from "../../server/providers/costs.js";
 import { mulberry32 } from "../../server/core/rng.js";
@@ -602,6 +603,21 @@ describe("registry privacy gates", () => {
     assert.throws(() => getAdapter({ privacyMode: "paranoid" }, "anthropic", { keysPath: noKeys }), { code: "PRIVACY_BLOCKED" });
   });
 
+  it("missing or null privacyMode fails closed, even for local adapters", () => {
+    assert.throws(
+      () => getAdapter({}, "mock", { keysPath: noKeys }),
+      (err) => err.code === "PRIVACY_BLOCKED" && /missing/i.test(err.message),
+    );
+    assert.throws(
+      () => getAdapter({ privacyMode: null }, "mock", { keysPath: noKeys }),
+      (err) => err.code === "PRIVACY_BLOCKED" && /missing/i.test(err.message),
+    );
+  });
+
+  it("does not export the raw PROVIDERS constructor map", () => {
+    assert.equal("PROVIDERS" in registry, false, "PROVIDERS must be module-private; getAdapter is the only sanctioned path");
+  });
+
   it("reads keys.json (object or string entries); absent file → keyless adapter that still catalogs", async () => {
     const dir = mkdtempSync(join(tmpdir(), "concord-keys-"));
     try {
@@ -721,6 +737,29 @@ describe("MockAdapter", () => {
     assert.ok(rate >= 0.7 && rate <= 0.9, `agreement ${rate}`);
     // disagreements still emit valid labels
     for (const r of out) assert.ok(THEMES.includes(r.json.label));
+  });
+
+  it("single-value enum forces agreement: schema-valid even when the judge would disagree (200 units, accuracy 0.5)", async () => {
+    const singleEnumSchema = {
+      type: "object",
+      additionalProperties: false,
+      required: ["rationale", "label", "confidence"],
+      properties: {
+        rationale: { type: "string" },
+        label: { type: "string", enum: ["pay"] },
+        confidence: { type: "number", minimum: 0, maximum: 1 },
+      },
+    };
+    const mock = new MockAdapter().setOracle(() => "pay").setAccuracy(0.5);
+    const units = plantedUnits(200);
+    const out = await Promise.all(units.map((u) => mock.complete({
+      model: "mock-1",
+      messages: [{ role: "user", content: `Apply the codebook.\n<unit>${u.text}</unit>\nReturn JSON.` }],
+      schema: singleEnumSchema, temperature: 0, maxTokens: 120,
+    })));
+    const invalid = out.filter((r) => validateSchema(r.json, singleEnumSchema).length > 0).length;
+    assert.equal(invalid, 0, `${invalid}/200 emissions violate the single-value enum`);
+    for (const r of out) assert.equal(r.json.label, "pay");
   });
 
   it("confidence skews higher on agreement", async () => {

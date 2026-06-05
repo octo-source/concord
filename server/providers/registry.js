@@ -11,7 +11,9 @@ import { OpenRouterAdapter } from "./openrouter.js";
 import { OllamaAdapter } from "./ollama.js";
 import { MockAdapter } from "./mock.js";
 
-export const PROVIDERS = Object.freeze({
+// Module-private on purpose: exporting raw constructors would let callers
+// bypass the privacy gates below. getAdapter() is the only way out.
+const PROVIDERS = Object.freeze({
   anthropic: AnthropicAdapter,
   openai: OpenAIAdapter,
   openrouter: OpenRouterAdapter,
@@ -33,7 +35,16 @@ export function getAdapter(project, providerName, { justification, keysPath } = 
     });
   }
 
-  const mode = project?.privacyMode ?? "open";
+  const mode = project?.privacyMode;
+  if (mode === undefined || mode === null) {
+    // Fail closed: a caller that omits the privacy mode gets no adapter, not
+    // the most permissive one. Stored projects always carry a validated mode
+    // (objects.js defaults to "open" at creation), so only malformed callers
+    // land here.
+    throw new ConcordError("PRIVACY_BLOCKED", "privacy mode missing from project; refusing to construct an adapter", {
+      mode: null, provider: providerName,
+    });
+  }
   if (!MODES.has(mode)) {
     // Fail closed: an unrecognized mode is config corruption, not permission.
     throw new ConcordError("PRIVACY_BLOCKED", `unknown privacy mode "${mode}"`, { mode, provider: providerName });

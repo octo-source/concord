@@ -138,9 +138,12 @@ export class MockAdapter extends Adapter {
       agreed = rand() < this.accuracy;
       if (agreed) {
         out.label = correct;
-      } else if (allowed && allowed.length > 1) {
+      } else if (allowed) {
+        // Disagreement must still be schema-valid: pick a different enum
+        // value. A single-value enum has no alternative, so agreement is
+        // forced rather than emitting an off-enum label.
         const others = allowed.filter((v) => v !== correct);
-        out.label = others[Math.floor(rand() * others.length)];
+        out.label = others.length > 0 ? others[Math.floor(rand() * others.length)] : correct;
       } else {
         out.label = `not-${correct}`;
       }
