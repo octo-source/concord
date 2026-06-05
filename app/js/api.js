@@ -162,6 +162,8 @@ export const projects = {
   list: () => get_("/api/projects"),
   create: ({ name, privacyMode }) => post("/api/projects", { name, privacyMode }),
   get: (p) => get_(P(p)),
+  /** Project-scoped settings: {privacyMode?, confirmDowngrade?, budget?: {capUSD}}. */
+  update: (p, body) => put(P(p), body),
 };
 
 export const imports = {
@@ -182,6 +184,8 @@ export const corpora = {
 };
 
 export const brief = {
+  /** The persisted brief artifact (briefs/<bid>.json) — 404 when absent. */
+  get: (p, bid) => get_(`${P(p)}/briefs/${encodeURIComponent(bid)}`),
   /**
    * Stream the Corpus Brief. POST + SSE (hence fetch-based, see header).
    * handlers: onParagraph({md, refs}) per streamed paragraph,
@@ -265,6 +269,13 @@ export const goldsets = {
     post(`${P(p)}/goldsets/${encodeURIComponent(g)}/label`, { coder, unitId, label, memo, flag }),
   agreement: (p, g) => get_(`${P(p)}/goldsets/${encodeURIComponent(g)}/agreement`),
   adjudicate: (p, g, { unitId, label }) => post(`${P(p)}/goldsets/${encodeURIComponent(g)}/adjudicate`, { unitId, label }),
+  /** Route a unit to the human queue: joins the sample as {pi: null, queued: true}. Idempotent. */
+  queue: (p, g, { unitId }) => post(`${P(p)}/goldsets/${encodeURIComponent(g)}/queue`, { unitId }),
+  /** Start (or reuse) the same-process blind coder listener → {url, port, coderId}. */
+  coderSession: (p, g, coderId) => post(`${P(p)}/goldsets/${encodeURIComponent(g)}/coder-session`, { coderId }),
+  /** Close coder listeners for this gold set (one coder, or all when omitted) → {closed}. */
+  endCoderSession: (p, g, coderId) =>
+    request("DELETE", `${P(p)}/goldsets/${encodeURIComponent(g)}/coder-session`, { query: { coderId } }),
 };
 
 export const runs = {

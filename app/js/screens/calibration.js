@@ -585,31 +585,71 @@ function adjudicatePane(host, params, goldset, construct) {
 function coderLauncherBtn(params, goldset) {
   return el("button", {
     class: "btn", type: "button",
-    onclick: async () => {
-      const s = openSheet({ title: "Launch a coder session", overline: "Blind by construction" });
-      s.body.append(el("p", { class: "faint", role: "status" }, "preparing…"));
-      // No coder-session route exists in api.js yet (flagged in the build report);
-      // the server's --coder launch profile is the contract we surface here.
-      let info = null;
-      try {
-        const res = await fetch("fixtures/goldsets.json");
-        if (res.ok) info = (await res.json()).coderSession;
-      } catch { /* offline is fine */ }
-      const url = info?.url ?? `${location.origin}/?coder=${goldset.id}:<coderId>`;
-      const cmd = info?.command ?? `start.bat --coder ${goldset.id}:<coderId>`;
-      clear(s.body).append(
-        el("p", {}, "A coder session serves ", el("strong", {}, "only"), " the coding screen. Machine labels and other coders' labels are stripped server-side — blindness is enforced by the role, not by convention."),
-        el("div", { class: "codeline" },
-          el("code", { class: "data" }, cmd),
-          copyBtn(cmd)),
-        el("div", { class: "codeline" },
-          el("code", { class: "data" }, url),
-          copyBtn(url)),
-        el("p", { class: "screen__hint faint" }, info?.note ?? "Replace <coderId> with the coder's name."),
-      );
-      s.foot.append(el("button", { class: "btn", type: "button", onclick: () => s.close() }, "Done"));
-    },
+    onclick: () => openCoderSheet(params, goldset),
   }, "Coder session…");
+}
+
+function openCoderSheet(params, goldset) {
+  const s = openSheet({ title: "Launch a coder session", overline: "Blind by construction" });
+  const input = el("input", { class: "input input--inline", placeholder: "coder id (e.g. sam)", "aria-label": "Coder id" });
+  const out = el("div", { class: "codersession", aria: { live: "polite" } });
+
+  s.body.append(
+    el("p", {}, "A coder session serves ", el("strong", {}, "only"), " the coding screen. Machine labels and other coders' labels are stripped server-side — blindness is enforced by the role, not by convention."),
+    el("div", { class: "controlrow" },
+      el("label", { class: "controlrow__item" }, el("span", { class: "overline" }, "coder"), input),
+      el("button", {
+        class: "btn btn--primary", type: "button",
+        onclick: async (e) => {
+          const coderId = input.value.trim();
+          if (!coderId) { input.focus(); return; }
+          e.target.disabled = true;
+          clear(out).append(el("p", { class: "faint", role: "status" }, "starting the listener…"));
+          try {
+            // POST goldsets/:g/coder-session → {url, port} (same-process
+            // restricted listener; the coder id is bound server-side)
+            const session = await api.goldsets.coderSession(params.slug, goldset.id, coderId);
+            clear(out).append(
+              el("p", { class: "screen__hint" },
+                `Listener up for ${coderId}${session.existing ? " (already running)" : ""} — hand over this URL:`),
+              el("div", { class: "codeline" },
+                el("code", { class: "data" }, session.url),
+                copyBtn(session.url)),
+              el("p", { class: "screen__hint faint" },
+                "It answers only /api/coder/* for this coder on this gold set."),
+              el("button", {
+                class: "btn btn--quiet", type: "button",
+                onclick: async (ev) => {
+                  ev.target.disabled = true;
+                  try {
+                    await api.goldsets.endCoderSession(params.slug, goldset.id, coderId);
+                    toast.info("Coder session closed.", { duration: 1800 });
+                    clear(out);
+                  } catch (err) {
+                    ev.target.disabled = false;
+                    toast.error("Could not close the session.", { detail: String(err.message ?? err) });
+                  }
+                },
+              }, "End this session"),
+            );
+          } catch (err) {
+            // fall back to the --coder launch profile (works without this route)
+            const cmd = `start.bat --coder ${goldset.id}:${coderId}`;
+            clear(out).append(
+              el("p", { class: "screen__hint" },
+                "The listener could not start from here (", String(err.message ?? err), ") — launch the coder profile by hand:"),
+              el("div", { class: "codeline" },
+                el("code", { class: "data" }, cmd),
+                copyBtn(cmd)),
+              el("p", { class: "screen__hint faint" }, "The gold set and coder are already in the command."),
+            );
+          }
+          e.target.disabled = false;
+        },
+      }, "Start session")),
+    out,
+  );
+  s.foot.append(el("button", { class: "btn", type: "button", onclick: () => s.close() }, "Done"));
 }
 
 function copyBtn(text) {

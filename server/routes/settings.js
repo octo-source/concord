@@ -43,7 +43,10 @@ async function currentSettings() {
   return { keys: maskedKeys(keys), port: app.port ?? 7341 };
 }
 
-async function applyProjectSettings(body) {
+// Per-project settings mutator — the SINGLE source for the privacy-downgrade
+// guard and privacy.mode_changed ledgering. Shared by PUT /api/settings
+// (project sub-object) and PUT /api/projects/:p (routes/projects.js).
+export async function applyProjectSettings(body) {
   const { slug } = body;
   if (!slug) throw new ConcordError("VALIDATION", "project settings require a slug", {});
   const before = await loadProject(slug);

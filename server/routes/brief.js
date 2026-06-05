@@ -2,13 +2,27 @@
 // (relayed straight from generateBrief's onParagraph), then `done` carries the
 // persisted briefId. brief.generated is ledgered by the module; the route's
 // only bookkeeping is the Director-meter cost roll-up.
+//
+// GET briefs/:bid serves the persisted artifact (briefs/<bid>.json) so a
+// stored brief re-renders without re-streaming.
+import path from "node:path";
 import { ConcordError } from "../core/errors.js";
 import { sse } from "../router.js";
 import { loadProject } from "../core/store.js";
 import { generateBrief } from "../director/brief.js";
-import { findOr404, withDirectorSpend } from "./_shared.js";
+import { findOr404, withDirectorSpend, pdirOf, readJsonFile } from "./_shared.js";
 
 export default [
+  {
+    method: "GET",
+    pattern: "/api/projects/:p/briefs/:bid",
+    handler: async (req, res, params) => {
+      await loadProject(params.p); // unknown project → 404 before any file read
+      const brief = await readJsonFile(path.join(pdirOf(params.p), "briefs", `${params.bid}.json`));
+      if (!brief) throw new ConcordError("NOT_FOUND", `brief '${params.bid}' not found`, { briefId: params.bid });
+      return brief;
+    },
+  },
   {
     method: "POST",
     pattern: "/api/projects/:p/brief",

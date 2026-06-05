@@ -399,6 +399,42 @@ export default [
     },
   },
   {
+    // The human queue (a disagreement-screen disposition): the unit joins the
+    // sample as {pi: null, queued: true} — codable, adjudicable, READ BY
+    // AGREEMENT, but never a DSL gold row (queued π-null rows are filtered at
+    // the correction assembly point — routes/analyses.js goldFor — because the
+    // π-weighted estimators throw on y-without-pi). Idempotent per unit.
+    method: "POST",
+    pattern: "/api/projects/:p/goldsets/:g/queue",
+    handler: async (req, res, params) => {
+      const project = await loadProject(params.p);
+      findOr404(project.goldsets, params.g, "gold set");
+      const body = requireBody(req, ["unitId"]);
+      const current = await readGoldset(params.p, params.g);
+      const found = await unitsById(project, [body.unitId], { corpusId: current.corpusId });
+      if (!found.has(body.unitId)) {
+        throw new ConcordError("NOT_FOUND", `unit '${body.unitId}' not found in this project's corpora`, { unitId: body.unitId });
+      }
+      let already = false;
+      let n = 0;
+      const gs = await mutateGoldset(params.p, params.g, (g) => {
+        g.sample = g.sample ?? [];
+        if (g.sample.some((s) => s.unitId === body.unitId)) {
+          already = true;
+        } else {
+          g.sample.push({ unitId: body.unitId, pi: null, queued: true });
+        }
+        n = g.sample.length;
+      });
+      if (!already) {
+        await ledger.append(pdirOf(params.p), "human", "goldset.sampled", { goldsetId: params.g }, {
+          queuedUnit: body.unitId,
+        });
+      }
+      return { goldsetId: gs.id, unitId: body.unitId, queued: true, n, ...(already ? { already: true } : {}) };
+    },
+  },
+  {
     method: "GET",
     pattern: "/api/projects/:p/goldsets/:g/next",
     handler: async (req, res, params) => {

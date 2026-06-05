@@ -303,6 +303,70 @@ test("executeRun: PROVIDER_UNREACHABLE pauses the run (resumable), good units ar
   assertExactlyOnce(lines);
 });
 
+test("executeRun: shouldStop hook pauses mid-run — the engine drains, writes paused itself, appends nothing after; resume completes exactly-once", async (t) => {
+  const N = 60;
+  const { dir, project, pdir } = await setup(t, { units: makeUnits(N), instruments: [judgeInstrument()] });
+  mockAdapter(project, { accuracy: 1.0 });
+  const run = await createRun(project, { instrumentId: "inst_j", corpusId: "c1" }, { dir });
+
+  let control = null;
+  let ticks = 0;
+  const paused = await executeRun(SLUG, run.id, {
+    dir,
+    shouldStop: () => control,
+    onTick: () => { ticks += 1; if (ticks === 5) control = "pause"; },
+  });
+  assert.equal(paused.status, "paused");
+  assert.equal(paused.error, undefined, "a user pause is not an error");
+  const partial = await readNdjson(outputsFile(pdir, run.id));
+  assert.ok(partial.length >= 5 && partial.length < N, `paused mid-run (${partial.length}/${N})`);
+  assertExactlyOnce(partial);
+  assert.equal(paused.checkpoint.done, partial.length, "in-flight pool work drained and checkpointed before returning");
+
+  // the engine settled before resolving: no post-pause output lines, ever
+  await new Promise((r) => setTimeout(r, 80));
+  assert.equal((await readNdjson(outputsFile(pdir, run.id))).length, partial.length, "no post-pause output lines");
+  assert.equal((await loadProject(SLUG, dir)).runs[0].status, "paused", "paused status persisted by the engine itself");
+
+  control = null;
+  const done = await executeRun(SLUG, run.id, { dir, shouldStop: () => control });
+  assert.equal(done.status, "complete");
+  const lines = await readNdjson(outputsFile(pdir, run.id));
+  assert.equal(lines.length, N, "resume fills exactly the missing units");
+  assertExactlyOnce(lines);
+  const started = await ledger.query(pdir, { type: "run.started" });
+  assert.equal(started.length, 2);
+  assert.equal(started[1].payload.resumed, true);
+  assert.equal(started[1].payload.pendingUnits, N - partial.length);
+});
+
+test("executeRun: shouldStop hook aborts — status aborted + resumable; user aborts are the CALLER's ledger event, not the engine's", async (t) => {
+  const N = 40;
+  const { dir, project, pdir } = await setup(t, { units: makeUnits(N), instruments: [judgeInstrument()] });
+  mockAdapter(project, { accuracy: 1.0 });
+  const run = await createRun(project, { instrumentId: "inst_j", corpusId: "c1" }, { dir });
+
+  let control = null;
+  let ticks = 0;
+  const aborted = await executeRun(SLUG, run.id, {
+    dir,
+    shouldStop: () => control,
+    onTick: () => { ticks += 1; if (ticks === 3) control = "abort"; },
+  });
+  assert.equal(aborted.status, "aborted");
+  const partial = await readNdjson(outputsFile(pdir, run.id));
+  assert.ok(partial.length >= 3 && partial.length < N, `aborted mid-run (${partial.length}/${N})`);
+  assert.equal((await ledger.query(pdir, { type: "run.aborted" })).length, 0,
+    "the engine ledgers only budget-cap aborts; a human abort is the routes layer's event");
+
+  control = null;
+  const done = await executeRun(SLUG, run.id, { dir });
+  assert.equal(done.status, "complete");
+  const lines = await readNdjson(outputsFile(pdir, run.id));
+  assert.equal(lines.length, N);
+  assertExactlyOnce(lines);
+});
+
 test("executeRun: a second identical run is 100% cache hits and $0 incremental cost; re-executing a complete run is a no-op", async (t) => {
   const N = 30;
   const { dir, project, pdir } = await setup(t, { units: makeUnits(N), instruments: [judgeInstrument()] });

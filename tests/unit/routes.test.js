@@ -436,6 +436,21 @@ test("brief: SSE streams paragraphs in order then done; artifact + ledger via th
   assert.equal((await events({ type: "brief.generated" }))[0].actor, "director");
 });
 
+test("brief: GET briefs/:bid returns the persisted artifact; missing → 404", async () => {
+  const p = await getProject();
+  const briefId = p.briefs[0].id;
+  const brief = await ok("GET", `/api/projects/${S.slug}/briefs/${briefId}`);
+  assert.equal(brief.id, briefId);
+  assert.equal(brief.corpusId, S.corpusA);
+  assert.equal(brief.authoredBy, "director");
+  assert.equal(brief.paragraphs.length, 2);
+  assert.match(brief.paragraphs[0].md, /compensation/);
+  assert.ok(Array.isArray(brief.paragraphs[0].refs) && brief.paragraphs[0].refs.length >= 1, "refs ride the stored paragraphs");
+  assert.ok(Array.isArray(brief.themes) && brief.themes.length >= 1);
+  await fail("GET", `/api/projects/${S.slug}/briefs/brief_nope`, undefined, 404, "NOT_FOUND");
+  await fail("GET", `/api/projects/no-such-project/briefs/${briefId}`, undefined, 404, "NOT_FOUND");
+});
+
 test("questionbar: compile plan → approve materializes constructs + instruments + pending runs", async () => {
   armMock();
   const { planId, plan } = await ok("POST", `/api/projects/${S.slug}/questionbar`, {
@@ -1172,6 +1187,97 @@ test("analyses: subgroup audit with per-group corrected proportions", async () =
 });
 
 // =========================================================================
+// analyses — the Explorer contract (descriptive over a specific run)
+// =========================================================================
+
+test("analyses: descriptive with spec.runId carries the Explorer contract — prevalence, top-2 χ²-ranked crosstabs, nudge; no co-occurrence for scalar labels", async () => {
+  const a = await ok("POST", `/api/projects/${S.slug}/analyses`, {
+    kind: "descriptive",
+    spec: { runId: S.runId },
+  });
+  const r = a.results;
+
+  // prevalence: {label, count, share} from the run's final outputs (the
+  // Director-escalated long unit landed "no", so yes = 80 of 240)
+  assert.ok(Array.isArray(r.prevalence), "prevalence present");
+  assert.deepEqual(r.prevalence, [
+    { label: "no", count: 160, share: 0.666667 },
+    { label: "yes", count: 80, share: 0.333333 },
+  ]);
+
+  // crosstabs: top 2 categorical-ish metadata keys, ranked by χ², each {by, table}
+  assert.ok(Array.isArray(r.crosstabs) && r.crosstabs.length === 2,
+    `two metadata crosstabs (got ${JSON.stringify(r.crosstabs?.map((x) => x.by))})`);
+  assert.deepEqual(r.crosstabs.map((x) => x.by).sort(), ["dept", "tenure"], "id-like meta (respondent_id) never crosstabs");
+  for (const xt of r.crosstabs) {
+    assert.ok(Array.isArray(xt.table.rows) && Array.isArray(xt.table.cols) && Array.isArray(xt.table.matrix));
+    assert.equal(typeof xt.table.chi2, "number");
+    assert.equal(typeof xt.table.minExpected, "number");
+  }
+  assert.ok((r.crosstabs[0].table.chi2 ?? -1) >= (r.crosstabs[1].table.chi2 ?? -1), "ranked by χ² descending");
+
+  // a binary judge run has no co-occurrence surface
+  assert.equal(r.cooccurrence, undefined);
+
+  // the calibration nudge: first non-calibrated instrument's construct, fixed price
+  assert.deepEqual(r.calibrationNudge, { constructName: "Pay complaint (plan)", estUnits: 150, estMinutes: 35 });
+});
+
+test("analyses: multilabel dictionary run → co-occurrence {labels, matrix} in the Explorer contract", async () => {
+  const c = await ok("POST", `/api/projects/${S.slug}/constructs`, {
+    name: "Topics",
+    type: "multilabel",
+    definition: "Which planted topics the unit touches.",
+    categories: [{ value: "pay", label: "Pay" }, { value: "team", label: "Team" }],
+  });
+  const inst = await ok("POST", `/api/projects/${S.slug}/instruments`, {
+    constructId: c.id,
+    kind: "dictionary",
+    name: "Topics dictionary",
+    payload: {
+      categories: [
+        { name: "pay", terms: [{ term: "salary" }] },
+        { name: "team", terms: [{ term: "team" }] },
+      ],
+      negation: { enabled: false, window: 3 },
+      scoring: "count",
+    },
+  });
+  const { runId } = await ok("POST", `/api/projects/${S.slug}/runs`, { instrumentId: inst.id, corpusId: S.corpusB });
+  const { events: evs } = await readSse(`/api/projects/${S.slug}/runs/${runId}/monitor`);
+  assert.equal(evs.find((e) => e.event === "done")?.data.status, "complete");
+
+  const a = await ok("POST", `/api/projects/${S.slug}/analyses`, { kind: "descriptive", spec: { runId } });
+  const co = a.results.cooccurrence;
+  assert.ok(co, "multilabel labels → co-occurrence present");
+  assert.deepEqual(co.labels, ["pay", "team"]);
+  // 81 salary units (80 planted + the long row — dictionaries skip escalation),
+  // 159 team units, never both in one unit
+  assert.deepEqual(co.matrix, [[81, 0], [0, 159]]);
+  const pay = a.results.prevalence.find((p) => p.label === "pay");
+  assert.deepEqual(pay, { label: "pay", count: 81, share: 0.3375 }, "multilabel prevalence counts each label");
+});
+
+// =========================================================================
+// instruments — dictionary preview hit spans
+// =========================================================================
+
+test("instruments: dictionary preview returns per-unit hit spans for highlighting; judge previews carry none", async () => {
+  const unit = S.unitsB.find((u) => u.text.startsWith("the salary is too low"));
+  const preview = await ok("POST", `/api/projects/${S.slug}/instruments/${S.dictInst}/preview`, { unitIds: [unit.id] });
+  const out = preview.outputs.find((o) => o.unitId === unit.id && o.label !== undefined);
+  assert.ok(Array.isArray(out.hits), `dictionary preview outputs carry hits (got ${JSON.stringify(out)})`);
+  const salary = out.hits.find((h) => h.term === "salary");
+  assert.ok(salary, "the salary term hit is reported");
+  assert.equal(salary.category, "pay");
+  assert.equal(unit.text.slice(salary.start, salary.end), "salary", "the span indexes the unit text exactly");
+
+  armMock();
+  const jp = await ok("POST", `/api/projects/${S.slug}/instruments/${S.inst1}/preview`, { unitIds: [unit.id] });
+  for (const o of jp.outputs) assert.equal(o.hits, undefined, "judge previews have no dictionary spans");
+});
+
+// =========================================================================
 // evidence dossier
 // =========================================================================
 
@@ -1248,6 +1354,55 @@ test("exports: report renders standalone HTML", async () => {
 });
 
 // =========================================================================
+// goldsets — the human queue (π-null rows)
+// =========================================================================
+
+test("goldsets: queue routes a unit to the human queue (pi null, idempotent) — never a DSL gold row, still in agreement", async () => {
+  armMock();
+  const gs0 = await ok("GET", `/api/projects/${S.slug}/goldsets/${S.goldsetId}`);
+  const inSample = new Set(gs0.sample.map((s) => s.unitId));
+  const unit = S.unitsB.find((u) => !inSample.has(u.id));
+
+  const q = await ok("POST", `/api/projects/${S.slug}/goldsets/${S.goldsetId}/queue`, { unitId: unit.id });
+  assert.equal(q.queued, true);
+  assert.equal(q.n, 25);
+  const again = await ok("POST", `/api/projects/${S.slug}/goldsets/${S.goldsetId}/queue`, { unitId: unit.id });
+  assert.equal(again.already, true, "idempotent per unit");
+  assert.equal(again.n, 25);
+  await fail("POST", `/api/projects/${S.slug}/goldsets/${S.goldsetId}/queue`, { unitId: "u_not_a_real_unit" }, 404, "NOT_FOUND");
+
+  const gs = await ok("GET", `/api/projects/${S.slug}/goldsets/${S.goldsetId}`);
+  assert.equal(gs.sample.length, 25);
+  assert.deepEqual(gs.sample.at(-1), { unitId: unit.id, pi: null, queued: true });
+
+  // ledgered on the existing taxonomy with a distinct payload; once, not twice
+  const ev = await events({ type: "goldset.sampled", ref: S.goldsetId });
+  assert.equal(ev.length, 2, "original sample + one queue event (the idempotent repeat is silent)");
+  assert.equal(ev.at(-1).payload.queuedUnit, unit.id);
+  assert.equal(ev.at(-1).actor, "human");
+
+  // adjudicate the queued unit: it now has a GOLD LABEL but pi stays null
+  await ok("POST", `/api/projects/${S.slug}/goldsets/${S.goldsetId}/adjudicate`, { unitId: unit.id, label: ORACLE(unit.text) });
+
+  // CRITICAL INVARIANT: the queued+adjudicated unit must never reach the
+  // π-weighted estimators — the stats layer throws on y-without-pi, so this
+  // request answering 200 proves the assembly FILTERS rather than throws
+  const a = await ok("POST", `/api/projects/${S.slug}/analyses`, {
+    kind: "model",
+    spec: { x: ["tenure"], family: "logit", runId: S.runId },
+  });
+  assert.equal(a.level, "corrected");
+  assert.equal(a.results.nGold, 24, "DSL gold rows exclude the π-null queued unit");
+
+  // …while plain agreement (which needs no π) DOES read it
+  const r = await ok("GET", `/api/projects/${S.slug}/goldsets/${S.goldsetId}/agreement`);
+  assert.equal(r.goldLabeled, 25, "the queued+adjudicated unit counts as gold-labeled for agreement");
+  const mine = r.perInstrument.find((x) => x.instrumentId === S.inst1);
+  assert.ok(!mine.error, JSON.stringify(mine.error ?? null));
+  assert.equal(mine.agreement.n, 25, "machine-vs-gold agreement includes the queued unit");
+});
+
+// =========================================================================
 // catalog + settings + coder-listener restriction + final chain verify
 // =========================================================================
 
@@ -1289,6 +1444,29 @@ test("settings: loosening privacy mode requires confirmDowngrade and is ledgered
   await ok("PUT", "/api/settings", { project: { slug: "locked-project", privacyMode: "strict" } });
 });
 
+test("projects: PUT /api/projects/:p shares the settings downgrade guard + ledger, and sets the budget cap", async () => {
+  // locked-project is strict again — loosening without confirmation refuses
+  await fail("PUT", "/api/projects/locked-project", { privacyMode: "open" }, 400, "VALIDATION");
+  const updated = await ok("PUT", "/api/projects/locked-project", { privacyMode: "open", confirmDowngrade: true });
+  assert.equal(updated.privacyMode, "open");
+  const ev = await ledger.query(projectDir("locked-project"), { type: "privacy.mode_changed" });
+  // the settings test above ledgered strict→open AND the tighten-back
+  // open→strict; this route adds the third — one shared helper, one taxonomy
+  assert.equal(ev.length, 3);
+  assert.equal(ev.at(-1).actor, "human");
+  assert.deepEqual([ev.at(-1).payload.from, ev.at(-1).payload.to], ["strict", "open"]);
+
+  const capped = await ok("PUT", "/api/projects/locked-project", { budget: { capUSD: 12 } });
+  assert.equal(capped.budget.capUSD, 12);
+  await fail("PUT", "/api/projects/locked-project", { budget: { capUSD: -1 } }, 400, "VALIDATION");
+
+  // tightening back is no downgrade; null clears the cap
+  const back = await ok("PUT", "/api/projects/locked-project", { privacyMode: "strict", budget: { capUSD: null } });
+  assert.equal(back.privacyMode, "strict");
+  assert.equal(back.budget.capUSD, null);
+  await fail("PUT", "/api/projects/no-such-project", { budget: { capUSD: 1 } }, 404, "NOT_FOUND");
+});
+
 test("coder listener: serves ONLY the coder surface (other API routes absent) and stays blind after machine runs exist", async () => {
   const r = await fetch(`${S.sessA.url}/api/projects`);
   assert.equal(r.status, 404, "project routes are not mounted on the coder listener");
@@ -1303,7 +1481,9 @@ test("coder listener: serves ONLY the coder surface (other API routes absent) an
     assert.ok(!raw.includes(marker), `post-run blind payload leaked ${marker}`);
   }
   const prog = await fetch(`${S.sessA.url}/api/coder/progress`).then((x) => x.json());
-  assert.deepEqual([prog.data.done, prog.data.total], [24, 24]);
+  // 25, not 24: the human-queue test routed one more unit into the sample —
+  // queued units join the blind coding queue like any sampled unit
+  assert.deepEqual([prog.data.done, prog.data.total], [24, 25]);
   await ok("DELETE", `/api/projects/${S.slug}/goldsets/${S.goldsetId}/coder-session`);
 });
 

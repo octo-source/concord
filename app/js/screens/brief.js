@@ -85,31 +85,22 @@ function startStream(column, params, query, project) {
 /* ---- stored ------------------------------------------------------------------- */
 
 async function renderStored(column, params, project) {
-  // No GET /briefs/:id route exists yet (api.js gap) — the artifact rides on
-  // the project graph in fixtures and (eventually) on the server's project
-  // response. Fall back to the fixtures brief shape if present.
-  let brief = (project?.briefs ?? []).find((b) => b.id === params.bid) ?? null;
-  if (brief && !brief.paragraphs) {
-    // meta only — try the fixtures-installed full artifact via a tolerant call
-    try {
-      const full = await tryFixturesBrief(params.bid);
-      if (full) brief = full;
-    } catch { /* stay with meta */ }
+  // The persisted artifact: GET /api/projects/:p/briefs/:bid (fixtures serve
+  // the same shape). 404 → the shelf is empty; other failures → error view.
+  let brief = null;
+  try {
+    brief = await api.brief.get(params.slug, params.bid);
+  } catch (err) {
+    if (err?.status !== 404 && err?.code !== "NOT_FOUND") {
+      column.append(errorView(err));
+      return;
+    }
   }
   if (!brief) {
     column.append(emptyState({
       title: "This brief is not on the shelf.",
-      body: "It may not exist, or the server cannot return stored briefs yet.",
+      body: "It may not exist, or it was generated on another machine and the artifact never synced.",
       actions: [el("a", { class: "btn", href: `#/p/${params.slug}/brief/new` }, "Draft a new brief")],
-    }));
-    return;
-  }
-  if (!brief.paragraphs) {
-    column.append(emptyState({
-      title: "The brief's text is not retrievable.",
-      body: "The project lists this brief, but the server has no route to return its paragraphs yet (GET briefs/:id).",
-      hint: "Regenerating re-streams it.",
-      actions: [el("a", { class: "btn", href: `#/p/${params.slug}/brief/new` }, "Regenerate")],
     }));
     return;
   }
@@ -118,8 +109,8 @@ async function renderStored(column, params, project) {
     title: brief.title ?? "Corpus Brief",
     byline: null,
     humanTouched: brief.humanTouched,
-    sampleN: brief.sampleN,
-    sampleDesign: brief.sampleDesign,
+    sampleN: brief.sampleN ?? brief.sample?.n,
+    sampleDesign: brief.sampleDesign ?? brief.sample?.design,
     date: brief.createdAt,
     model: brief.model,
     costUSD: brief.costUSD,
@@ -132,17 +123,21 @@ async function renderStored(column, params, project) {
   /* -- themes -- */
   if (brief.themes?.length) {
     const themeList = el("ul", { class: "themelist", role: "list" },
-      ...brief.themes.map((t) =>
-        el("li", { class: "theme" },
+      ...brief.themes.map((t) => {
+        const refs = t.refs ?? t.quoteRefs ?? [];
+        return el("li", { class: "theme" },
           el("div", { class: "theme__head" },
             el("span", { class: "theme__name" }, t.label ?? t.name),
-            el("span", { class: "theme__share data" }, fmtPct(t.share, 0), " ", ladder.render({ level: "exploratory", size: "sm" }))),
-          t.refs?.length
+            el("span", { class: "theme__share data" },
+              t.share !== undefined && t.share !== null ? fmtPct(t.share, 0) : "—",
+              " ", ladder.render({ level: "exploratory", size: "sm" }))),
+          refs.length
             ? el("p", { class: "theme__refs" },
                 "anchors: ",
-                ...t.refs.map((id) => refChip(id)))
+                ...refs.map((id) => refChip(id)))
             : null,
-        )),
+        );
+      }),
     );
     const est = brief.exploreEstimate ?? {};
     column.append(section("Candidate themes",
@@ -177,23 +172,10 @@ async function renderStored(column, params, project) {
         ...brief.redFlags.map((f) =>
           el("li", { class: "flag" },
             el("span", { class: "chip chip--signal" }, f.kind),
-            el("span", { class: "flag__note" }, f.note, " ",
+            el("span", { class: "flag__note" }, f.note ?? f.detail, " ",
               ...(f.refs ?? []).map((id) => refChip(id))),
           ))),
     ));
-  }
-}
-
-async function tryFixturesBrief(bid) {
-  // fixtures keep the full artifact at fixtures/brief.json; live servers will
-  // eventually serve GET /briefs/:id. This helper stays harmless either way.
-  try {
-    const res = await fetch("fixtures/brief.json");
-    if (!res.ok) return null;
-    const b = await res.json();
-    return b.id === bid ? b : null;
-  } catch {
-    return null;
   }
 }
 

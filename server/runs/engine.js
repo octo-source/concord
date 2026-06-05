@@ -444,9 +444,18 @@ async function persistRun(slug, run, dir) {
   }, dir);
 }
 
-// executeRun(projectSlug, runId, {onTick?, escalate?, capUSD?, concurrency?})
-// → run. Resumable: pending|paused|aborted|running(stale) all (re)start;
-// complete returns as-is. Exactly-once via the outputs.ndjson done-set.
+// executeRun(projectSlug, runId, {onTick?, shouldStop?, escalate?, capUSD?,
+// concurrency?}) → run. Resumable: pending|paused|aborted|running(stale) all
+// (re)start; complete returns as-is. Exactly-once via the outputs.ndjson
+// done-set.
+//
+// shouldStop() is the external control seam (the routes layer's pause/abort
+// buttons): it is probed at the top of every unit dispatch. Returning
+// "pause" or "abort" stops dispatching; in-flight pool work drains (workers
+// finish their current unit), then the engine itself writes the resumable
+// paused/aborted status and returns the settled run — nothing appends after
+// executeRun resolves. A user abort is NOT ledgered here (the caller owns
+// that human event); only budget-cap aborts ledger system run.aborted.
 export async function executeRun(projectSlug, runId, opts = {}) {
   const dir = opts.dir ?? projectsDir();
   const project = await loadProject(projectSlug, dir);
@@ -533,6 +542,11 @@ async function executeRunInner(project, run, opts) {
 
   await forEachUnit(pending, ctx.concurrency, async (unit) => {
     if (stop.reason) return false;
+    const control = opts.shouldStop?.();
+    if (control === "pause" || control === "abort") {
+      stop.reason = control === "abort" ? "user-abort" : "user-pause";
+      return false;
+    }
     syncCost();
     if (capUSD !== null && run.cost.actualUSD >= capUSD) {
       stop.reason = "aborted";
@@ -588,9 +602,16 @@ async function executeRunInner(project, run, opts) {
     monitor.clearRun(run.id); // failed runs clear their monitor state (see the complete-path note)
     throw stop.error;
   }
-  if (stop.reason === "paused") {
+  if (stop.reason === "paused" || stop.reason === "user-pause") {
     run.status = "paused";
-    run.error = { code: stop.error.code, message: stop.error.message };
+    // infra pauses carry their fault; a user pause is not an error
+    if (stop.error) run.error = { code: stop.error.code, message: stop.error.message };
+    await persistRun(slug, run, dir);
+    return run;
+  }
+  if (stop.reason === "user-abort") {
+    // the caller (routes layer) ledgers the human run.aborted event
+    run.status = "aborted";
     await persistRun(slug, run, dir);
     return run;
   }

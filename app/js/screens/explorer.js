@@ -1,8 +1,18 @@
 // Explorer — #/p/:slug/explore/:runId — what a run found, before anyone
-// claims anything. Theme prevalence bars wearing ◌, Director-flagged
-// cross-tabs with dismissible margin annotations, a co-occurrence heat
-// surface, and the quiet calibration nudge in the footer with its honest
-// price. Every bar and cell is an evidence door.
+// claims anything. Theme prevalence bars wearing ◌, χ²-ranked metadata
+// cross-tabs with honest margin annotations, a co-occurrence heat surface,
+// and the quiet calibration nudge in the footer with its honest price.
+// Every bar and cell is an evidence door.
+//
+// Contract (the descriptive analysis computed over the run — POST analyses
+// {kind: "descriptive", spec: {runId}} → results):
+//   prevalence:       [{label, count, share}]
+//   crosstabs:        [{by, table, flaggedNote?}] — table is the stats-layer
+//                     crosstab {rows, cols, matrix, rowTotals, colTotals, …}
+//   cooccurrence:     {labels, matrix} (only multilabel/panel-flagged runs)
+//   calibrationNudge: {constructName, estUnits, estMinutes}
+// Evidence doors come from the analysis's evidence.cells (label → unit ids);
+// fixture entries may carry per-item evidence arrays directly.
 
 import { el } from "../dom.js";
 import api from "../api.js";
@@ -10,7 +20,7 @@ import * as router from "../router.js";
 import * as bar from "../components/charts/bar.js";
 import * as heat from "../components/charts/heat.js";
 import * as smallmultiples from "../components/charts/smallmultiples.js";
-import { fmtStat, fmtCount } from "../format.js";
+import { fmtStat, fmtCount, fmtPct } from "../format.js";
 import { screenHead, section, asyncMount, ensureProject, annotation, levelUpNudge, emptyState } from "./_shared.js";
 
 export const route = "p/:slug/explore/:runId";
@@ -18,12 +28,12 @@ export const title = "Explorer";
 
 export function render(mount, params) {
   asyncMount(mount, async () => {
-    await ensureProject(params.slug);
-    // Preferred source: a descriptive analysis computed over the run. The
-    // fixtures adapter resolves this from the run's stored explore payload.
+    const project = await ensureProject(params.slug);
     const analysis = await api.analyses.create(params.slug, { kind: "descriptive", spec: { runId: params.runId } });
-    return analysis?.results ?? analysis;
-  }, (explore) => {
+    return { project, analysis };
+  }, ({ project, analysis }) => {
+    const explore = analysis?.results ?? analysis ?? {};
+    const cells = analysis?.evidence?.cells ?? {};
     if (!explore?.prevalence?.length) {
       mount.append(emptyState({
         title: "Nothing to explore yet.",
@@ -32,7 +42,11 @@ export function render(mount, params) {
       }));
       return;
     }
-    const level = explore.level ?? "exploratory";
+    const level = analysis?.level ?? explore.level ?? "exploratory";
+    const doorsFor = (label, own) => {
+      const ids = own?.length ? own : cells[label];
+      return ids?.length ? ids : undefined;
+    };
 
     mount.append(screenHead({
       overline: `Explorer · ${params.runId}`,
@@ -40,56 +54,64 @@ export function render(mount, params) {
       lede: "Exploratory readings — every number wears its mark, and the mark is the door to making it stronger.",
     }));
 
-    /* -- prevalence -- */
+    /* -- prevalence: {label, count, share} -- */
+    const totalLabels = explore.prevalence.reduce((s, p) => s + (p.count ?? 0), 0);
     const prevCell = el("div", {});
     bar.render(prevCell, explore.prevalence.map((p) => ({
       label: p.label,
-      value: p.value,
+      value: p.share,
       level,
-      evidence: p.evidence?.length ? p.evidence : undefined,
+      evidence: doorsFor(p.label, p.evidence),
     })), {
-      caption: `Theme prevalence across the corpus — ${fmtCount(explore.prevalence.reduce((s, p) => s + (p.n ?? 0), 0) || 2439)} labeled units. Click a bar to read its units.`,
-      format: (v) => fmtStat(v),
+      caption: `Theme prevalence — ${fmtCount(totalLabels)} labels across the run. Click a bar to read its units.`,
+      format: (v) => fmtPct(v, 1),
       level,
     });
     mount.append(section("Prevalence", prevCell));
 
-    /* -- Director-flagged cross-tabs -- */
+    /* -- χ²-ranked metadata cross-tabs: {by, table, flaggedNote?} -- */
     if (explore.crosstabs?.length) {
       const xtWrap = el("div", { class: "xtabs" });
       for (const xt of explore.crosstabs) {
+        const t = xt.table ?? {};
+        if (!Array.isArray(t.rows) || !Array.isArray(t.cols) || !Array.isArray(t.matrix)) continue;
         const cell = el("div", { class: "xtab" });
         smallmultiples.render(cell, {
-          items: xt.groups.map((g) => ({
-            title: g.title,
-            data: g.data.map((d) => ({
-              label: d.label, value: d.value, level,
-              evidence: d.evidence?.length ? d.evidence : undefined,
+          items: t.cols.map((col, j) => ({
+            title: String(col),
+            data: t.rows.map((row, i) => ({
+              label: String(row),
+              value: t.colTotals?.[j] ? t.matrix[i][j] / t.colTotals[j] : 0,
+              level,
+              evidence: doorsFor(String(row)),
             })),
           })),
           renderFn: bar.render,
           sharedDomain: true,
-          opts: { format: (v) => fmtStat(v), labelWidth: 76, valueWidth: 52 },
-          caption: xt.title,
+          opts: { format: (v) => fmtPct(v, 0), labelWidth: 76, valueWidth: 52 },
+          caption: `label × ${xt.by} — column shares${typeof t.chi2 === "number" ? ` · χ² ${fmtStat(t.chi2)} (df ${t.df})` : ""}`,
         });
-        if (xt.annotation) {
-          cell.append(annotation({ text: xt.annotation, by: xt.annotatedBy ?? "director" }));
+        if (xt.flaggedNote) {
+          cell.append(annotation({ text: xt.flaggedNote, by: "system" }));
         }
         xtWrap.append(cell);
       }
-      mount.append(section("Worth probing — the Director flagged these", xtWrap));
+      if (xtWrap.children.length) {
+        mount.append(section("Worth probing — the strongest metadata splits", xtWrap));
+      }
     }
 
-    /* -- co-occurrence heat -- */
-    if (explore.cooccurrence) {
+    /* -- co-occurrence heat: {labels, matrix} -- */
+    const co = explore.cooccurrence;
+    if (co?.labels?.length && Array.isArray(co.matrix)) {
       const heatCell = el("div", {});
       heat.render(heatCell, {
-        rows: explore.cooccurrence.rows,
-        cols: explore.cooccurrence.cols,
-        values: explore.cooccurrence.values,
-        evidence: toEvidenceGrid(explore.cooccurrence),
+        rows: co.labels,
+        cols: co.labels,
+        values: co.matrix,
+        evidence: toEvidenceGrid(co),
       }, {
-        caption: "Theme co-occurrence — units mentioning both. Cells with units are doors.",
+        caption: "Theme co-occurrence — units carrying both labels. Cells with units are doors.",
         format: (v) => String(v),
       });
       mount.append(section("Co-occurrence", heatCell));
@@ -98,20 +120,24 @@ export function render(mount, params) {
     /* -- the calibration nudge, quiet, priced -- */
     const nudge = explore.calibrationNudge;
     if (nudge) {
+      const goldsetId = nudge.goldsetId ?? project?.goldsets?.[0]?.id ?? null;
       mount.append(levelUpNudge({
-        construct: nudge.construct,
-        price: nudge.price,
-        onGo: () => router.navigate(`p/${params.slug}/goldsets/${nudge.goldsetId}`),
+        construct: nudge.constructName ?? nudge.construct,
+        price: nudge.estUnits !== undefined
+          ? `~${fmtCount(nudge.estUnits)} units, ~${fmtCount(nudge.estMinutes)} min`
+          : nudge.price,
+        onGo: () => router.navigate(goldsetId ? `p/${params.slug}/goldsets/${goldsetId}` : `p/${params.slug}`),
       }));
     }
   }, "Aggregating the run…");
 }
 
-/* heat.js expects evidence[r][c] arrays; fixtures store a sparse "r,c" map */
+/* heat.js expects evidence[r][c] arrays; fixtures may store a sparse "r,c" map */
 function toEvidenceGrid(co) {
   if (!co.evidence) return undefined;
   if (Array.isArray(co.evidence)) return co.evidence;
-  const grid = co.rows.map(() => co.cols.map(() => []));
+  const k = co.labels.length;
+  const grid = Array.from({ length: k }, () => Array.from({ length: k }, () => []));
   for (const [key, ids] of Object.entries(co.evidence)) {
     const [r, c] = key.split(",").map(Number);
     if (grid[r]?.[c]) grid[r][c] = ids;

@@ -40,16 +40,26 @@ export function render(mount, params) {
     }
 
     /* -- juror×juror matrix -- */
+    // live route: jurorMatrix = {jurors, matrix}; fixtures: top-level jurors
+    // + a bare matrix — read both
+    const jurors = data.jurorMatrix?.jurors ?? data.jurors ?? [];
+    const matrix = Array.isArray(data.jurorMatrix) ? data.jurorMatrix : data.jurorMatrix?.matrix ?? [];
     const matrixCell = el("div", { class: "jurmatrix" });
     heat.render(matrixCell, {
-      rows: data.jurors,
-      cols: data.jurors,
-      values: data.jurorMatrix,
+      rows: jurors,
+      cols: jurors,
+      values: matrix,
     }, {
       caption: "Pairwise raw agreement between jurors — low cells mark the odd one out",
       format: (v) => fmtStat(v),
     });
     mount.append(section("Juror × juror agreement", matrixCell));
+
+    // live route: item.labels = {juror → label}; fixtures: [{juror, label,
+    // confidence?, rationale?}] — normalize to the array form
+    const readsOf = (item) => (Array.isArray(item.labels)
+      ? item.labels
+      : Object.entries(item.labels ?? {}).map(([juror, label]) => ({ juror, label })));
 
     /* -- entropy-ranked list + facing rationales -- */
     const listEl = el("div", { class: "split disagreement-split" });
@@ -60,7 +70,7 @@ export function render(mount, params) {
 
     let activeBtn = null;
     for (const item of data.byEntropy) {
-      const labels = item.labels ?? [];
+      const labels = readsOf(item);
       const btn = el("button", {
         class: "listitem listitem--btn", type: "button",
         onclick: () => {
@@ -83,7 +93,7 @@ export function render(mount, params) {
 
     function drawDetail(item) {
       clear(detail);
-      const labels = item.labels ?? [];
+      const labels = readsOf(item);
 
       const quoteHost = el("div", {});
       api.evidence.get(params.slug, item.unitId)
@@ -122,9 +132,9 @@ export function render(mount, params) {
     }
 
     async function routeToHuman(item) {
-      // Adds the unit to the gold-set sample so a human settles it.
-      // (A dedicated queue route would be cleaner — flagged in the build report;
-      // until then the goldset PUT carries it.)
+      // POST goldsets/:g/queue — the unit joins the sample as {pi: null,
+      // queued: true}: codable and adjudicable, read by agreement, never a
+      // π-weighted DSL gold row. Idempotent per unit.
       try {
         const goldsets = await api.goldsets.list(params.slug);
         const g = goldsets[0];
@@ -132,14 +142,12 @@ export function render(mount, params) {
           toast.warn("No gold set exists yet.", { detail: "create one in the Calibration Studio first" });
           return;
         }
-        if ((g.sample ?? []).some((s) => s.unitId === item.unitId)) {
-          toast.info("Already in the gold sample.", { detail: item.unitId, data: true });
-          return;
+        const res = await api.goldsets.queue(params.slug, g.id, { unitId: item.unitId });
+        if (res?.already) {
+          toast.info("Already in the human queue.", { detail: item.unitId, data: true });
+        } else {
+          toast.success("Routed to the human queue.", { detail: `${item.unitId} → ${g.name ?? g.id} (queued with π = null — never a corrected-estimate row)`, data: true });
         }
-        const pi = g.sample?.[0]?.pi ?? null;
-        const sample = [...(g.sample ?? []), { unitId: item.unitId, pi, queued: true }];
-        await api.goldsets.update(params.slug, g.id, { ...g, sample });
-        toast.success("Routed to the human queue.", { detail: `${item.unitId} → ${g.name ?? g.id} (queued units carry π = null until resampling)`, data: true });
       } catch (err) {
         toast.error("Routing failed.", { detail: String(err.message ?? err) });
       }

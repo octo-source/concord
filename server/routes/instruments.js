@@ -17,6 +17,7 @@ import * as ledger from "../core/ledger.js";
 import { checkBudget } from "../providers/costs.js";
 import * as engineMod from "../runs/engine.js";
 import * as stabilityMod from "../instruments/stability.js";
+import { hits as dictionaryHits } from "../instruments/dictionary.js";
 import { silverTune } from "../director/silver.js";
 import { compileInstrument, seedDictionary } from "../director/compiler.js";
 import { seededSample } from "../director/director.js";
@@ -358,7 +359,16 @@ export default [
       if (found.size === 0) throw new ConcordError("NOT_FOUND", "none of the requested units exist in this project", {});
       const result = await engineMod.runEphemeral(project, instrument, [...found.values()]);
       await addSpend(params.p, result.cost?.actualUSD ?? 0);
-      return { outputs: result.outputs, cost: result.cost, quarantine: result.quarantine, missing: body.unitIds.filter((id) => !found.has(id)) };
+      // dictionary previews carry the term-hit spans the editor highlights:
+      // [{category, term, start, end}] per output (dictionary.hits)
+      let outputs = result.outputs;
+      if (instrument.kind === "dictionary") {
+        outputs = outputs.map((o) => {
+          const unit = found.get(o.unitId);
+          return unit ? { ...o, hits: dictionaryHits(unit, instrument.payload) } : o;
+        });
+      }
+      return { outputs, cost: result.cost, quarantine: result.quarantine, missing: body.unitIds.filter((id) => !found.has(id)) };
     },
   },
 ];

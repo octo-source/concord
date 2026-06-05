@@ -156,6 +156,24 @@ function patch() {
     if (extra) return clone(extra._full);
     return notFound(`project "${slug}"`);
   };
+  apiNs.projects.update = async (slug, body = {}) => {
+    const proj = slug === P.slug ? P : db.extraProjects.find((x) => x.slug === slug)?._full;
+    if (!proj) return notFound(`project "${slug}"`);
+    if (body.privacyMode !== undefined && body.privacyMode !== proj.privacyMode) {
+      const RANK = { open: 0, "no-training": 1, strict: 2 };
+      if (RANK[body.privacyMode] < RANK[proj.privacyMode] && body.confirmDowngrade !== true) {
+        throw new apiNs.ApiError("VALIDATION",
+          `changing privacy mode from "${proj.privacyMode}" to "${body.privacyMode}" weakens this project's privacy guarantees — repeat the request with {confirmDowngrade: true} to proceed`,
+          { status: 400 });
+      }
+      proj.privacyMode = body.privacyMode;
+    }
+    if (body.budget !== undefined) {
+      proj.budget = proj.budget ?? { capUSD: null, spentUSD: 0 };
+      if ("capUSD" in body.budget) proj.budget.capUSD = body.budget.capUSD;
+    }
+    return slug === P.slug ? projectGraph() : clone(proj);
+  };
 
   /* -- import -- */
   apiNs.imports.upload = async (p, file) => {
@@ -186,7 +204,9 @@ function patch() {
     return clone(db.instantread);
   };
 
-  /* -- brief (SSE) -- */
+  /* -- brief (artifact + SSE) -- */
+  apiNs.brief.get = async (p, bid) =>
+    (bid === db.brief.id ? clone(db.brief) : notFound(`brief "${bid}"`));
   apiNs.brief.generate = (p, corpusId, handlers = {}) =>
     replaySse(db.brief.paragraphs.map((para) => ({ event: "para", data: clone(para) })), {
       gap: 550, jitter: 450,
@@ -428,6 +448,38 @@ function patch() {
     const open = (g.disagreements ?? []).filter((x) => !x.resolved).length;
     if (open === 0 && g.coders.every((c) => c.finishedAt)) g.status = "complete";
     return { status: g.status, open };
+  };
+  apiNs.goldsets.queue = async (p, id, { unitId } = {}) => {
+    const g = gsList().find((x) => x.id === id);
+    if (!g) return notFound(`gold set "${id}"`);
+    g.sample = g.sample ?? [];
+    const already = g.sample.some((s) => s.unitId === unitId);
+    if (!already) g.sample.push({ unitId, pi: null, queued: true });
+    const meta = P.goldsets.find((x) => x.id === id);
+    if (meta) meta.n = g.sample.length;
+    return { goldsetId: id, unitId, queued: true, n: g.sample.length, ...(already ? { already: true } : {}) };
+  };
+  apiNs.goldsets.coderSession = async (p, id, coderId) => {
+    // a fake same-process listener: a plausible URL, a stable port
+    await sleep(350);
+    db.coderSessions = db.coderSessions ?? new Map();
+    const key = `${id}|${coderId}`;
+    const existing = db.coderSessions.get(key);
+    if (existing) return { ...existing, existing: true };
+    const session = { url: `http://127.0.0.1:${7400 + db.coderSessions.size}`, port: 7400 + db.coderSessions.size, coderId };
+    db.coderSessions.set(key, session);
+    return { ...session };
+  };
+  apiNs.goldsets.endCoderSession = async (p, id, coderId) => {
+    db.coderSessions = db.coderSessions ?? new Map();
+    let closed = 0;
+    for (const key of [...db.coderSessions.keys()]) {
+      if (key.startsWith(`${id}|`) && (!coderId || key === `${id}|${coderId}`)) {
+        db.coderSessions.delete(key);
+        closed++;
+      }
+    }
+    return { closed };
   };
 
   /* -- runs -- */

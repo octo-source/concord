@@ -150,6 +150,13 @@ export async function readGoldset(slug, goldsetId) {
 }
 
 // adjudicated-or-consensus gold labels: Map unitId → label.
+//
+// NOTE on human-queue rows: the goldsets queue route appends sample rows of
+// the form {unitId, pi: null, queued: true}. Their labels DO appear here —
+// plain agreement needs no π — but they must NEVER become DSL gold rows
+// (π-weighted estimators throw on y-without-pi). The filter lives at the one
+// correction assembly point: routes/analyses.js goldFor, which drops every
+// unit whose piMap value is not a finite number.
 export function goldLabelMap(goldset) {
   const out = new Map();
   const sampleIds = (goldset.sample ?? []).map((s) => s.unitId);

@@ -10,13 +10,15 @@ import { ConcordError } from "../core/errors.js";
 import { createAnalysis } from "../core/objects.js";
 import { loadProject, updateProject } from "../core/store.js";
 import * as ledger from "../core/ledger.js";
-import { crosstab } from "../stats/descriptives.js";
+import { crosstab, cooccurrence } from "../stats/descriptives.js";
+import { detect } from "../ingest/mapping.js";
 import { dslProportion, dslDiff, dslOLS, dslLogit } from "../stats/correction.js";
 import { ols, logit } from "../stats/models.js";
 import { cohenKappa } from "../stats/agreement.js";
 import {
   findOr404, requireBody, pdirOf, readCorpusUnits, readGoldset, goldLabelMap, piMap,
   readFinalOutputs, writeJsonAtomic, labelKey, statValue, round6,
+  readNdjson, runOutputsFile,
 } from "./_shared.js";
 import path from "node:path";
 
@@ -61,6 +63,18 @@ async function goldFor(project, constructId) {
   const gs = await readGoldset(project.slug, meta.id);
   const labels = goldLabelMap(gs);
   const pis = piMap(gs);
+  // CRITICAL INVARIANT: human-queue rows ({pi: null, queued: true} — written
+  // by POST goldsets/:g/queue) are NOT design-sampled. They may carry
+  // adjudicated labels for AGREEMENT reading (plain agreement needs no π),
+  // but they must never become DSL gold rows: the π-weighted estimators
+  // throw on y-without-pi. This is the single assembly point for correction
+  // gold, so the filter lives here.
+  for (const [unitId, pi] of pis) {
+    if (typeof pi !== "number" || !Number.isFinite(pi)) {
+      pis.delete(unitId);
+      labels.delete(unitId);
+    }
+  }
   if (labels.size === 0 || pis.size === 0) return null;
   return { goldset: gs, labels, pis };
 }
@@ -97,6 +111,98 @@ function cellPush(cells, key, unitId) {
   let arr = cells[key];
   if (!arr) cells[key] = arr = [];
   if (arr.length < EVIDENCE_CAP) arr.push(unitId);
+}
+
+// ----------------------------------------------------- the Explorer contract
+
+// H2's Explorer reads a descriptive analysis computed over a specific run.
+// When the REQUEST carries spec.runId, the descriptive results additionally
+// carry the screen-ready surfaces, exactly this shape:
+//   prevalence:       [{label, count, share}] from aggregate-or-single finals
+//                     (multilabel verdicts count each label)
+//   crosstabs:        [{by, table, flaggedNote?}] — the top 2 categorical-ish
+//                     metadata splits, ranked by χ²; flaggedNote carries the
+//                     min-expected honesty warning when the χ² approximation
+//                     is shaky
+//   cooccurrence:     {labels, matrix} — ONLY where labels genuinely co-occur
+//                     (multilabel verdicts, or a panel's flagged no-consensus
+//                     units read through their juror labels); omitted otherwise
+//   calibrationNudge: {constructName, estUnits, estMinutes} — the first
+//                     instrument still below calibrated points at its
+//                     construct; omitted when everything is calibrated
+const NUDGE_EST = { estUnits: 150, estMinutes: 35 };
+
+async function explorerResults(project, run, instrument, construct, rows) {
+  const out = {};
+  const n = rows.length;
+  const multilabel = construct?.type === "multilabel" || rows.some((r) => Array.isArray(r.label));
+
+  // -- prevalence
+  const counts = new Map();
+  for (const r of rows) {
+    for (const l of Array.isArray(r.label) ? r.label : [r.label]) {
+      const k = String(l);
+      counts.set(k, (counts.get(k) ?? 0) + 1);
+    }
+  }
+  out.prevalence = [...counts.entries()]
+    .sort((a, b) => b[1] - a[1] || (a[0] < b[0] ? -1 : 1))
+    .map(([label, count]) => ({ label, count, share: round6(count / n) }));
+
+  // -- top-2 metadata crosstabs ranked by χ² (categorical columns plus
+  //    low-cardinality numerics; id/text/date columns never crosstab)
+  const { columns } = detect(rows.map((r) => r.meta ?? {}));
+  const keys = columns
+    .filter((c) => c.role === "categorical" || (c.role === "numeric" && c.stats.distinct <= 12))
+    .map((c) => c.name);
+  const tabs = [];
+  for (const by of keys) {
+    const flat = rows.map((r) => ({
+      label: Array.isArray(r.label) ? JSON.stringify(r.label) : r.label,
+      [by]: r.meta?.[by],
+    }));
+    let table;
+    try {
+      table = crosstab(flat, "label", by);
+    } catch {
+      continue; // a degenerate split is not worth probing
+    }
+    const xt = { by, table };
+    if (typeof table.minExpected === "number" && table.minExpected < 5) {
+      xt.flaggedNote = `smallest expected cell count is ${Math.round(table.minExpected * 100) / 100} (< 5) — the chi-square approximation is unreliable on this split`;
+    }
+    tabs.push(xt);
+  }
+  tabs.sort((a, b) => (b.table.chi2 ?? -Infinity) - (a.table.chi2 ?? -Infinity));
+  out.crosstabs = tabs.slice(0, 2);
+
+  // -- co-occurrence
+  if (multilabel) {
+    const sets = rows.map((r) => (Array.isArray(r.label) ? r.label.map(String) : [String(r.label)]));
+    out.cooccurrence = cooccurrence(sets);
+  } else if (instrument.kind === "panel") {
+    // flagged (no-consensus) units: the juror labels that split co-occur
+    const lines = await readNdjson(runOutputsFile(project.slug, run.id)).catch(() => []);
+    const flagged = new Set(lines.filter((l) => l.juror === "aggregate" && l.flagged).map((l) => l.unitId));
+    if (flagged.size > 0) {
+      const byUnit = new Map();
+      for (const l of lines) {
+        if (!flagged.has(l.unitId) || l.juror === "aggregate" || l.label === undefined) continue;
+        let s = byUnit.get(l.unitId);
+        if (!s) byUnit.set(l.unitId, (s = new Set()));
+        s.add(String(l.label));
+      }
+      if (byUnit.size > 0) out.cooccurrence = cooccurrence([...byUnit.values()].map((s) => [...s]));
+    }
+  }
+
+  // -- the quiet calibration nudge, priced
+  const next = (project.instruments ?? []).find((i) => i.level !== "calibrated");
+  if (next) {
+    const k = (project.constructs ?? []).find((c) => c.id === next.constructId);
+    out.calibrationNudge = { constructName: k?.name ?? next.constructId, ...NUDGE_EST };
+  }
+  return out;
 }
 
 // ------------------------------------------------------------- kinds
@@ -384,6 +490,9 @@ export default [
       const body = requireBody(req, ["kind", "spec"]);
       const { kind } = body;
       const spec = { ...body.spec };
+      // the Explorer contract triggers on the REQUEST naming a run — a spec
+      // that only names instrument/corpus is the plain descriptive path
+      const wantExplorer = kind === "descriptive" && Boolean(body.spec?.runId);
 
       let computed;
       let level;
@@ -407,8 +516,12 @@ export default [
         const gold = await goldFor(project, instrument.constructId);
         if (gold) spec.goldsetId = gold.goldset.id;
 
-        if (kind === "descriptive") computed = computeDescriptive(rows, gold, spec, construct);
-        else if (kind === "crosstab") computed = computeCrosstab(rows, gold, spec, construct);
+        if (kind === "descriptive") {
+          computed = computeDescriptive(rows, gold, spec, construct);
+          if (wantExplorer) {
+            Object.assign(computed.results, await explorerResults(project, run, instrument, construct, rows));
+          }
+        } else if (kind === "crosstab") computed = computeCrosstab(rows, gold, spec, construct);
         else if (kind === "model") computed = computeModel(rows, gold, spec, construct);
         else if (kind === "subgroup") computed = computeSubgroup(rows, gold, spec, construct);
         else throw new ConcordError("VALIDATION", `unknown analysis kind "${kind}"`, { kind });

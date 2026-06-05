@@ -3,11 +3,11 @@
 // drift tripwire armed on calibrated instruments), live monitor (SSE),
 // pause/resume/abort, escalation queue, and the disagreement view.
 //
-// Pause/abort adaptation: the engine has no external stop hook, so the route
-// layer raises a control sentinel from its own onTick callback. The engine
-// propagates it; the catch below settles the run record to paused/aborted
-// after a short drain (in-flight workers finish their current unit; resume is
-// exactly-once off the outputs done-set regardless).
+// Pause/abort ride the engine's shouldStop hook: the route flips a per-run
+// control flag ("pause"|"abort"); the engine probes it at every unit
+// dispatch, drains in-flight pool work, writes the resumable status itself
+// and settles. The route answers only after the run's promise settles, so
+// the status it reports is the status on disk.
 import { ConcordError } from "../core/errors.js";
 import { sse } from "../router.js";
 import { loadProject, updateProject } from "../core/store.js";
@@ -25,8 +25,6 @@ import {
   writeJsonAtomic,
 } from "./_shared.js";
 import path from "node:path";
-
-const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 
 // The engine persists runs in project.runs (the Wave-1 amendment), but the
 // reporting modules (methods.loadRun, replication outputs members) read
@@ -91,7 +89,8 @@ async function estimateInstrument(project, instrument, units) {
 
 // ------------------------------------------------------------ live registry
 
-// runId → {paused, abortRequested, subs:Set<{tick,done}>, last, terminal, promise}
+// runId → {control: null|"pause"|"abort", subs:Set<{tick,done}>, last,
+// terminal, promise}. `control` is what the engine's shouldStop hook reads.
 const live = new Map();
 
 function armDrift(project, instrument, runId) {
@@ -110,8 +109,7 @@ function armDrift(project, instrument, runId) {
 
 function startExecution(slug, runId, { escalate } = {}) {
   const st = {
-    paused: false,
-    abortRequested: false,
+    control: null, // null | "pause" | "abort" — read by the engine's shouldStop hook
     subs: new Set(),
     last: null,
     terminal: null,
@@ -130,11 +128,13 @@ function startExecution(slug, runId, { escalate } = {}) {
 
     let outcome;
     try {
+      // pause/abort land through shouldStop: the engine stops dispatching,
+      // drains in-flight pool work and writes the resumable status itself —
+      // by the time this resolves, the status is already on disk
       const run = await engineMod.executeRun(slug, runId, {
         ...(escalate ? { escalate } : {}),
+        shouldStop: () => st.control,
         onTick: (s) => {
-          if (st.abortRequested) throw new ConcordError("RUN_CONTROL_ABORT", "run aborted by user");
-          if (st.paused) throw new ConcordError("RUN_CONTROL_PAUSE", "run paused by user");
           st.last = s;
           for (const sub of st.subs) {
             try { sub.tick(s); } catch { /* subscriber gone */ }
@@ -143,20 +143,7 @@ function startExecution(slug, runId, { escalate } = {}) {
       });
       outcome = { status: run.status };
     } catch (err) {
-      if (err?.code === "RUN_CONTROL_PAUSE" || err?.code === "RUN_CONTROL_ABORT") {
-        const aborted = err.code === "RUN_CONTROL_ABORT";
-        await sleep(250); // drain: in-flight workers finish their unit + final checkpoint
-        await updateProject(slug, (p) => {
-          const r = (p.runs ?? []).find((x) => x.id === runId);
-          if (r && r.status !== "complete") r.status = aborted ? "aborted" : "paused";
-        }).catch(() => {});
-        if (aborted) {
-          await ledger.append(pdirOf(slug), "human", "run.aborted", { runId }, { by: "human" }).catch(() => {});
-        }
-        outcome = { status: aborted ? "aborted" : "paused" };
-      } else {
-        outcome = { status: "failed", error: { code: err?.code ?? "INTERNAL", message: err?.message ?? String(err) } };
-      }
+      outcome = { status: "failed", error: { code: err?.code ?? "INTERNAL", message: err?.message ?? String(err) } };
     }
 
     // cost roll-up: this execution's run-cost delta plus any Director
@@ -331,9 +318,11 @@ export default [
       const run = findOr404(project.runs, params.r, "run");
       const st = live.get(params.r);
       if (st && !st.terminal) {
-        st.paused = true;
-        await st.promise.catch(() => {}); // settle: status lands on disk before we answer
-        return { runId: params.r, status: "paused" };
+        st.control = "pause";
+        // settle: the engine drains and writes the status before we answer;
+        // a run that finished before noticing reports its true status
+        const outcome = await st.promise.catch(() => null);
+        return { runId: params.r, status: outcome?.status ?? "paused" };
       }
       if (run.status === "paused") return { runId: params.r, status: "paused" };
       throw new ConcordError("VALIDATION", `run '${params.r}' is not executing (status: ${run.status})`, { status: run.status });
@@ -352,9 +341,13 @@ export default [
       const run = findOr404(project.runs, params.r, "run");
       const st = live.get(params.r);
       if (st && !st.terminal) {
-        st.abortRequested = true;
-        await st.promise.catch(() => {});
-        return { runId: params.r, status: "aborted" };
+        st.control = "abort";
+        const outcome = await st.promise.catch(() => null);
+        if (outcome?.status === "aborted") {
+          // the engine wrote the status; the human event is the route's to ledger
+          await ledger.append(pdirOf(params.p), "human", "run.aborted", { runId: params.r }, { by: "human" }).catch(() => {});
+        }
+        return { runId: params.r, status: outcome?.status ?? "aborted" };
       }
       if (run.status === "complete") {
         throw new ConcordError("VALIDATION", "run is already complete", { runId: params.r });

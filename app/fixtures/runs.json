@@ -7,17 +7,37 @@
       "level": "exploratory",
       "corpusId": "corp_exit2025",
       "status": "complete",
-      "checkpoint": { "done": 2500, "total": 2500 },
-      "cost": { "estUSD": 4.1, "actualUSD": 3.86, "inputTokens": 4012400, "outputTokens": 612800 },
-      "escalation": { "count": 37, "directorModel": "claude-sonnet-4-5" },
-      "quarantine": ["u_84d5f1b7e0c3a926"],
+      "checkpoint": {
+        "done": 2500,
+        "total": 2500
+      },
+      "cost": {
+        "estUSD": 4.1,
+        "actualUSD": 3.86,
+        "inputTokens": 4012400,
+        "outputTokens": 612800
+      },
+      "escalation": {
+        "count": 37,
+        "directorModel": "claude-sonnet-4-5"
+      },
+      "quarantine": [
+        "u_84d5f1b7e0c3a926"
+      ],
       "startedAt": "2026-06-04T10:02:00Z",
       "finishedAt": "2026-06-04T11:21:00Z",
       "provider": "mixed (3 jurors)",
       "model": "claude-haiku-4-5 + gpt-5-mini + qwen2.5:7b",
       "snapshot": "pinned",
       "pinned": true,
-      "labelDist": { "pay": 705, "management": 528, "workload-burnout": 633, "growth": 415, "remote-policy": 292, "other": 427 },
+      "labelDist": {
+        "pay": 705,
+        "management": 528,
+        "workload-burnout": 633,
+        "growth": 415,
+        "remote-policy": 292,
+        "other": 427
+      },
       "warnings": []
     },
     {
@@ -27,9 +47,20 @@
       "level": "stabilized",
       "corpusId": "corp_exit2025",
       "status": "pending",
-      "checkpoint": { "done": 0, "total": 2500 },
-      "cost": { "estUSD": 1.42, "actualUSD": 0, "inputTokens": 0, "outputTokens": 0 },
-      "escalation": { "count": 0, "directorModel": "claude-sonnet-4-5" },
+      "checkpoint": {
+        "done": 0,
+        "total": 2500
+      },
+      "cost": {
+        "estUSD": 1.42,
+        "actualUSD": 0,
+        "inputTokens": 0,
+        "outputTokens": 0
+      },
+      "escalation": {
+        "count": 0,
+        "directorModel": "claude-sonnet-4-5"
+      },
       "quarantine": [],
       "startedAt": null,
       "finishedAt": null,
@@ -43,58 +74,262 @@
   ],
   "preflight": {
     "inst_judge_s": {
-      "units": 2439, "unitsNote": "2,500 minus 61 junk-queued",
-      "callsPerUnit": 1, "calls": 2439,
-      "tokens": { "input": 1956000, "output": 290000 },
-      "estUSD": 1.42, "estRange": [1.21, 1.63],
+      "units": 2439,
+      "unitsNote": "2,500 minus 61 junk-queued",
+      "callsPerUnit": 1,
+      "calls": 2439,
+      "tokens": {
+        "input": 1956000,
+        "output": 290000
+      },
+      "estUSD": 1.42,
+      "estRange": [
+        1.21,
+        1.63
+      ],
       "etaMin": 38,
-      "privacyOk": true, "privacyNote": "no-training mode — anthropic is on the allowlist",
-      "budget": { "capUSD": 25, "spentUSD": 4.87, "remainingUSD": 20.13 },
+      "privacyOk": true,
+      "privacyNote": "no-training mode — anthropic is on the allowlist",
+      "budget": {
+        "capUSD": 25,
+        "spentUSD": 4.87,
+        "remainingUSD": 20.13
+      },
       "cacheNote": "0 cached responses apply (new instrument version)"
     },
     "inst_panel": {
-      "units": 2439, "callsPerUnit": 3, "calls": 7317,
-      "tokens": { "input": 5868000, "output": 870000 },
-      "estUSD": 4.1, "estRange": [3.49, 4.72],
+      "units": 2439,
+      "callsPerUnit": 3,
+      "calls": 7317,
+      "tokens": {
+        "input": 5868000,
+        "output": 870000
+      },
+      "estUSD": 4.1,
+      "estRange": [
+        3.49,
+        4.72
+      ],
       "etaMin": 74,
-      "privacyOk": true, "privacyNote": "no-training mode — ollama juror runs locally; anthropic + openai on the allowlist",
-      "budget": { "capUSD": 25, "spentUSD": 4.87, "remainingUSD": 20.13 },
+      "privacyOk": true,
+      "privacyNote": "no-training mode — ollama juror runs locally; anthropic + openai on the allowlist",
+      "budget": {
+        "capUSD": 25,
+        "spentUSD": 4.87,
+        "remainingUSD": 20.13
+      },
       "cacheNote": "2,500 cached responses apply from run_panel_full — re-runs never pay twice"
     },
     "inst_judge_f": {
-      "units": 2439, "callsPerUnit": 1, "calls": 2439,
-      "tokens": { "input": 2010000, "output": 300000 },
-      "estUSD": 1.48, "estRange": [1.26, 1.7],
+      "units": 2439,
+      "callsPerUnit": 1,
+      "calls": 2439,
+      "tokens": {
+        "input": 2010000,
+        "output": 300000
+      },
+      "estUSD": 1.48,
+      "estRange": [
+        1.26,
+        1.7
+      ],
       "etaMin": 39,
-      "privacyOk": true, "privacyNote": "no-training mode — anthropic is on the allowlist",
-      "budget": { "capUSD": 25, "spentUSD": 4.87, "remainingUSD": 20.13 },
+      "privacyOk": true,
+      "privacyNote": "no-training mode — anthropic is on the allowlist",
+      "budget": {
+        "capUSD": 25,
+        "spentUSD": 4.87,
+        "remainingUSD": 20.13
+      },
       "cacheNote": "0 cached responses apply"
     },
     "inst_dict": {
-      "units": 2439, "callsPerUnit": 0, "calls": 0,
-      "tokens": { "input": 0, "output": 0 },
-      "estUSD": 0, "estRange": [0, 0],
+      "units": 2439,
+      "callsPerUnit": 0,
+      "calls": 0,
+      "tokens": {
+        "input": 0,
+        "output": 0
+      },
+      "estUSD": 0,
+      "estRange": [
+        0,
+        0
+      ],
       "etaMin": 1,
-      "privacyOk": true, "privacyNote": "dictionaries run locally — nothing leaves this machine",
-      "budget": { "capUSD": 25, "spentUSD": 4.87, "remainingUSD": 20.13 },
+      "privacyOk": true,
+      "privacyNote": "dictionaries run locally — nothing leaves this machine",
+      "budget": {
+        "capUSD": 25,
+        "spentUSD": 4.87,
+        "remainingUSD": 20.13
+      },
       "cacheNote": "local scoring, free"
     }
   },
   "monitorScript": {
     "note": "fixtures replay: ticks every ~400ms; labelDist accumulates; two warnings appear mid-run",
     "ticks": [
-      { "done": 122, "total": 2439, "costUSD": 0.07, "labelDist": { "pay": 38, "management": 25, "workload-burnout": 31, "growth": 14, "remote-policy": 8, "other": 6 }, "warnings": [], "escalations": 1 },
-      { "done": 304, "total": 2439, "costUSD": 0.18, "labelDist": { "pay": 92, "management": 64, "workload-burnout": 79, "growth": 38, "remote-policy": 19, "other": 12 }, "warnings": [], "escalations": 3 },
-      { "done": 511, "total": 2439, "costUSD": 0.3, "labelDist": { "pay": 151, "management": 109, "workload-burnout": 131, "growth": 67, "remote-policy": 34, "other": 19 }, "warnings": [], "escalations": 5 },
-      { "done": 745, "total": 2439, "costUSD": 0.44, "labelDist": { "pay": 218, "management": 158, "workload-burnout": 192, "growth": 99, "remote-policy": 49, "other": 29 }, "warnings": ["12 outputs needed schema repair in the last 200 calls — watching."], "escalations": 9 },
-      { "done": 1002, "total": 2439, "costUSD": 0.59, "labelDist": { "pay": 290, "management": 214, "workload-burnout": 259, "growth": 134, "remote-policy": 66, "other": 39 }, "warnings": [], "escalations": 12 },
-      { "done": 1290, "total": 2439, "costUSD": 0.76, "labelDist": { "pay": 372, "management": 277, "workload-burnout": 332, "growth": 173, "remote-policy": 85, "other": 51 }, "warnings": [], "escalations": 15 },
-      { "done": 1604, "total": 2439, "costUSD": 0.94, "labelDist": { "pay": 461, "management": 345, "workload-burnout": 414, "growth": 215, "remote-policy": 106, "other": 63 }, "warnings": ["Drift tripwire: agreement on 20 re-run gold units is 0.06 below certificate — inside tolerance."], "escalations": 19 },
-      { "done": 1933, "total": 2439, "costUSD": 1.13, "labelDist": { "pay": 556, "management": 416, "workload-burnout": 499, "growth": 259, "remote-policy": 128, "other": 75 }, "warnings": [], "escalations": 24 },
-      { "done": 2241, "total": 2439, "costUSD": 1.31, "labelDist": { "pay": 645, "management": 482, "workload-burnout": 578, "growth": 300, "remote-policy": 148, "other": 88 }, "warnings": [], "escalations": 27 },
-      { "done": 2439, "total": 2439, "costUSD": 1.42, "labelDist": { "pay": 702, "management": 525, "workload-burnout": 629, "growth": 327, "remote-policy": 161, "other": 95 }, "warnings": [], "escalations": 29 }
+      {
+        "done": 122,
+        "total": 2439,
+        "costUSD": 0.07,
+        "labelDist": {
+          "pay": 38,
+          "management": 25,
+          "workload-burnout": 31,
+          "growth": 14,
+          "remote-policy": 8,
+          "other": 6
+        },
+        "warnings": [],
+        "escalations": 1
+      },
+      {
+        "done": 304,
+        "total": 2439,
+        "costUSD": 0.18,
+        "labelDist": {
+          "pay": 92,
+          "management": 64,
+          "workload-burnout": 79,
+          "growth": 38,
+          "remote-policy": 19,
+          "other": 12
+        },
+        "warnings": [],
+        "escalations": 3
+      },
+      {
+        "done": 511,
+        "total": 2439,
+        "costUSD": 0.3,
+        "labelDist": {
+          "pay": 151,
+          "management": 109,
+          "workload-burnout": 131,
+          "growth": 67,
+          "remote-policy": 34,
+          "other": 19
+        },
+        "warnings": [],
+        "escalations": 5
+      },
+      {
+        "done": 745,
+        "total": 2439,
+        "costUSD": 0.44,
+        "labelDist": {
+          "pay": 218,
+          "management": 158,
+          "workload-burnout": 192,
+          "growth": 99,
+          "remote-policy": 49,
+          "other": 29
+        },
+        "warnings": [
+          "12 outputs needed schema repair in the last 200 calls — watching."
+        ],
+        "escalations": 9
+      },
+      {
+        "done": 1002,
+        "total": 2439,
+        "costUSD": 0.59,
+        "labelDist": {
+          "pay": 290,
+          "management": 214,
+          "workload-burnout": 259,
+          "growth": 134,
+          "remote-policy": 66,
+          "other": 39
+        },
+        "warnings": [],
+        "escalations": 12
+      },
+      {
+        "done": 1290,
+        "total": 2439,
+        "costUSD": 0.76,
+        "labelDist": {
+          "pay": 372,
+          "management": 277,
+          "workload-burnout": 332,
+          "growth": 173,
+          "remote-policy": 85,
+          "other": 51
+        },
+        "warnings": [],
+        "escalations": 15
+      },
+      {
+        "done": 1604,
+        "total": 2439,
+        "costUSD": 0.94,
+        "labelDist": {
+          "pay": 461,
+          "management": 345,
+          "workload-burnout": 414,
+          "growth": 215,
+          "remote-policy": 106,
+          "other": 63
+        },
+        "warnings": [
+          "Drift tripwire: agreement on 20 re-run gold units is 0.06 below certificate — inside tolerance."
+        ],
+        "escalations": 19
+      },
+      {
+        "done": 1933,
+        "total": 2439,
+        "costUSD": 1.13,
+        "labelDist": {
+          "pay": 556,
+          "management": 416,
+          "workload-burnout": 499,
+          "growth": 259,
+          "remote-policy": 128,
+          "other": 75
+        },
+        "warnings": [],
+        "escalations": 24
+      },
+      {
+        "done": 2241,
+        "total": 2439,
+        "costUSD": 1.31,
+        "labelDist": {
+          "pay": 645,
+          "management": 482,
+          "workload-burnout": 578,
+          "growth": 300,
+          "remote-policy": 148,
+          "other": 88
+        },
+        "warnings": [],
+        "escalations": 27
+      },
+      {
+        "done": 2439,
+        "total": 2439,
+        "costUSD": 1.42,
+        "labelDist": {
+          "pay": 702,
+          "management": 525,
+          "workload-burnout": 629,
+          "growth": 327,
+          "remote-policy": 161,
+          "other": 95
+        },
+        "warnings": [],
+        "escalations": 29
+      }
     ],
-    "done": { "runId": "run_judge_live", "status": "complete", "costUSD": 1.42 }
+    "done": {
+      "runId": "run_judge_live",
+      "status": "complete",
+      "costUSD": 1.42
+    }
   },
   "escalations": {
     "run_panel_full": [
@@ -105,7 +340,10 @@
         "confidence": 0.41,
         "rationale": "Surface reading is positive about workload; low confidence because the tone may be ironic.",
         "escalated": true,
-        "director": { "label": "workload-burnout", "rationale": "Sarcasm: 'totally reasonable' + 'eighty-hour weeks build character' inverts the surface claim. The decisive grievance is unsustainable hours." }
+        "director": {
+          "label": "workload-burnout",
+          "rationale": "Sarcasm: 'totally reasonable' + 'eighty-hour weeks build character' inverts the surface claim. The decisive grievance is unsustainable hours."
+        }
       },
       {
         "unitId": "u_92c8b4f6a1e7d503",
@@ -114,7 +352,10 @@
         "confidence": 0.52,
         "rationale": "Mentions a counteroffer arriving late, which is compensation-adjacent.",
         "escalated": true,
-        "director": { "label": "other", "rationale": "The respondent regrets leaving and faults timing, not pay level. Codebook: themes mentioned only as context are not decisive. Worth an edge-case note." }
+        "director": {
+          "label": "other",
+          "rationale": "The respondent regrets leaving and faults timing, not pay level. Codebook: themes mentioned only as context are not decisive. Worth an edge-case note."
+        }
       },
       {
         "unitId": "u_d94a7c1e5b28f063",
@@ -123,7 +364,10 @@
         "confidence": 0.44,
         "rationale": "Mentions best work of career, possibly indicating growth orientation.",
         "escalated": true,
-        "director": { "label": "workload-burnout", "rationale": "'The pace was not survivable… the second one wins' frames pace as decisive. Growth is not mentioned; the juror over-read 'best of my career'." }
+        "director": {
+          "label": "workload-burnout",
+          "rationale": "'The pace was not survivable… the second one wins' frames pace as decisive. Growth is not mentioned; the juror over-read 'best of my career'."
+        }
       },
       {
         "unitId": "u_30e6c2f8b9a4d157",
@@ -132,27 +376,61 @@
         "confidence": 0.58,
         "rationale": "RTO policy critique, in Spanish; confidence reduced by language mix.",
         "escalated": true,
-        "director": { "label": "remote-policy", "rationale": "Agree. 'La política de regreso a la oficina no consideró a los equipos de LATAM' is a direct remote-policy grievance. Escalation was confidence-triggered only." }
+        "director": {
+          "label": "remote-policy",
+          "rationale": "Agree. 'La política de regreso a la oficina no consideró a los equipos de LATAM' is a direct remote-policy grievance. Escalation was confidence-triggered only."
+        }
       }
     ]
   },
   "disagreement": {
     "run_panel_full": {
-      "jurors": ["claude-haiku·9f2e", "gpt-mini·2c81", "qwen-7b·loc4"],
+      "jurors": [
+        "claude-haiku·9f2e",
+        "gpt-mini·2c81",
+        "qwen-7b·loc4"
+      ],
       "jurorMatrix": [
-        [1.0, 0.81, 0.77],
-        [0.81, 1.0, 0.74],
-        [0.77, 0.74, 1.0]
+        [
+          1,
+          0.81,
+          0.77
+        ],
+        [
+          0.81,
+          1,
+          0.74
+        ],
+        [
+          0.77,
+          0.74,
+          1
+        ]
       ],
       "byEntropy": [
         {
           "unitId": "u_2847f1a09c3d55b2",
-          "entropy": 1.0,
+          "entropy": 1,
           "humanContext": "humans split here too — construct ambiguity",
           "labels": [
-            { "juror": "claude-haiku·9f2e", "label": "management", "confidence": 0.84, "rationale": "The pivotal clause is 'watching every good manager leave while the broken processes stayed' — leadership stewardship. Pay is explicitly discounted." },
-            { "juror": "gpt-mini·2c81", "label": "workload-burnout", "confidence": 0.61, "rationale": "'Doing two jobs and interviewing for a third' describes unsustainable load at exit; the manager mention reads as context." },
-            { "juror": "qwen-7b·loc4", "label": "growth", "confidence": 0.42, "rationale": "Staying 'three years longer than I should have' implies stalled progression." }
+            {
+              "juror": "claude-haiku·9f2e",
+              "label": "management",
+              "confidence": 0.84,
+              "rationale": "The pivotal clause is 'watching every good manager leave while the broken processes stayed' — leadership stewardship. Pay is explicitly discounted."
+            },
+            {
+              "juror": "gpt-mini·2c81",
+              "label": "workload-burnout",
+              "confidence": 0.61,
+              "rationale": "'Doing two jobs and interviewing for a third' describes unsustainable load at exit; the manager mention reads as context."
+            },
+            {
+              "juror": "qwen-7b·loc4",
+              "label": "growth",
+              "confidence": 0.42,
+              "rationale": "Staying 'three years longer than I should have' implies stalled progression."
+            }
           ]
         },
         {
@@ -160,9 +438,24 @@
           "entropy": 0.92,
           "humanContext": "humans split here too — construct ambiguity",
           "labels": [
-            { "juror": "claude-haiku·9f2e", "label": "other", "confidence": 0.55, "rationale": "Quit-regret with a process complaint; no decisive grievance against the org's conditions." },
-            { "juror": "gpt-mini·2c81", "label": "pay", "confidence": 0.52, "rationale": "Counteroffer timing is a compensation-process failure." },
-            { "juror": "qwen-7b·loc4", "label": "other", "confidence": 0.47, "rationale": "Expresses regret about leaving; no clear theme." }
+            {
+              "juror": "claude-haiku·9f2e",
+              "label": "other",
+              "confidence": 0.55,
+              "rationale": "Quit-regret with a process complaint; no decisive grievance against the org's conditions."
+            },
+            {
+              "juror": "gpt-mini·2c81",
+              "label": "pay",
+              "confidence": 0.52,
+              "rationale": "Counteroffer timing is a compensation-process failure."
+            },
+            {
+              "juror": "qwen-7b·loc4",
+              "label": "other",
+              "confidence": 0.47,
+              "rationale": "Expresses regret about leaving; no clear theme."
+            }
           ]
         },
         {
@@ -170,9 +463,24 @@
           "entropy": 0.64,
           "humanContext": "humans split here too — construct ambiguity",
           "labels": [
-            { "juror": "claude-haiku·9f2e", "label": "workload-burnout", "confidence": 0.71, "rationale": "'Queue doubled, headcount didn't' is a load complaint; 'doing more with less' is the mechanism." },
-            { "juror": "gpt-mini·2c81", "label": "management", "confidence": 0.66, "rationale": "The blame lands on management's framing and decisions, quoted with contempt." },
-            { "juror": "qwen-7b·loc4", "label": "workload-burnout", "confidence": 0.69, "rationale": "Workload doubling is the operative fact." }
+            {
+              "juror": "claude-haiku·9f2e",
+              "label": "workload-burnout",
+              "confidence": 0.71,
+              "rationale": "'Queue doubled, headcount didn't' is a load complaint; 'doing more with less' is the mechanism."
+            },
+            {
+              "juror": "gpt-mini·2c81",
+              "label": "management",
+              "confidence": 0.66,
+              "rationale": "The blame lands on management's framing and decisions, quoted with contempt."
+            },
+            {
+              "juror": "qwen-7b·loc4",
+              "label": "workload-burnout",
+              "confidence": 0.69,
+              "rationale": "Workload doubling is the operative fact."
+            }
           ]
         },
         {
@@ -180,9 +488,24 @@
           "entropy": 0.64,
           "humanContext": "humans agreed here — instrument problem",
           "labels": [
-            { "juror": "claude-haiku·9f2e", "label": "growth", "confidence": 0.78, "rationale": "A development plan asked for three times and never delivered is blocked growth." },
-            { "juror": "gpt-mini·2c81", "label": "growth", "confidence": 0.7, "rationale": "Career-development neglect is the complaint." },
-            { "juror": "qwen-7b·loc4", "label": "management", "confidence": 0.51, "rationale": "The manager eating through the careers chat is a manager-quality failure." }
+            {
+              "juror": "claude-haiku·9f2e",
+              "label": "growth",
+              "confidence": 0.78,
+              "rationale": "A development plan asked for three times and never delivered is blocked growth."
+            },
+            {
+              "juror": "gpt-mini·2c81",
+              "label": "growth",
+              "confidence": 0.7,
+              "rationale": "Career-development neglect is the complaint."
+            },
+            {
+              "juror": "qwen-7b·loc4",
+              "label": "management",
+              "confidence": 0.51,
+              "rationale": "The manager eating through the careers chat is a manager-quality failure."
+            }
           ]
         },
         {
@@ -190,9 +513,24 @@
           "entropy": 0.64,
           "humanContext": "humans agreed here — instrument problem",
           "labels": [
-            { "juror": "claude-haiku·9f2e", "label": "workload-burnout", "confidence": 0.82, "rationale": "'The pace was not survivable… the second one wins' settles it." },
-            { "juror": "gpt-mini·2c81", "label": "workload-burnout", "confidence": 0.77, "rationale": "Pace framed as decisive over work quality." },
-            { "juror": "qwen-7b·loc4", "label": "growth", "confidence": 0.44, "rationale": "Mentions best work of career, possibly growth orientation." }
+            {
+              "juror": "claude-haiku·9f2e",
+              "label": "workload-burnout",
+              "confidence": 0.82,
+              "rationale": "'The pace was not survivable… the second one wins' settles it."
+            },
+            {
+              "juror": "gpt-mini·2c81",
+              "label": "workload-burnout",
+              "confidence": 0.77,
+              "rationale": "Pace framed as decisive over work quality."
+            },
+            {
+              "juror": "qwen-7b·loc4",
+              "label": "growth",
+              "confidence": 0.44,
+              "rationale": "Mentions best work of career, possibly growth orientation."
+            }
           ]
         }
       ]
@@ -200,71 +538,293 @@
   },
   "explore": {
     "run_panel_full": {
-      "level": "exploratory",
       "prevalence": [
-        { "label": "pay", "value": 0.282, "n": 705, "evidence": ["u_03d7e8a1f4b2c690", "u_d12f4a86c3e09b58", "u_3e8c5d0f7a92b441", "u_91b3c07d2e8f4a16"] },
-        { "label": "workload-burnout", "value": 0.253, "n": 633, "evidence": ["u_1f8d3c5b9e72a044", "u_9a4e7b1c2f86d520", "u_b3c1f5d8a07e2964", "u_8800c1d2e4a90b77"] },
-        { "label": "management", "value": 0.211, "n": 528, "evidence": ["u_c6a91e2f7d40b833", "u_7e50b3d9a2c4f181", "u_0b6f9a2d8c45e317"] },
-        { "label": "growth", "value": 0.166, "n": 415, "evidence": ["u_55e0a9d4b7c2f311", "u_16d9a4e7f2c50b38", "u_e73a1d49c8b5f026"] },
-        { "label": "remote-policy", "value": 0.117, "n": 292, "evidence": ["u_a8f04c6e3b92d715", "u_6c1e5a9d4f28b073", "u_30e6c2f8b9a4d157"] },
-        { "label": "other", "value": 0.171, "n": 427, "evidence": ["u_47a3e9c5d2f1b860", "u_f29b7d3a1c50e684", "u_92c8b4f6a1e7d503"] }
+        {
+          "label": "pay",
+          "count": 734,
+          "share": 0.300943,
+          "evidence": [
+            "u_03d7e8a1f4b2c690",
+            "u_d12f4a86c3e09b58",
+            "u_3e8c5d0f7a92b441",
+            "u_91b3c07d2e8f4a16"
+          ]
+        },
+        {
+          "label": "workload-burnout",
+          "count": 587,
+          "share": 0.240672,
+          "evidence": [
+            "u_1f8d3c5b9e72a044",
+            "u_9a4e7b1c2f86d520",
+            "u_b3c1f5d8a07e2964",
+            "u_8800c1d2e4a90b77"
+          ]
+        },
+        {
+          "label": "management",
+          "count": 504,
+          "share": 0.206642,
+          "evidence": [
+            "u_c6a91e2f7d40b833",
+            "u_7e50b3d9a2c4f181",
+            "u_0b6f9a2d8c45e317"
+          ]
+        },
+        {
+          "label": "other",
+          "count": 292,
+          "share": 0.119721,
+          "evidence": [
+            "u_47a3e9c5d2f1b860",
+            "u_f29b7d3a1c50e684",
+            "u_92c8b4f6a1e7d503"
+          ]
+        },
+        {
+          "label": "growth",
+          "count": 207,
+          "share": 0.084871,
+          "evidence": [
+            "u_55e0a9d4b7c2f311",
+            "u_16d9a4e7f2c50b38",
+            "u_e73a1d49c8b5f026"
+          ]
+        },
+        {
+          "label": "remote-policy",
+          "count": 115,
+          "share": 0.04715,
+          "evidence": [
+            "u_a8f04c6e3b92d715",
+            "u_6c1e5a9d4f28b073",
+            "u_30e6c2f8b9a4d157"
+          ]
+        }
       ],
       "crosstabs": [
         {
-          "id": "xt_dept",
-          "title": "pay × department",
-          "annotation": "Sales mentions pay at nearly twice the Engineering rate — and Sales pay complaints cite quota and commission mechanics, not base salary.",
-          "annotatedBy": "director",
-          "groups": [
-            { "title": "Sales", "data": [ { "label": "pay", "value": 0.41, "evidence": ["u_d12f4a86c3e09b58", "u_91b3c07d2e8f4a16"] }, { "label": "mgmt", "value": 0.16, "evidence": ["u_0b6f9a2d8c45e317"] }, { "label": "workload", "value": 0.14, "evidence": [] } ] },
-            { "title": "Engineering", "data": [ { "label": "pay", "value": 0.22, "evidence": ["u_03d7e8a1f4b2c690"] }, { "label": "mgmt", "value": 0.17, "evidence": [] }, { "label": "workload", "value": 0.33, "evidence": ["u_1f8d3c5b9e72a044", "u_9a4e7b1c2f86d520"] } ] },
-            { "title": "Operations", "data": [ { "label": "pay", "value": 0.26, "evidence": ["u_ea6f3b8d0c92a154"] }, { "label": "mgmt", "value": 0.32, "evidence": ["u_c6a91e2f7d40b833"] }, { "label": "workload", "value": 0.2, "evidence": [] } ] },
-            { "title": "Support", "data": [ { "label": "pay", "value": 0.34, "evidence": ["u_3e8c5d0f7a92b441"] }, { "label": "mgmt", "value": 0.19, "evidence": ["u_b05c8f2a6d31e947"] }, { "label": "workload", "value": 0.31, "evidence": ["u_8800c1d2e4a90b77"] } ] }
-          ]
+          "by": "dept",
+          "table": {
+            "rows": [
+              "growth",
+              "management",
+              "other",
+              "pay",
+              "remote-policy",
+              "workload-burnout"
+            ],
+            "cols": [
+              "Engineering",
+              "Operations",
+              "Sales",
+              "Support"
+            ],
+            "matrix": [
+              [
+                80,
+                36,
+                84,
+                7
+              ],
+              [
+                136,
+                192,
+                112,
+                64
+              ],
+              [
+                112,
+                72,
+                91,
+                17
+              ],
+              [
+                176,
+                156,
+                287,
+                115
+              ],
+              [
+                32,
+                24,
+                28,
+                31
+              ],
+              [
+                264,
+                120,
+                98,
+                105
+              ]
+            ],
+            "rowTotals": [
+              207,
+              504,
+              292,
+              734,
+              115,
+              587
+            ],
+            "colTotals": [
+              800,
+              600,
+              700,
+              339
+            ],
+            "total": 2439,
+            "minExpected": 15.98401,
+            "chi2": 233.958685,
+            "df": 15,
+            "p": 0
+          },
+          "flaggedNote": "Sales mentions pay at nearly twice the Engineering rate — and Sales pay complaints cite quota and commission mechanics, not base salary."
         },
         {
-          "id": "xt_tenure",
-          "title": "workload-burnout × tenure",
-          "annotation": "Burnout concentrates under three years of tenure — the people most recently promised a sustainable pace.",
-          "annotatedBy": "director",
-          "groups": [
-            { "title": "<1 yr", "data": [ { "label": "workload", "value": 0.31, "evidence": [] } ] },
-            { "title": "1–2 yrs", "data": [ { "label": "workload", "value": 0.34, "evidence": ["u_1f8d3c5b9e72a044", "u_8800c1d2e4a90b77"] } ] },
-            { "title": "3–5 yrs", "data": [ { "label": "workload", "value": 0.22, "evidence": ["u_9a4e7b1c2f86d520"] } ] },
-            { "title": "6+ yrs", "data": [ { "label": "workload", "value": 0.15, "evidence": ["u_b3c1f5d8a07e2964"] } ] }
-          ]
-        },
-        {
-          "id": "xt_region",
-          "title": "remote-policy × region",
-          "annotation": "Remote-policy anger is the only theme with a sharp regional skew: LATAM rates triple NA's, citing offices that don't exist locally.",
-          "annotatedBy": "director",
-          "groups": [
-            { "title": "NA", "data": [ { "label": "remote", "value": 0.1, "evidence": ["u_a8f04c6e3b92d715", "u_6c1e5a9d4f28b073"] } ] },
-            { "title": "EU", "data": [ { "label": "remote", "value": 0.12, "evidence": [] } ] },
-            { "title": "APAC", "data": [ { "label": "remote", "value": 0.14, "evidence": [] } ] },
-            { "title": "LATAM", "data": [ { "label": "remote", "value": 0.31, "evidence": ["u_30e6c2f8b9a4d157"] } ] }
-          ]
+          "by": "tenure",
+          "table": {
+            "rows": [
+              "growth",
+              "management",
+              "other",
+              "pay",
+              "remote-policy",
+              "workload-burnout"
+            ],
+            "cols": [
+              "1-2 yrs",
+              "3-5 yrs",
+              "6+ yrs",
+              "<1 yr"
+            ],
+            "matrix": [
+              [
+                58,
+                87,
+                41,
+                21
+              ],
+              [
+                121,
+                152,
+                141,
+                90
+              ],
+              [
+                73,
+                73,
+                72,
+                74
+              ],
+              [
+                184,
+                184,
+                182,
+                184
+              ],
+              [
+                33,
+                29,
+                18,
+                35
+              ],
+              [
+                200,
+                129,
+                77,
+                181
+              ]
+            ],
+            "rowTotals": [
+              207,
+              504,
+              292,
+              734,
+              115,
+              587
+            ],
+            "colTotals": [
+              669,
+              654,
+              531,
+              585
+            ],
+            "total": 2439,
+            "minExpected": 25.0369,
+            "chi2": 114.337827,
+            "df": 15,
+            "p": 0
+          },
+          "flaggedNote": "Burnout concentrates under three years of tenure — the people most recently promised a sustainable pace."
         }
       ],
       "cooccurrence": {
-        "rows": ["pay", "management", "workload", "growth", "remote"],
-        "cols": ["pay", "management", "workload", "growth", "remote"],
-        "values": [
-          [0, 118, 64, 92, 31],
-          [118, 0, 97, 56, 22],
-          [64, 97, 0, 41, 48],
-          [92, 56, 41, 0, 12],
-          [31, 22, 48, 12, 0]
+        "labels": [
+          "growth",
+          "management",
+          "pay",
+          "remote-policy",
+          "workload-burnout"
+        ],
+        "matrix": [
+          [
+            201,
+            56,
+            92,
+            12,
+            41
+          ],
+          [
+            56,
+            293,
+            118,
+            22,
+            97
+          ],
+          [
+            92,
+            118,
+            305,
+            31,
+            64
+          ],
+          [
+            12,
+            22,
+            31,
+            113,
+            48
+          ],
+          [
+            41,
+            97,
+            64,
+            48,
+            250
+          ]
         ],
         "evidence": {
-          "0,1": ["u_91b3c07d2e8f4a16"],
-          "0,3": ["u_03d7e8a1f4b2c690"],
-          "1,2": ["u_2847f1a09c3d55b2", "u_b05c8f2a6d31e947"],
-          "2,4": ["u_6c1e5a9d4f28b073"]
+          "1,2": [
+            "u_91b3c07d2e8f4a16"
+          ],
+          "2,4": [
+            "u_03d7e8a1f4b2c690",
+            "u_1f8d3c5b9e72a044"
+          ],
+          "0,2": [
+            "u_55e0a9d4b7c2f311"
+          ],
+          "3,4": [
+            "u_6c1e5a9d4f28b073"
+          ]
         }
       },
-      "calibrationNudge": { "construct": "Exit theme", "instrumentId": "inst_judge_s", "goldsetId": "g_theme1", "price": "~150 units, ~35 min", "line": "Calibrate “Exit theme” — ~150 units, ~35 min of human coding — to make these numbers publication-grade." }
+      "calibrationNudge": {
+        "constructName": "Exit theme",
+        "estUnits": 150,
+        "estMinutes": 35,
+        "goldsetId": "g_theme1"
+      }
     }
   }
 }

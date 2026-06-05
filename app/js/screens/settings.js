@@ -242,7 +242,7 @@ function privacyEditor(params, project) {
     if (next === mode) return;
     const downgrade = PRIVACY_ORDER[next] < PRIVACY_ORDER[mode];
     if (!downgrade) {
-      applyChange(next, null);
+      applyChange(next, false);
       return;
     }
     // downgrade: explicit confirmation, ledgered
@@ -251,7 +251,7 @@ function privacyEditor(params, project) {
     const checkbox = el("input", { type: "checkbox", onchange: (e) => { confirmed = e.target.checked; goBtn.disabled = !confirmed; } });
     const goBtn = el("button", {
       class: "btn btn--primary", type: "button", disabled: true,
-      onclick: () => { s.close(); applyChange(next, "confirmed downgrade"); },
+      onclick: () => { s.close(); applyChange(next, true); },
     }, `Change to ${next}`);
     s.body.append(
       el("p", {}, `From `, el("strong", {}, mode), ` to `, el("strong", {}, next), `. ${PRIVACY_DESC[next]}`),
@@ -263,11 +263,14 @@ function privacyEditor(params, project) {
       goBtn);
   }
 
-  async function applyChange(next, note) {
+  async function applyChange(next, confirmDowngrade) {
     try {
-      // No project-update route exists yet (api.js gap, flagged in the report);
-      // settings.update carries it in fixtures, and the toast states the ledger fact.
-      await api.settings.update({ projects: { [params.slug]: { privacyMode: next, note } } });
+      // PUT /api/projects/:p — the same downgrade guard + privacy.mode_changed
+      // ledger as the settings route (one shared server helper)
+      await api.projects.update(params.slug, {
+        privacyMode: next,
+        ...(confirmDowngrade ? { confirmDowngrade: true } : {}),
+      });
       mode = next;
       store.set("ui.privacyMode", next);
       const project2 = store.get("project");
@@ -299,7 +302,7 @@ function budgetEditor(params, project) {
       onclick: async (e) => {
         e.target.disabled = true;
         try {
-          await api.settings.update({ projects: { [params.slug]: { budget: { capUSD: input.value === "" ? null : Number(input.value) } } } });
+          await api.projects.update(params.slug, { budget: { capUSD: input.value === "" ? null : Number(input.value) } });
           toast.success("Budget cap saved.", { detail: input.value === "" ? "no cap" : fmtCost(Number(input.value)), data: true });
         } catch (err) {
           toast.error("Budget not saved.", { detail: String(err.message ?? err) });

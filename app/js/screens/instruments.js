@@ -158,7 +158,7 @@ function instrumentEditor(main, params, instRaw, constructs, catalog) {
   }
 
   /* -- kind-specific editor -- */
-  if (inst.kind === "dictionary") dictionaryEditor(main, params, inst, touch);
+  if (inst.kind === "dictionary") dictionaryEditor(main, params, inst, touch, () => dirty);
   else if (inst.kind === "judge") judgeEditor(main, params, inst, catalog, construct, touch);
   else if (inst.kind === "panel") panelEditor(main, params, inst, catalog, touch);
 
@@ -178,7 +178,7 @@ function instrumentEditor(main, params, instRaw, constructs, catalog) {
 
 /* ================= dictionary ====================================================== */
 
-function dictionaryEditor(main, params, inst, touch) {
+function dictionaryEditor(main, params, inst, touch, isDirty = () => false) {
   const payload = inst.payload ?? (inst.payload = { categories: [], negation: { enabled: false, window: 3 }, scoring: "percentOfWords" });
   const ro = inst.frozen;
 
@@ -274,20 +274,30 @@ function dictionaryEditor(main, params, inst, touch) {
     previewTimer = setTimeout(runPreview, 350);
   }
   async function runPreview() {
-    clear(previewWrap).append(el("p", { class: "faint" }, "scoring locally…"));
+    // Saved instruments preview server-side — POST instruments/:i/preview
+    // returns dictionary outputs with hit spans ({category, term, start,
+    // end}). UNSAVED edits preview through the local matcher instead (the
+    // server only knows the saved payload) and say so: "draft preview".
+    const draft = !ro && isDirty() === true;
+    clear(previewWrap).append(el("p", { class: "faint" }, draft ? "scoring the draft locally…" : "previewing…"));
     const sampleIds = inst.sampleUnitIds ?? SAMPLE_UNIT_IDS;
     try {
       const [unitsRes, outputs] = await Promise.all([
         api.corpora.units(params.slug, currentCorpus(), { limit: 50 }),
-        api.instruments.preview(params.slug, inst.id, { unitIds: sampleIds }).catch(() => null),
+        draft ? Promise.resolve(null) : api.instruments.preview(params.slug, inst.id, { unitIds: sampleIds }).catch(() => null),
       ]);
       const units = unitsRes?.units ?? [];
       clear(previewWrap);
+      if (draft) {
+        previewWrap.append(el("p", { class: "dictpreview__draftnote faint" },
+          el("span", { class: "chip chip--ghost" }, "draft preview"),
+          " local matcher over unsaved edits — save to preview the server's scoring"));
+      }
       for (const uid of sampleIds) {
         const unit = units.find((u) => u.id === uid);
         if (!unit) continue;
-        const out = outputs?.find?.((o) => o.unitId === uid);
-        const hits = out?.hits ?? localHits(unit.text, inst.payload);
+        const out = draft ? null : (Array.isArray(outputs) ? outputs : outputs?.outputs)?.find?.((o) => o.unitId === uid && o.label !== undefined);
+        const hits = draft ? localHits(unit.text, inst.payload) : out?.hits ?? [];
         previewWrap.append(el("div", { class: "dictpreview__row" },
           quotecard.render({ unit, highlights: hits, lang: unit.lang, compact: true, evidence: true }),
           out?.scores
@@ -680,7 +690,9 @@ function actionRow(main, params, inst) {
       clear(out).append(el("p", { class: "faint", role: "status" }, "previewing on 5 sample units (nothing persists)…"));
       try {
         const ids = inst.sampleUnitIds ?? SAMPLE_UNIT_IDS;
-        const outputs = await api.instruments.preview(params.slug, inst.id, { unitIds: ids });
+        const res = await api.instruments.preview(params.slug, inst.id, { unitIds: ids });
+        // live route → {outputs, cost, quarantine, missing}; fixtures → bare array
+        const outputs = (Array.isArray(res) ? res : res?.outputs ?? []).filter((o) => o.label !== undefined);
         clear(out).append(el("table", { class: "table table--mini" },
           el("caption", { class: "sr-only" }, "Preview outputs"),
           el("thead", {}, el("tr", {},

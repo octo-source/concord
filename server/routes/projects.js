@@ -1,9 +1,10 @@
-// Projects: list, create, full-graph get.
+// Projects: list, create, full-graph get, and project-scoped settings (PUT).
 import { ConcordError } from "../core/errors.js";
 import { createProject } from "../core/objects.js";
 import { loadProject, saveProject, listProjects } from "../core/store.js";
 import * as ledger from "../core/ledger.js";
-import { pdirOf } from "./_shared.js";
+import { pdirOf, requireBody } from "./_shared.js";
+import { applyProjectSettings } from "./settings.js";
 
 function summary(p) {
   if (p.corrupt) return { slug: p.slug, corrupt: true };
@@ -63,5 +64,21 @@ export default [
     method: "GET",
     pattern: "/api/projects/:p",
     handler: async (req, res, params) => loadProject(params.p),
+  },
+  {
+    // Project-scoped settings: {privacyMode?, confirmDowngrade?, budget?:
+    // {capUSD}}. The downgrade guard and privacy.mode_changed ledger live in
+    // routes/settings.js applyProjectSettings — one helper, one taxonomy.
+    method: "PUT",
+    pattern: "/api/projects/:p",
+    handler: async (req, res, params) => {
+      const body = requireBody(req);
+      return applyProjectSettings({
+        slug: params.p,
+        ...(body.privacyMode !== undefined ? { privacyMode: body.privacyMode } : {}),
+        ...(body.budget !== undefined ? { budget: body.budget } : {}),
+        confirmDowngrade: body.confirmDowngrade,
+      });
+    },
   },
 ];
