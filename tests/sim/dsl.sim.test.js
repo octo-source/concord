@@ -142,10 +142,12 @@ test("DSL sim: dslDiff unbiased with honest coverage while naive diff is biased"
 // Design: continuous outcome Y = 1 + ε, ε ~ N(0,1); machine proxy
 // Ŷ = 0.5·Y + N(0,1). n = 1000, gold = SRS of 100 (π = 0.1 for all gold).
 // Population quantities: v_Y = 1, c = Cov(Y,Ŷ) = 0.5, v_f = 0.25 + 1 = 1.25.
-// Theoretical λ* = c/(v_f(1 + n_g/n)) = 0.5/(1.25·1.1) ≈ 0.364 and
-//   Var(λ=0, gold-only)  = 1/100               = 0.01000
-//   Var(λ=1, classical)  = 1.25/1000 + 1.25/100 = 0.01375
-//   Var(λ*)              ≈ 0.00818
+// Overlap-correct theory (gold ⊂ corpus, see correction.js):
+//   V(λ) = (v_Y − 2λc + λ²v_f)/n_g + (2λc − λ²v_f)/n, minimized at
+//   λ* = c/v_f = 0.4, and
+//   Var(λ=0, gold-only)  = 1/100                       = 0.01000
+//   Var(λ=1, classical)  = 1.25/100 + (1 − 1.25)/1000  = 0.01225
+//   Var(λ*)              = (1 − 0.2)/100 + 0.2/1000    = 0.00820
 // so auto-λ must beat BOTH baselines — the defining property of power tuning.
 // MC slack: each empirical variance over 200 reps has relative sd
 // ≈ √(2/199) ≈ 10%, so a ratio test carries ≈ 14% noise; the true ratios are
@@ -212,8 +214,71 @@ test("R1 sim: auto-λ variance ≤ classical and ≤ gold-only (+MC slack); hone
   // (c) power tuning: auto beats both baselines up to MC slack
   assert.ok(vAuto <= vClassical * 1.1, `auto var ${vAuto} vs classical ${vClassical}`);
   assert.ok(vAuto <= vGold * 1.1, `auto var ${vAuto} vs gold-only ${vGold}`);
-  // λ̂ actually tunes (≈0.364 here), i.e. it is neither pinned at 0 nor at 1
+  // λ̂ actually tunes (≈0.4 here), i.e. it is neither pinned at 0 nor at 1
   assert.ok(meanLambda > 0.2 && meanLambda < 0.55, `mean λ̂ ${meanLambda}`);
   // (d) honest CIs at the plug-in λ̂
   assert.ok(coverage >= 0.91 && coverage <= 0.985, `auto-λ coverage ${coverage}`);
+});
+
+// ---------- V1: overlap variance in the high-gold-fraction regime ----------
+//
+// Gold ⊂ corpus with n_g/n = 1/2 is exactly where the disjoint-sample PPI
+// variance breaks: the Cov(F̄, R̄) term it omits is O(1/n), negligible when
+// n ≫ n_g but first-order here. Design: n = 600, gold = SRS of 300,
+// Y = 1 + N(0,1), strong proxy Ŷ = Y + N(0, 0.2²) so v_Y = 1, c = 1,
+// v_f = 1.04. Overlap theory: λ* = c/v_f = 1/1.04 ≈ 0.962,
+//   Var(λ*) = (v_Y − c²/v_f)/n_g + (c²/v_f)/n ≈ 0.0385/300 + 0.9615/600
+//           ≈ 1.73e-3.
+// The disjoint formula in this regime under-reports the auto-λ variance by
+// ≈ 40% (its λ̂ ≈ 0.64 sits far from the overlap optimum AND the missing
+// covariance term is large) → ≈ 0.87 empirical coverage. The overlap formula
+// must restore nominal coverage.
+test("V1 sim (high gold fraction): auto-λ coverage stays honest at n_g/n = 1/2", { timeout: 120000 }, () => {
+  const N2 = 600;
+  const NG2 = 300;
+  const TRUTH = 1;
+  let covered = 0;
+  let sumLambda = 0;
+
+  for (let rep = 0; rep < REPS; rep++) {
+    const rand = mulberry32(770_013 + rep * 13);
+    const normal = () => {
+      const u1 = 1 - rand(); // (0, 1] — avoids log(0)
+      const u2 = rand();
+      return Math.sqrt(-2 * Math.log(u1)) * Math.cos(2 * Math.PI * u2);
+    };
+    const units = [];
+    for (let i = 0; i < N2; i++) {
+      const y = TRUTH + normal();
+      const yhat = y + 0.2 * normal();
+      units.push({ yhat, _y: y });
+    }
+    // SRS of NG2 without replacement (partial Fisher–Yates), equal π
+    const idx = Array.from({ length: N2 }, (_, i) => i);
+    for (let j = 0; j < NG2; j++) {
+      const k = j + Math.floor(rand() * (N2 - j));
+      [idx[j], idx[k]] = [idx[k], idx[j]];
+    }
+    for (let j = 0; j < NG2; j++) {
+      const u = units[idx[j]];
+      u.y = u._y;
+      u.pi = NG2 / N2;
+    }
+    for (const u of units) delete u._y;
+
+    const r = ppiMean(units, { lambda: "auto" });
+    sumLambda += r.lambda;
+    if (r.ciLo <= TRUTH && TRUTH <= r.ciHi) covered++;
+  }
+
+  const coverage = covered / REPS;
+  const meanLambda = sumLambda / REPS;
+  console.log(
+    `[ppi.sim.highgold] ${REPS} reps | mean λ̂=${meanLambda.toFixed(3)} cover=${coverage.toFixed(3)}`
+  );
+
+  // λ̂ tracks the overlap optimum c/v_f ≈ 0.962, not the disjoint ≈ 0.64
+  assert.ok(meanLambda > 0.85 && meanLambda < 1.05, `mean λ̂ ${meanLambda}`);
+  // the regime the disjoint formula failed (≈ 0.87): nominal coverage required
+  assert.ok(coverage >= 0.92 && coverage <= 0.98, `high-gold auto-λ coverage ${coverage}`);
 });

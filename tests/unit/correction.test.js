@@ -108,10 +108,15 @@ test("ppiMean classical golden: est = 2/3 + 1/2 = 7/6", () => {
   ];
   const r = ppiMean(units);
   assert.ok(Math.abs(r.est - 7 / 6) < EPS);
-  // se = sqrt(var(Ŷall)/n + var(Y−Ŷ on gold)/n_gold), sample (n−1) variances:
-  // var(Ŷall) = (4·(1/3)² + 2·(2/3)²)/5 = (4/9 + 8/9)/5 = 4/15
-  // var(rectifier [0,1]) = 1/2 → se = sqrt(4/90 + 1/4)
-  const want = Math.sqrt(4 / 15 / 6 + 0.5 / 2);
+  // Overlap-correct (gold ⊂ all) variance at λ = 1:
+  //   V(1) = var(Y − Ŷ on gold)/n_g + (2ĉ − v_f)/n, exact fractions:
+  //   rect = [1−1, 1−0] = [0, 1] → sampleVar = 1/2 → /n_g = (1/2)/2 = 1/4
+  //   ĉ    = sampleCov(Y=[1,1], Ŷ_g=[1,0]) = 0   (gold Y is constant)
+  //   v_f  = sampleVar(Ŷ_all) = (4·(1/3)² + 2·(2/3)²)/5 = (4/9 + 8/9)/5 = 4/15
+  //   V(1) = 1/4 + (2·0 − 4/15)/6 = 1/4 − 2/45 = 45/180 − 8/180 = 37/180
+  // (the disjoint-sample textbook formula would give 1/4 + 4/90 = 53/180,
+  // missing the negative Cov(F̄, R̄) the shared gold units induce)
+  const want = Math.sqrt(37 / 180);
   assert.ok(Math.abs(r.se - want) < EPS);
   assert.ok(Math.abs(r.naive.est - 2 / 3) < EPS);
   assert.ok(Math.abs(r.ciLo - (r.est - Z975 * r.se)) < 1e-12);
@@ -128,9 +133,11 @@ test("ppiMean accepts explicit classical and numeric lambda", () => {
   ];
   const r1 = ppiMean(units, { lambda: "classical" });
   assert.ok(Math.abs(r1.est - 7 / 6) < EPS);
-  // λ=0 → est = mean gold Y = 1
+  // λ=0 → est = mean gold Y = 1; the (2λĉ − λ²v_f)/n overlap term vanishes
+  // EXACTLY at λ = 0, so se = sqrt(sampleVar([1,1])/2 + 0) = 0 exactly
   const r0 = ppiMean(units, { lambda: 0 });
   assert.ok(Math.abs(r0.est - 1) < EPS);
+  assert.equal(r0.se, 0);
   assertThrowsCode(() => ppiMean(units, { lambda: "cubic" }), "E_STAT_INPUT");
 });
 
@@ -162,8 +169,8 @@ test("I2: ppiMean rejects unequal gold inclusion probabilities (PPI assumes SRS)
 // ---------- R1: PPI++ power tuning (lambda = "auto") ----------
 
 // Shared 4-unit dataset for the auto-λ goldens; gold = first two units.
-//   Ŷ_all = [1,2,3,4] → mean 2.5, v_f = sampleVar = 5/3
-//   gold: Ŷ_g = [1,2], Y = [2,3] → v_fg = 1/2, v_Y = 1/2, ĉ = cov(Y,Ŷ_g) = 1/2
+//   Ŷ_all = [1,2,3,4] → mean 5/2, v_f = sampleVar = 5/3
+//   gold: Ŷ_g = [1,2], Y = [2,3] → v_Y = 1/2, ĉ = sampleCov(Y,Ŷ_g) = 1/2
 function autoLambdaUnits() {
   return [
     { yhat: 1, y: 2, pi: 0.5 },
@@ -181,24 +188,29 @@ test("R1(a): lambda 1 path equals classical exactly", () => {
 });
 
 test("R1(b): lambda 0 equals the gold-only mean and SE exactly", () => {
-  // gold Y = [2,3]: mean 2.5, se = sqrt(sampleVar/n_g) = sqrt(0.5/2) = 0.5
+  // gold Y = [2,3]: mean 2.5, se = sqrt(sampleVar/n_g) = sqrt(0.5/2) = 0.5.
+  // The overlap term (2λĉ − λ²v_f)/n is identically 0 at λ = 0 even though
+  // ĉ = 1/2 and v_f = 5/3 are nonzero here — verified, not assumed.
   const r = ppiMean(autoLambdaUnits(), { lambda: 0 });
   assert.ok(Math.abs(r.est - 2.5) < EPS);
   assert.ok(Math.abs(r.se - 0.5) < EPS);
 });
 
-test("R1: auto-λ golden — λ̂, estimate and SE match the hand derivation", () => {
-  // λ̂ minimizes V(λ) = λ²v_f/n + (v_Y − 2λĉ + λ²v_fg)/n_g
-  //   → λ̂ = ĉ / (v_fg + (n_g/n)·v_f) = (1/2)/(1/2 + (2/4)·(5/3)) = (1/2)/(4/3) = 3/8
+test("R1: auto-λ golden — λ̂ = ĉ/v_f, estimate and SE match the hand derivation", () => {
+  // Under the overlap design (gold ⊂ all) the variance-minimizing tuning is
+  //   λ̂ = ĉ/v_f = (1/2)/(5/3) = 3/10
+  // (NOT the disjoint-sample PPI++ value ĉ/(v_fg + (n_g/n)v_f) = 3/8).
   // est = λ̂·mean(Ŷ_all) + mean(Y − λ̂Ŷ on gold)
-  //     = (3/8)·2.5 + mean([2 − 3/8, 3 − 6/8]) = 15/16 + 31/16 = 23/8
-  // rect = [13/8, 18/8] → sampleVar = 2·(5/16)² = 25/128
-  // se² = λ̂²·v_f/n + var(rect)/n_g = (9/64)(5/3)/4 + (25/128)/2
-  //     = 15/256 + 25/256 = 5/32
+  //     = (3/10)·(5/2) + mean([2 − 3/10, 3 − 6/10]) = 3/4 + 41/20 = 14/5
+  // rect = [17/10, 24/10] → sampleVar = 2·(7/20)² = 49/200
+  // se² = var(rect)/n_g + (2λ̂ĉ − λ̂²v_f)/n
+  //     = (49/200)/2 + (2·(3/10)·(1/2) − (9/100)·(5/3))/4
+  //     = 49/400 + (3/10 − 3/20)/4 = 49/400 + 15/400 = 64/400 = 4/25
+  //     → se = 2/5
   const r = ppiMean(autoLambdaUnits(), { lambda: "auto" });
-  assert.ok(Math.abs(r.lambda - 3 / 8) < EPS, `lambda ${r.lambda}`);
-  assert.ok(Math.abs(r.est - 23 / 8) < EPS, `est ${r.est}`);
-  assert.ok(Math.abs(r.se - Math.sqrt(5 / 32)) < EPS, `se ${r.se}`);
+  assert.ok(Math.abs(r.lambda - 3 / 10) < EPS, `lambda ${r.lambda}`);
+  assert.ok(Math.abs(r.est - 14 / 5) < EPS, `est ${r.est}`);
+  assert.ok(Math.abs(r.se - 2 / 5) < EPS, `se ${r.se}`);
 });
 
 test("R1: auto-λ degenerate — constant Ŷ carries no information → λ̂ = 0 (gold-only)", () => {
