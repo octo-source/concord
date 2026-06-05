@@ -31,7 +31,9 @@
 //   {escalate: async (unit, output) → replacement|null} (the Director's
 //   second-opinion seam — the engine stays decoupled from server/director/),
 //   a non-null replacement overwrites label/confidence/rationale on the
-//   written line, still marked escalated: true.
+//   written line — still marked escalated: true, still keyed by the WORKER's
+//   juror hash (resume semantics) — and its escalatedBy marker (escalate.js
+//   sets "director") is copied through as structural provenance.
 //
 // Dictionary instruments run through the SAME outputs path at $0: units are
 // scored locally via dictionary.score (no adapter, no pool, no cache misses
@@ -336,6 +338,10 @@ async function maybeEscalate(ctx, unit, final, { escalate, p99 }) {
       }
       if (replacement.confidence !== undefined) final.confidence = replacement.confidence;
       if (replacement.rationale !== undefined) final.rationale = replacement.rationale;
+      // provenance: the line keeps the WORKER's juror hash (resume semantics
+      // key on it) but carries the escalator's escalatedBy marker so a
+      // Director override is structurally distinguishable downstream.
+      if (replacement.escalatedBy !== undefined) final.escalatedBy = replacement.escalatedBy;
     }
   }
   return true;
@@ -579,6 +585,7 @@ async function executeRunInner(project, run, opts) {
     run.status = "failed";
     run.error = { code: stop.error?.code ?? "UNKNOWN", message: stop.error?.message ?? String(stop.error) };
     await persistRun(slug, run, dir);
+    monitor.clearRun(run.id); // failed runs clear their monitor state (see the complete-path note)
     throw stop.error;
   }
   if (stop.reason === "paused") {
@@ -606,6 +613,13 @@ async function executeRunInner(project, run, opts) {
       count: run.escalation.count, directorModel: run.escalation.directorModel,
     });
   }
+  // Monitor hygiene: clear this run's in-memory telemetry (and any armed
+  // drift tripwire) now that the run is done — the module-level Map must not
+  // grow without bound across runs. POLICY: complete and failed runs clear;
+  // paused/aborted runs KEEP their state (cheap, and likely resumed soon —
+  // though a resume re-tracks and replays persisted outputs regardless, so
+  // clearing those too would also have been safe).
+  monitor.clearRun(run.id);
   return run;
 }
 

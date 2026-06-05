@@ -644,10 +644,15 @@ test("silver: tuning loop plateaus, records the curve, versions per iteration, a
   assert.equal(inst.versionHash, tuned.versionHash);
   assert.ok(fresh.goldsets.some((g) => g.id === tuned.silver.goldsetId && g.tier === "silver"));
   const pdir = projectDir(project.slug);
-  for (const type of ["goldset.created", "goldset.completed", "instrument.silver_tuned", "instrument.stability"]) {
+  for (const type of ["goldset.created", "goldset.completed", "instrument.silver_tuned"]) {
     const ev = await ledger.query(pdir, { type });
     assert.ok(ev.length >= 1, `missing ledger event ${type}`);
   }
+  // instrument.stability is the stability MODULE's append (stability.js:113);
+  // the double injected here does not ledger, and silverTune must not
+  // re-append the event itself (BUG-1: double-counted stability runs).
+  assert.equal((await ledger.query(pdir, { type: "instrument.stability" })).length, 0,
+    "silverTune must not ledger instrument.stability — the stability module owns that event");
   const tunedEv = (await ledger.query(pdir, { type: "instrument.silver_tuned" }))[0];
   assert.equal(tunedEv.refs.instrumentId, tuned.id);
   assert.equal(tunedEv.refs.goldsetId, tuned.silver.goldsetId);
@@ -686,8 +691,11 @@ test("silver: stability failure leaves the level exploratory; missing engine/sta
   assert.equal(curve.length, 2, "identical agreement on iteration 2 → plateau");
   assert.equal(tuned.level, "exploratory", "failed stability must not stabilize");
   assert.equal(tuned.stability.alpha, 0.41, "the check's alpha is still recorded (contract shape: {alpha, k, n, ranAt})");
+  // The verdict's ledger append belongs to the stability module (asserted
+  // against the REAL module in runs.test.js); the double here does not
+  // ledger and silverTune must not re-append the event (BUG-1).
   const stEvents = await ledger.query(projectDir(project.slug), { type: "instrument.stability" });
-  assert.equal(stEvents.at(-1).payload.pass, false, "the failed verdict is ledgered");
+  assert.equal(stEvents.length, 0, "silverTune does not re-ledger the stability verdict — the stability module owns that event");
 
   await assert.rejects(silverTune(project, instrument, units, { stability }), { code: "VALIDATION" });
   await assert.rejects(silverTune(project, instrument, units, { engine }), { code: "VALIDATION" });
@@ -801,6 +809,8 @@ test("escalate: Director disagreement produces a marked replacement with a one-l
   assert.ok(replacement, "disagreement must produce a replacement");
   assert.equal(replacement.unitId, unit.id);
   assert.equal(replacement.juror, "director");
+  assert.equal(replacement.escalatedBy, "director",
+    "the replacement carries structural provenance — the engine copies escalatedBy onto the written line while keeping the worker's juror hash");
   assert.equal(replacement.label, "no");
   assert.equal(replacement.escalated, true);
   assert.match(replacement.rationale, /Worker over-weighted/);

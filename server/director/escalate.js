@@ -33,6 +33,11 @@ export function makeEscalator(project, construct) {
       // followed by the Director's own grounded rationale
       rationale: reason ? `${reason} — ${second.rationale}` : second.rationale,
       escalated: true,
+      // structural provenance: the engine keeps the WORKER's juror hash on
+      // the written line (resume keys on it) but copies escalatedBy through,
+      // so disagreement views can tell a Director override apart without
+      // parsing rationale text.
+      escalatedBy: "director",
     };
   };
 }

@@ -395,14 +395,16 @@ export const COMPILE_SCHEMA = {
 export const REWRITE_SCHEMA = COMPILE_SCHEMA;
 
 // Deterministic scaffolding shared with compiler.js. The slot block is what
-// the sibling judge.assemble fills at run time.
+// the sibling judge.assemble fills at run time. Templates reference the BARE
+// {{unit}} slot — judge.assemble owns the <unit>…</unit> wrapper around the
+// unit text (a template-side wrapper would double-wrap to </unit></unit>).
 export const TEMPLATE_SLOTS = ["{{definition}}", "{{criteria}}", "{{examples}}", "{{unit}}"];
 
 export const SLOT_SECTIONS = {
   "{{definition}}": "Construct definition:\n{{definition}}",
   "{{criteria}}": "Coding criteria (include / exclude):\n{{criteria}}",
   "{{examples}}": "Worked examples:\n{{examples}}",
-  "{{unit}}": "Unit to code:\n<unit>{{unit}}</unit>",
+  "{{unit}}": "Unit to code:\n{{unit}}",
 };
 
 export const RATIONALE_FIRST_LINE =
@@ -440,7 +442,8 @@ export function compilePrompt(construct, workerClass) {
     `${CLASS_GUIDANCE[workerClass]}\n\n` +
     "Template mechanics (hard requirements):\n" +
     `- The template MUST contain these literal slots, which Concord fills at run time: {{definition}}, {{criteria}}, {{examples}}, {{unit}}.\n` +
-    "- Wrap the unit slot as <unit>{{unit}}</unit> so the worker can always find the text to code.\n" +
+    "- Reference the unit slot as bare {{unit}} — Concord wraps the unit text in <unit></unit> tags at run time " +
+    "so the worker can always find the text to code; do NOT add your own <unit> tags.\n" +
     `- The worker answers in JSON with rationale first, then label, then confidence. Say so: "${RATIONALE_FIRST_LINE}"\n` +
     "- Do not bake the construct's text into the template — the slots carry it. The template is the frame, the codebook is the picture.\n" +
     '- "note": one line for the researcher describing the design choice you made for this worker class.\n\n' +
@@ -461,7 +464,8 @@ export function confusionRewritePrompt({ construct, currentTemplate, confusionSu
     `${confusionSummary}\n\n` +
     `CURRENT TEMPLATE:\n${currentTemplate}\n\n` +
     "Rewrite the template to correct these specific confusions. Hard requirements:\n" +
-    "- Keep all four literal slots: {{definition}}, {{criteria}}, {{examples}}, {{unit}} (the unit wrapped as <unit>{{unit}}</unit>).\n" +
+    "- Keep all four literal slots: {{definition}}, {{criteria}}, {{examples}}, {{unit}} " +
+    "(bare {{unit}} — Concord adds the <unit></unit> wrapper at run time; do not write your own <unit> tags).\n" +
     "- Keep the rationale-first JSON output discipline.\n" +
     "- Address the observed confusions with targeted decision rules (e.g. a tie-break sentence for the most-confused pair), " +
     "not by lengthening everything.\n" +

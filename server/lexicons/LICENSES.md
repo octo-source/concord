@@ -72,4 +72,7 @@ LIWC dictionaries (Pennebaker et al.) are commercial and licensed per seat;
 Concord does not and cannot bundle them. License holders can import their
 `.dic` file with `parseDic(text)` from `server/instruments/dictionary.js`
 (wildcards preserved, percent-of-words scoring matches the LIWC convention),
-and export edited payloads back to `.dic` with `toDic(payload)`.
+and export edited payloads back to `.dic` with `toDic(payload)`. `parseDic`
+returns `{ payload, warnings }`, not a bare payload: LIWC 2007/2015
+conditional entries (e.g. `like<TAB>(2 134)2/96`) are skipped and reported in
+`warnings` rather than failing the import.

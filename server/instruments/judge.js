@@ -201,12 +201,18 @@ function renderOptions(outputSchema) {
 // {{criteria}}, {{examples}} render into the system message; {{unit}} renders
 // into the user message as a <unit> block (any template text around the
 // {{unit}} slot stays with it in the user message).
+//
+// assemble OWNS the <unit>…</unit> wrapper: templates reference the bare
+// {{unit}} slot, and any legacy template that still writes
+// <unit>{{unit}}</unit> is normalized so the assembled messages carry exactly
+// one wrapper pair (never </unit></unit>).
 export function assemble(construct, judgePayload, unit) {
   if (!unit || typeof unit.text !== "string") {
     throw new ConcordError("VALIDATION", "assemble requires a unit with text", { unit });
   }
   const outputSchema = judgePayload?.schema ?? outputSchemaFor(construct);
-  const template = judgePayload?.promptTemplate?.trim() ? judgePayload.promptTemplate : DEFAULT_TEMPLATE;
+  const template = (judgePayload?.promptTemplate?.trim() ? judgePayload.promptTemplate : DEFAULT_TEMPLATE)
+    .replaceAll("<unit>{{unit}}</unit>", "{{unit}}"); // legacy template-side wrapper → assemble's own
 
   const filled = template
     .replaceAll("{{definition}}", construct.definition || "(no definition provided)")

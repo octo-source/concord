@@ -12,7 +12,7 @@ import * as monitor from "../../server/runs/monitor.js";
 import { stabilityCheck } from "../../server/instruments/stability.js";
 import { DEFAULT_TEMPLATE } from "../../server/instruments/judge.js";
 import { createProject, createConstruct, createInstrument, freeze, instrumentVersionHash } from "../../server/core/objects.js";
-import { saveProject, loadProject, readNdjson, updateProject } from "../../server/core/store.js";
+import { saveProject, loadProject, readNdjson, updateProject, projectsDir } from "../../server/core/store.js";
 import * as ledger from "../../server/core/ledger.js";
 import { getAdapter } from "../../server/providers/registry.js";
 import { ConcordError } from "../../server/core/errors.js";
@@ -152,7 +152,8 @@ test("executeRun: 500-unit run completes with checkpoints, ledger events, exact 
 
   const run = await createRun(project, { instrumentId: "inst_j", corpusId: "c1" }, { dir });
   const ticks = [];
-  const done = await executeRun(SLUG, run.id, { dir, onTick: (s) => ticks.push(s.done) });
+  let lastTick = null;
+  const done = await executeRun(SLUG, run.id, { dir, onTick: (s) => { ticks.push(s.done); lastTick = s; } });
 
   assert.equal(done.status, "complete");
   assert.deepEqual(done.checkpoint, { done: N, total: N });
@@ -184,11 +185,13 @@ test("executeRun: 500-unit run completes with checkpoints, ledger events, exact 
   assert.equal(completed[0].payload.done, N);
   assert.equal((await ledger.query(pdir, { type: "run.escalation_summary" })).length, 0);
 
-  // monitor state reflects the finished run
-  const state = monitor.runState(run.id);
-  assert.equal(state.done, N);
-  assert.equal(state.labelDist.yes, Math.ceil(N / 3));
-  assert.equal(state.warnings.length, 0);
+  // monitor telemetry was truthful through the run (the final tick saw it all)…
+  assert.equal(lastTick.done, N);
+  assert.equal(lastTick.labelDist.yes, Math.ceil(N / 3));
+  assert.equal(lastTick.warnings.length, 0);
+  // …and a COMPLETE run clears its monitor state (hygiene: the module-level
+  // Map must not grow without bound; paused/aborted runs keep state for resume)
+  assert.equal(monitor.runState(run.id), null, "complete run clears monitor state");
 
   // checkpoints really persisted along the way: the run on disk is complete
   const onDisk = await loadProject(SLUG, dir);
@@ -350,7 +353,8 @@ test("executeRun: SCHEMA_INVALID after repairs quarantines the unit; the run con
   t.after(() => adapter.handlers.delete("badjson"));
 
   const run = await createRun(project, { instrumentId: "inst_j", corpusId: "c1" }, { dir });
-  const done = await executeRun(SLUG, run.id, { dir });
+  let lastTick = null;
+  const done = await executeRun(SLUG, run.id, { dir, onTick: (s) => { lastTick = s; } });
 
   assert.equal(done.status, "complete", "quarantine never kills the run");
   assert.deepEqual(done.quarantine, [poison.id]);
@@ -358,8 +362,8 @@ test("executeRun: SCHEMA_INVALID after repairs quarantines the unit; the run con
   assert.equal(lines.length, N - 1);
   assert.ok(!lines.some((l) => l.unitId === poison.id), "no output line for the quarantined unit");
   assertExactlyOnce(lines);
-  const state = monitor.runState(run.id);
-  assert.ok(state.warnings.some((w) => w.kind === "quarantine" && w.unitId === poison.id));
+  // the quarantine warning was visible in live telemetry (state clears at complete)
+  assert.ok(lastTick.warnings.some((w) => w.kind === "quarantine" && w.unitId === poison.id));
 });
 
 // ---------------------------------------------------------------- panels
@@ -416,7 +420,7 @@ test("executeRun: escalation predicate marks atypically long units; the Director
     dir,
     escalate: async (unit, output) => {
       escalatedSeen.push({ unitId: unit.id, output });
-      return { label: "no", rationale: "director second opinion" };
+      return { label: "no", rationale: "director second opinion", escalatedBy: "director" };
     },
   });
   assert.equal(done.status, "complete");
@@ -428,6 +432,8 @@ test("executeRun: escalation predicate marks atypically long units; the Director
   assert.equal(line.escalated, true);
   assert.equal(line.label, "no", "the replacement label is what lands in outputs");
   assert.equal(line.rationale, "director second opinion");
+  assert.equal(line.juror, done.versionHash, "the worker's juror hash stays on the line — resume keys on it");
+  assert.equal(line.escalatedBy, "director", "the replacement's provenance marker is copied onto the line");
   assert.equal(lines.filter((l) => l.escalated).length, 1);
 
   const summary = await ledger.query(pdir, { type: "run.escalation_summary" });
@@ -440,6 +446,7 @@ test("executeRun: escalation predicate marks atypically long units; the Director
   const line2 = (await readNdjson(outputsFile(pdir, run2.id))).find((l) => l.unitId === big.id);
   assert.equal(line2.escalated, true);
   assert.equal(line2.label, "yes", "no Director → original verdict stays, just flagged");
+  assert.equal(line2.escalatedBy, undefined, "no second opinion → no provenance marker");
 });
 
 // ---------------------------------------------------------------- edges
@@ -570,9 +577,9 @@ test("monitor: degenerate-output warning fires once after 100+ outputs of one la
   const { dir, project } = await setup(t, { units: makeUnits(N, { isPay: () => false }), instruments: [judgeInstrument()] });
   mockAdapter(project, { accuracy: 1.0 }); // oracle says "no" for every unit
   const run = await createRun(project, { instrumentId: "inst_j", corpusId: "c1" }, { dir });
-  await executeRun(SLUG, run.id, { dir });
-  const state = monitor.runState(run.id);
-  const degen = state.warnings.filter((w) => w.kind === "degenerate-output");
+  let lastTick = null;
+  await executeRun(SLUG, run.id, { dir, onTick: (s) => { lastTick = s; } });
+  const degen = lastTick.warnings.filter((w) => w.kind === "degenerate-output");
   assert.equal(degen.length, 1, "warned exactly once");
   assert.equal(degen[0].label, "no");
   assert.ok(degen[0].share > 0.95);
@@ -610,17 +617,27 @@ test("monitor: drift tripwire warns when run-time agreement on gold drops below 
   // silently degraded to 0.2 by run time
   mockAdapter(project, { accuracy: 0.2 });
 
-  const goldOutputs = makeUnits(20).map((u) => ({ unit: u, label: ORACLE(u.text) }));
+  // 4 gold units → each re-judge is one quick pool round, so its warning is
+  // visible to the many ticks that follow the crossing (state clears at
+  // complete — drift warnings are observed through live telemetry).
+  const goldOutputs = makeUnits(4).map((u) => ({ unit: u, label: ORACLE(u.text) }));
   const run = await createRun(project, { instrumentId: "inst_j", corpusId: "c1" }, { dir });
-  monitor.armDriftTripwire(run.id, { project, goldOutputs, instrument: inst, every: 10, threshold: 0.15 });
+  // {dir} threads the bundle dir through driftTick's runEphemeral — without it
+  // the re-judge cache pollutes the DEFAULT projects dir (<repo>/projects).
+  monitor.armDriftTripwire(run.id, { project, goldOutputs, instrument: inst, every: 10, threshold: 0.15, dir });
 
-  await executeRun(SLUG, run.id, { dir });
-  const state = monitor.runState(run.id);
-  const drift = state.warnings.filter((w) => w.kind === "drift");
+  const warningsSeen = new Map(); // message → warning, union across ticks
+  await executeRun(SLUG, run.id, {
+    dir,
+    onTick: (s) => { for (const w of s.warnings) warningsSeen.set(w.message, w); },
+  });
+  const drift = [...warningsSeen.values()].filter((w) => w.kind === "drift");
   assert.ok(drift.length >= 1, "drift warning fired");
   assert.ok(drift[0].agreement < 0.85, `re-judged agreement ${drift[0].agreement} reflects the degraded model`);
   assert.equal(drift[0].baseline, 1.0);
-  monitor.clearRun(run.id);
+  assert.ok(!existsSync(path.join(projectsDir(), SLUG)),
+    "the drift re-judge must not write into the default projects dir (BUG-2: cache pollution under <repo>/projects)");
+  assert.equal(monitor.runState(run.id), null, "complete run clears monitor state (and its tripwire)");
 });
 
 test("monitor: armDriftTripwire validates its inputs", async (t) => {

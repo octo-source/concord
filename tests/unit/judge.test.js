@@ -220,6 +220,16 @@ test("assemble: template text after {{unit}} stays in the user turn", () => {
   assert.ok(!messages[0].content.includes("Remember: code conservatively."));
 });
 
+test("assemble: owns the <unit> wrapper — legacy <unit>{{unit}}</unit> templates do not double-wrap", () => {
+  const tpl = "Definition: {{definition}}\nCriteria: {{criteria}}\nExamples: {{examples}}\nUnit to code:\n<unit>{{unit}}</unit>\nCode conservatively.";
+  const messages = assemble(binaryConstruct, { ...judgePayload, promptTemplate: tpl }, unit);
+  const all = messages.map((m) => m.content).join("\n");
+  assert.equal(all.split("<unit>").length - 1, 1, "exactly one <unit> open tag in the assembled messages");
+  assert.equal(all.split("</unit>").length - 1, 1, "exactly one </unit> close tag in the assembled messages");
+  assert.ok(messages[1].content.includes(`<unit>\n${unit.text}\n</unit>`), "the surviving wrapper is assemble's own fenced block");
+  assert.ok(messages[1].content.includes("Code conservatively."), "template text after the slot still rides in the user turn");
+});
+
 test("assemble: missing unit text throws VALIDATION", () => {
   assert.throws(() => assemble(binaryConstruct, judgePayload, {}), (e) => e.code === "VALIDATION");
 });

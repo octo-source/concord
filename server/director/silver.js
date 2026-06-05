@@ -10,6 +10,22 @@
 // α are computed best-effort and recorded alongside for honesty. The plateau
 // rule applies to the recorded agreement scalar.
 //
+// Cost channel: the result carries cost: {workerUSD, directorUSD} —
+// workerUSD sums the tuning loop's runEphemeral spend (the stability check
+// reports its own spend on its own return); directorUSD is the delta of the
+// project's Director meter across the whole call (silver labels + rewrites).
+// Every curve point carries costUSD: that ITERATION's spend, an iteration
+// being (Director rewrite that produced its version + the worker pass) — the
+// up-front silver labeling is deliberately not attributed to iteration 1.
+//
+// Budget: {capUSD} gates iterations AFTER the first — iteration 1 always
+// runs (the silver labels are already paid for and one worker pass is the
+// minimum useful calibration measurement). Before paying for the next
+// iteration (rewrite + run), if accumulated silver spend (directorUSD so far
+// + workerUSD so far) ≥ capUSD the loop stops cleanly: stoppedBy: "budget"
+// on the result, a note on the last curve point, and the partial tune
+// (goldset, curve so far, stability verdict, persistence) remains valid.
+//
 // Sibling dependencies are INJECTED per the pinned interface — tests pass
 // doubles; production routes pass the real modules:
 //   engine.runEphemeral(project, instrument, units, opts) → {outputs, cost, quarantine}
@@ -19,11 +35,12 @@ import { createGoldSet, versionInstrument } from "../core/objects.js";
 import { updateProject, projectDir } from "../core/store.js";
 import * as ledger from "../core/ledger.js";
 import { cohenKappa, krippendorffAlpha } from "../stats/agreement.js";
-import { callDirector, directorPool, seededSample, writeArtifact } from "./director.js";
+import { callDirector, directorCosts, directorPool, seededSample, writeArtifact } from "./director.js";
 import { silverLabelPrompt, confusionRewritePrompt, judgeResponseSchema, REWRITE_SCHEMA } from "./prompts.js";
 import { enforceTemplateScaffolding } from "./compiler.js";
 
 const labelKey = (v) => JSON.stringify(v);
+const round6 = (x) => Math.round(x * 1e6) / 1e6;
 
 // Top confusion cells (silver label vs worker label) with up to 3 example
 // unit texts each — the evidence the Director reads before rewriting.
@@ -74,9 +91,10 @@ function tryStats(sample, silverLabels, workerByUnit, construct) {
 }
 
 // silverTune(project, instrument, units, {engine, stability, onIteration, n,
-// maxIterations, plateauDelta}) → {instrument, curve}
+// maxIterations, plateauDelta, capUSD})
+// → {instrument, curve, cost: {workerUSD, directorUSD}, stoppedBy?: "budget"}
 export async function silverTune(project, instrument, units, opts = {}) {
-  const { engine, stability, onIteration, n = 200, maxIterations = 5, plateauDelta = 0.01 } = opts;
+  const { engine, stability, onIteration, n = 200, maxIterations = 5, plateauDelta = 0.01, capUSD = null } = opts;
   if (!engine || typeof engine.runEphemeral !== "function") {
     throw new ConcordError("VALIDATION", "silverTune requires an injected engine ({runEphemeral}) — production routes pass server/runs/engine.js", {});
   }
@@ -95,6 +113,7 @@ export async function silverTune(project, instrument, units, opts = {}) {
   }
 
   const pdir = projectDir(project.slug);
+  const directorUSDStart = directorCosts(project).usd; // meter delta isolates THIS tune's Director spend
 
   // ---- (1) Director silver-labels the seeded sample, one unit per call.
   // A few hundred frontier calls is the deliberate one-time cost of a
@@ -147,8 +166,16 @@ export async function silverTune(project, instrument, units, opts = {}) {
   const curve = [];
   let note = "initial template";
   let prevAgreement = null;
+  let workerUSD = 0; // tuning-loop runEphemeral spend (stability reports its own)
+  let stoppedBy = null;
+  // per-iteration Director spend = meter delta between curve points; marked
+  // AFTER silver labeling so the up-front labels are not billed to iteration 1
+  let dirMark = directorCosts(project).usd;
+  const accumulatedUSD = () => round6(workerUSD + (directorCosts(project).usd - directorUSDStart));
   for (let iteration = 1; iteration <= maxIterations; iteration++) {
-    const { outputs } = await engine.runEphemeral(project, instrument, sample, { seedOffset: iteration });
+    const { outputs, cost: runCost } = await engine.runEphemeral(project, instrument, sample, { seedOffset: iteration });
+    const iterWorkerUSD = runCost?.actualUSD ?? 0;
+    workerUSD = round6(workerUSD + iterWorkerUSD);
 
     // prefer aggregate rows when a panel produced them; otherwise per-juror
     const workerByUnit = new Map();
@@ -168,7 +195,11 @@ export async function silverTune(project, instrument, units, opts = {}) {
     }
     const agreement = matched / compared;
     const { kappa, alpha } = tryStats(sample, labels, workerByUnit, construct);
-    const point = { versionHash: instrument.versionHash, agreement, kappa, alpha, note };
+    // this iteration's spend: its worker pass + the Director rewrite that
+    // produced its version (the meter delta since the previous curve point)
+    const dirNow = directorCosts(project).usd;
+    const point = { versionHash: instrument.versionHash, agreement, kappa, alpha, note, costUSD: round6(iterWorkerUSD + (dirNow - dirMark)) };
+    dirMark = dirNow;
     curve.push(point);
     if (onIteration) await onIteration({ iteration, ...point });
 
@@ -176,6 +207,15 @@ export async function silverTune(project, instrument, units, opts = {}) {
     if (prevAgreement !== null && Math.abs(agreement - prevAgreement) < plateauDelta) break;
     prevAgreement = agreement;
     if (iteration === maxIterations) break;
+
+    // budget? an iteration is (Director rewrite + worker pass) — stop BEFORE
+    // paying for the next one once accumulated silver spend reaches the cap.
+    // The partial tune stays valid: stability + persistence still run below.
+    if (capUSD !== null && accumulatedUSD() >= capUSD) {
+      stoppedBy = "budget";
+      point.note = `${point.note} — stopped: budget cap ($${capUSD}) reached`;
+      break;
+    }
 
     // confusion-driven rewrite → new instrument VERSION (unfrozen path resets
     // level and drops stale stability/silver — exactly right mid-loop)
@@ -214,12 +254,18 @@ export async function silverTune(project, instrument, units, opts = {}) {
   }, {
     iterations: curve.length,
     finalAgreement: curve[curve.length - 1].agreement,
-    plateaued: curve.length < maxIterations,
+    plateaued: stoppedBy === null && curve.length < maxIterations,
     versionHash: instrument.versionHash,
+    ...(stoppedBy ? { stoppedBy } : {}),
   });
-  await ledger.append(pdir, "system", "instrument.stability", { instrumentId: instrument.id }, {
-    alpha: stabAlpha, pass, k: 3, n: 100, versionHash: instrument.versionHash,
-  });
+  // NOTE: the instrument.stability ledger event is appended by the stability
+  // module itself (server/instruments/stability.js) — silverTune must NOT
+  // re-append it, or one check would be double-counted by anything that
+  // tallies stability runs from the ledger.
 
-  return { instrument, curve };
+  const cost = {
+    workerUSD: round6(workerUSD),
+    directorUSD: round6(directorCosts(project).usd - directorUSDStart),
+  };
+  return { instrument, curve, cost, ...(stoppedBy ? { stoppedBy } : {}) };
 }

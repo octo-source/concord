@@ -3,6 +3,13 @@
 // restart simply re-tracks on the next executeRun. runState() is the read API
 // the monitor SSE route polls.
 //
+// Lifecycle/hygiene: the engine calls clearRun(runId) when a run reaches
+// `complete` or `failed` (state and tripwire are dropped — the Map must not
+// grow without bound). `paused`/`aborted` runs keep their state: they are
+// cheap and likely resumed soon; a resume re-tracks and replays persisted
+// outputs anyway, so live consumers must read telemetry DURING the run
+// (onTick/SSE), not after it ends.
+//
 // Warnings raised here:
 //   degenerate-output  one label holds > 95% of outputs after ≥ 100 outputs
 //                      (raised once per run).
@@ -11,9 +18,11 @@
 //                      every `every` outputs the monitor re-judges up to 20
 //                      sampled gold units via runEphemeral with a fresh
 //                      drift-specific seedOffset (so the check NEVER reuses
-//                      cached run outputs) and warns when percent agreement
-//                      with the gold labels drops more than `threshold` below
-//                      the certificate's stored agreement.
+//                      cached run outputs), inside the armed {dir} bundle (so
+//                      its cache lands with the run's, never in the default
+//                      projects dir), and warns when percent agreement with
+//                      the gold labels drops more than `threshold` below the
+//                      certificate's stored agreement.
 import { ConcordError } from "../core/errors.js";
 import { sha256 } from "../core/ids.js";
 import { mulberry32 } from "../core/rng.js";
@@ -126,9 +135,11 @@ export function clearRun(runId) {
 // goldOutputs: [{unit: Unit, label: Label}] — the certificate's gold units
 // with their adjudicated labels (the route layer assembles them; tests inject
 // directly). baseline defaults to the frozen certificate's stored percent
-// agreement. `project` is required so the re-judge respects privacy gates and
-// the bundle's cache directory.
-export function armDriftTripwire(runId, { project, goldOutputs, instrument, every = 2000, threshold = 0.15, baseline } = {}) {
+// agreement. `project` is required so the re-judge respects privacy gates.
+// `dir` (optional) is the run's bundle root — the SAME dir the engine was
+// given — so the re-judge's cache lands in the run's bundle instead of the
+// default projects dir; omitted, the engine resolves projectsDir().
+export function armDriftTripwire(runId, { project, goldOutputs, instrument, every = 2000, threshold = 0.15, baseline, dir } = {}) {
   if (!Array.isArray(goldOutputs) || goldOutputs.length === 0) {
     throw new ConcordError("VALIDATION", "armDriftTripwire requires goldOutputs: [{unit, label}]", {});
   }
@@ -138,7 +149,7 @@ export function armDriftTripwire(runId, { project, goldOutputs, instrument, ever
   if (typeof base !== "number") {
     throw new ConcordError("VALIDATION", "armDriftTripwire needs a baseline agreement (certificate.agreement.percent or explicit baseline)", {});
   }
-  tripwires.set(runId, { project, goldOutputs, instrument, every: Math.max(1, every), threshold, baseline: base, lastCheckAt: 0, checking: false });
+  tripwires.set(runId, { project, goldOutputs, instrument, every: Math.max(1, every), threshold, baseline: base, dir, lastCheckAt: 0, checking: false });
 }
 
 // Engine ping after each final output. Fires the gold re-judge when the run
@@ -164,9 +175,12 @@ export async function driftTick(runId) {
     // Dynamic import breaks the engine↔monitor cycle at module-load time.
     const { runEphemeral } = await import("./engine.js");
     // drift-specific seedOffset → cache-namespace separation: the re-judge
-    // must reflect the model NOW, not cached calibration-era outputs.
+    // must reflect the model NOW, not cached calibration-era outputs. The
+    // armed {dir} keeps the re-judge (and its cache writes) inside the run's
+    // bundle dir rather than the default projects dir.
     const { outputs } = await runEphemeral(cfg.project, cfg.instrument, sample.map((g) => g.unit), {
       seedOffset: `drift:${runId}:${s.done}`,
+      dir: cfg.dir,
     });
     // one verdict per unit: the juror line, overridden by the aggregate line
     // when the instrument is a panel
