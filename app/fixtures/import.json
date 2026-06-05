@@ -1,0 +1,59 @@
+{
+  "proposal": {
+    "fileName": "techcorp-exit-survey.csv",
+    "fileSize": 1184732,
+    "rows": 2500,
+    "columns": [
+      { "name": "respondent_id", "role": "id", "confidence": 0.99, "stats": { "distinct": 2500, "example": "R-004417" } },
+      { "name": "dept", "role": "categorical", "confidence": 0.97, "stats": { "distinct": 6, "example": "Engineering" } },
+      { "name": "tenure_years", "role": "numeric", "confidence": 0.95, "stats": { "min": 0, "max": 14, "mean": 3.6 } },
+      { "name": "role_level", "role": "categorical", "confidence": 0.92, "stats": { "distinct": 7, "example": "IC3" } },
+      { "name": "region", "role": "categorical", "confidence": 0.96, "stats": { "distinct": 4, "example": "NA" } },
+      { "name": "exit_date", "role": "date", "confidence": 0.93, "stats": { "min": "2025-01-06", "max": "2025-12-19", "parseRate": 0.998 } },
+      { "name": "satisfaction", "role": "numeric", "confidence": 0.88, "stats": { "min": 1, "max": 5, "mean": 2.7, "note": "looks ordinal 1–5" } },
+      { "name": "response", "role": "text", "confidence": 0.99, "stats": { "meanLength": 142, "maxLength": 1184 } }
+    ],
+    "preview": [
+      { "respondent_id": "R-000233", "dept": "Engineering", "tenure_years": 6, "role_level": "IC5", "region": "NA", "exit_date": "2025-06-30", "satisfaction": 2, "response": "Base salary sat 18% under market for my level and the refresh grants never came…" },
+      { "respondent_id": "R-000290", "dept": "Engineering", "tenure_years": 4, "role_level": "IC4", "region": "NA", "exit_date": "2025-05-09", "satisfaction": 5, "response": "Honestly? Great run. I learned more here in four years than in the previous ten…" },
+      { "respondent_id": "R-000358", "dept": "Engineering", "tenure_years": 2, "role_level": "IC3", "region": "NA", "exit_date": "2025-09-01", "satisfaction": 1, "response": "On-call every third week for a year. I did the math at my doctor's office…" },
+      { "respondent_id": "R-000388", "dept": "Engineering", "tenure_years": 11, "role_level": "M2", "region": "NA", "exit_date": "2025-10-17", "satisfaction": 2, "response": "Weekend releases became weekly releases became 'we own the pager now.'…" },
+      { "respondent_id": "R-000412", "dept": "Engineering", "tenure_years": 4, "role_level": "IC4", "region": "NA", "exit_date": "2025-07-21", "satisfaction": 3, "response": "My director Karen Voss promised a promotion for two cycles running…" },
+      { "respondent_id": "R-000460", "dept": "Engineering", "tenure_years": 4, "role_level": "IC4", "region": "NA", "exit_date": "2025-09-18", "satisfaction": 2, "response": "The return-to-office mandate was the end for me. I was hired remote…" },
+      { "respondent_id": "R-000521", "dept": "Engineering", "tenure_years": 3, "role_level": "IC4", "region": "NA", "exit_date": "2025-10-11", "satisfaction": 2, "response": "Burned out, plainly. We shipped the migration with half the promised headcount…" },
+      { "respondent_id": "R-000543", "dept": "Engineering", "tenure_years": 3, "role_level": "IC4", "region": "EU", "exit_date": "2025-09-26", "satisfaction": 3, "response": "The work itself was the best of my career. The pace was not survivable…" },
+      { "respondent_id": "R-000601", "dept": "Engineering", "tenure_years": 5, "role_level": "IC4", "region": "APAC", "exit_date": "2025-07-03", "satisfaction": 2, "response": "I wanted to grow into architecture work. There was no path, no ladder…" },
+      { "respondent_id": "R-000645", "dept": "Marketing", "tenure_years": 3, "role_level": "IC3", "region": "EU", "exit_date": "2025-07-08", "satisfaction": 3, "response": "My manager was the single best thing about this company. When she left in March…" },
+      { "respondent_id": "R-000689", "dept": "Marketing", "tenure_years": 3, "role_level": "IC2", "region": "NA", "exit_date": "2025-07-30", "satisfaction": 2, "response": "Three years, zero promotions, two 'exceeds expectations' reviews…" },
+      { "respondent_id": "R-000712", "dept": "Marketing", "tenure_years": 1, "role_level": "IC1", "region": "NA", "exit_date": "2025-05-20", "satisfaction": 3, "response": "n/a" },
+      { "respondent_id": "R-000734", "dept": "Marketing", "tenure_years": 2, "role_level": "IC3", "region": "NA", "exit_date": "2025-06-27", "satisfaction": 2, "response": "Two managers in one year, neither of whom set a single clear priority…" },
+      { "respondent_id": "R-000977", "dept": "Sales", "tenure_years": 4, "role_level": "IC3", "region": "NA", "exit_date": "2025-05-16", "satisfaction": 1, "response": "Quota went up 40% in January with no territory change…" },
+      { "respondent_id": "R-001066", "dept": "Sales", "tenure_years": 6, "role_level": "M1", "region": "NA", "exit_date": "2025-04-28", "satisfaction": 4, "response": "I regret leaving already, honestly. Signed elsewhere during the hiring freeze panic…" },
+      { "respondent_id": "R-001093", "dept": "Sales", "tenure_years": 3, "role_level": "IC2", "region": "LATAM", "exit_date": "2025-08-02", "satisfaction": 2, "response": "El salario nunca alcanzó y la gerencia jamás escuchaba…" },
+      { "respondent_id": "R-001234", "dept": "Sales", "tenure_years": 1, "role_level": "IC1", "region": "NA", "exit_date": "2025-06-02", "satisfaction": 3, "response": "asdf" },
+      { "respondent_id": "R-001410", "dept": "Sales", "tenure_years": 1, "role_level": "IC1", "region": "NA", "exit_date": "2025-09-29", "satisfaction": 4, "response": "Loved the people. Left for money. It really is that simple." },
+      { "respondent_id": "R-001411", "dept": "Sales", "tenure_years": 2, "role_level": "IC2", "region": "NA", "exit_date": "2025-09-30", "satisfaction": 4, "response": "Loved the people. Left for money. It really is that simple." },
+      { "respondent_id": "R-001502", "dept": "Operations", "tenure_years": 7, "role_level": "M1", "region": "NA", "exit_date": "2025-08-19", "satisfaction": 2, "response": "Four reorgs in eighteen months. Each time leadership promised clarity…" }
+    ],
+    "issues": [
+      { "kind": "duplicates", "count": 24, "note": "24 rows are exact duplicates after whitespace normalization (e.g. rows 1410/1411). They import flagged, not dropped.", "rows": [1410, 1411] },
+      { "kind": "junk", "count": 61, "note": "61 responses look like placeholders (\"n/a\", \"asdf\", \".\"). They go to the junk queue and stay out of analyses unless you restore them.", "rows": [712, 1234] },
+      { "kind": "pii", "count": 18, "note": "18 responses appear to name a person. Reversible pseudonymization is offered; the mapping vault never enters the project bundle.", "rows": [412] },
+      { "kind": "language", "count": 81, "note": "81 responses read as Spanish. They import as-is; instruments state how they handle mixed language.", "rows": [1093, 2104] },
+      { "kind": "dates", "count": 5, "note": "5 exit_date values did not parse (e.g. \"Q3\"). They import as null, the rows stay.", "rows": [88] }
+    ],
+    "unitization": {
+      "advised": "response",
+      "advisedBy": "director",
+      "note": "Each row is one respondent's complete answer; responses are short (median 19 words) and self-contained, so the response is the natural unit. Sentence-level would shred the sarcasm and multi-clause grievances this corpus runs on.",
+      "options": [
+        { "scheme": "response", "label": "Response", "hint": "one unit per row — advised", "estUnits": 2500 },
+        { "scheme": "sentence", "label": "Sentence", "hint": "splits on sentence bounds", "estUnits": 6120 },
+        { "scheme": "paragraph", "label": "Paragraph", "hint": "splits on blank lines", "estUnits": 2716 },
+        { "scheme": "turn", "label": "Turn", "hint": "for transcripts — no speakers detected", "estUnits": null }
+      ]
+    },
+    "junkQueue": { "count": 61, "examples": ["n/a", "asdf", ".", "none", "no comment"] }
+  },
+  "confirmResult": { "corpusId": "corp_exit2025", "unitCount": 2500, "junkQueue": 61 }
+}

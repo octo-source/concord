@@ -1,0 +1,110 @@
+{
+  "constructs": [
+    {
+      "id": "k_theme",
+      "name": "Exit theme",
+      "type": "nominal",
+      "definition": "The primary grievance or reason-for-leaving a respondent foregrounds in their exit response. One label per unit: the theme the respondent treats as decisive, not every theme mentioned.",
+      "categories": [
+        { "value": "pay", "label": "Pay & compensation", "anchor": "salary, equity, commission, comp process" },
+        { "value": "management", "label": "Management churn", "anchor": "manager quality, reorgs, leadership absence" },
+        { "value": "workload-burnout", "label": "Workload & burnout", "anchor": "hours, on-call, pace, exhaustion" },
+        { "value": "growth", "label": "Blocked growth", "anchor": "promotion, development, career path" },
+        { "value": "remote-policy", "label": "Remote policy", "anchor": "RTO mandate, location flexibility" },
+        { "value": "other", "label": "Other / none", "anchor": "relocation, personal, no grievance" }
+      ],
+      "criteria": {
+        "include": [
+          "Label the theme the respondent treats as the deciding factor, even when several are mentioned.",
+          "Sarcasm counts for its intended meaning, not its surface words.",
+          "Comp-process complaints (frozen cycles, band compression, capped accelerators) are pay."
+        ],
+        "exclude": [
+          "Do not label themes mentioned only to be dismissed (“the pay was fine” is not pay).",
+          "General praise or goodbye messages with no grievance are other.",
+          "Do not infer a theme from metadata; the text alone decides."
+        ]
+      },
+      "edgeCases": [
+        "Mixed pay + growth (“underpaid and unpromotable”): choose the one framed as decisive; if truly equal, prefer the first stated.",
+        "RTO framed as commute burden is remote-policy, not workload.",
+        "A beloved manager leaving (absence) is management, even with no criticism of any person."
+      ],
+      "examples": [
+        { "text": "Base salary sat 18% under market for my level and the refresh grants never came.", "label": "pay", "kind": "positive", "unitId": "u_03d7e8a1f4b2c690" },
+        { "text": "The pay was fine, honestly — it was watching every good manager leave while the broken processes stayed.", "label": "management", "kind": "nearmiss", "unitId": "u_2847f1a09c3d55b2" },
+        { "text": "Pay was fair, manager was kind, I just moved cities for family.", "label": "other", "kind": "negative", "unitId": "u_47a3e9c5d2f1b860" },
+        { "text": "Oh sure, the workload was totally reasonable. Eighty-hour weeks build character, right?", "label": "workload-burnout", "kind": "positive", "unitId": "u_8800c1d2e4a90b77" }
+      ],
+      "authoredBy": "director",
+      "humanTouched": false,
+      "createdAt": "2026-06-01T10:05:00Z"
+    },
+    {
+      "id": "k_burnout",
+      "name": "Burnout severity",
+      "type": "ordinal",
+      "definition": "How much sustained exhaustion or depletion the respondent expresses about their own state — not workload volume in the abstract, but its toll on the person.",
+      "categories": [
+        { "value": "none", "label": "None", "anchor": "no depletion expressed" },
+        { "value": "mild", "label": "Mild", "anchor": "strain noted, coping intact" },
+        { "value": "severe", "label": "Severe", "anchor": "depletion, health language, ‘nothing left’" }
+      ],
+      "criteria": {
+        "include": [
+          "Health consequences (doctor visits, sleep, family impact) read as severe.",
+          "Sarcastic minimization of extreme hours is at least mild."
+        ],
+        "exclude": [
+          "Complaints about workload fairness without personal toll are none.",
+          "Burnout attributed to others (‘my team is burned out’) does not score the respondent."
+        ]
+      },
+      "edgeCases": [
+        "‘The pace was not survivable’ — severe: survivability language is somatic even without symptoms."
+      ],
+      "examples": [
+        { "text": "On-call every third week for a year. I did the math at my doctor's office.", "label": "severe", "kind": "positive", "unitId": "u_1f8d3c5b9e72a044" },
+        { "text": "Support queue doubled, headcount didn't.", "label": "none", "kind": "nearmiss", "unitId": "u_b05c8f2a6d31e947" },
+        { "text": "Loved the people. Left for money.", "label": "none", "kind": "negative", "unitId": "u_4b9c2e7d80a1f355" }
+      ],
+      "authoredBy": "human",
+      "humanTouched": true,
+      "createdAt": "2026-06-02T11:40:00Z"
+    }
+  ],
+  "importProposals": [
+    {
+      "name": "Voluntary vs regretted exit",
+      "type": "binary",
+      "definition": "From the legacy 2019 codebook: whether the organization would re-hire the respondent into the same role (regretted) or not (non-regretted).",
+      "categories": [ { "value": "regretted", "label": "Regretted" }, { "value": "non-regretted", "label": "Non-regretted" } ],
+      "criteria": { "include": ["High performers and hard-to-fill roles read regretted."], "exclude": ["Do not use tenure alone."] },
+      "edgeCases": [], "examples": [],
+      "authoredBy": "director", "humanTouched": false,
+      "source": "legacy-codebook-2019.docx · p.4"
+    },
+    {
+      "name": "Exit tone",
+      "type": "ordinal",
+      "definition": "From the legacy codebook: overall tone of the exit response from hostile to warm.",
+      "categories": [ { "value": "hostile", "label": "Hostile" }, { "value": "neutral", "label": "Neutral" }, { "value": "warm", "label": "Warm" } ],
+      "criteria": { "include": ["Score the close, not the complaint."], "exclude": [] },
+      "edgeCases": [], "examples": [],
+      "authoredBy": "director", "humanTouched": false,
+      "source": "legacy-codebook-2019.docx · p.7"
+    }
+  ],
+  "inductiveProposals": [
+    {
+      "name": "Counteroffer timing",
+      "type": "binary",
+      "definition": "Hypothesis from inductive pass: whether the respondent mentions a counteroffer arriving too late or not at all — appears in ~4% of sampled units, concentrated in Sales.",
+      "categories": [ { "value": "present", "label": "Present" }, { "value": "absent", "label": "Absent" } ],
+      "criteria": { "include": ["Mentions of counters, retention offers, or ‘two days too late’."], "exclude": [] },
+      "edgeCases": [], "examples": [ { "text": "Signed elsewhere during the hiring freeze panic and the counter came two days too late.", "label": "present", "kind": "positive", "unitId": "u_92c8b4f6a1e7d503" } ],
+      "authoredBy": "director", "humanTouched": false,
+      "source": "inductive pass · n=200 · hypothesis generation, not measurement"
+    }
+  ]
+}

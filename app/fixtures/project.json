@@ -1,0 +1,50 @@
+{
+  "id": "proj_techcorp01",
+  "name": "TechCorp Exit Survey",
+  "slug": "techcorp-exit",
+  "createdAt": "2026-06-01T09:14:00Z",
+  "privacyMode": "no-training",
+  "budget": { "capUSD": 25, "spentUSD": 4.87 },
+  "director": { "provider": "anthropic", "model": "claude-sonnet-4-5", "snapshot": "claude-sonnet-4-5-20250929" },
+  "corpora": [
+    {
+      "id": "corp_exit2025",
+      "name": "techcorp-exit-survey.csv",
+      "unitCount": 2500,
+      "unitization": "response",
+      "importedAt": "2026-06-01T09:21:00Z",
+      "sourceFiles": ["techcorp-exit-survey.csv"],
+      "junkCount": 61,
+      "dupCount": 24,
+      "piiCount": 18,
+      "languages": { "en": 2419, "es": 81 }
+    }
+  ],
+  "constructs": [
+    { "id": "k_theme", "name": "Exit theme", "type": "nominal", "authoredBy": "director", "humanTouched": false },
+    { "id": "k_burnout", "name": "Burnout severity", "type": "ordinal", "authoredBy": "human", "humanTouched": true }
+  ],
+  "instruments": [
+    { "id": "inst_dict", "name": "work-themes · dictionary", "kind": "dictionary", "constructId": "k_theme", "level": "exploratory", "version": 2, "frozen": false, "authoredBy": "human", "humanTouched": true },
+    { "id": "inst_judge_x", "name": "exit-theme · judge v1", "kind": "judge", "constructId": "k_theme", "level": "exploratory", "version": 1, "frozen": false, "authoredBy": "director", "humanTouched": false },
+    { "id": "inst_judge_s", "name": "exit-theme · judge v3 (tuned)", "kind": "judge", "constructId": "k_theme", "level": "stabilized", "version": 3, "frozen": false, "authoredBy": "director", "humanTouched": true },
+    { "id": "inst_judge_f", "name": "exit-theme · judge v4", "kind": "judge", "constructId": "k_theme", "level": "calibrated", "version": 4, "frozen": true, "authoredBy": "director", "humanTouched": true },
+    { "id": "inst_panel", "name": "exit-theme · panel ×3", "kind": "panel", "constructId": "k_theme", "level": "exploratory", "version": 1, "frozen": false, "authoredBy": "director", "humanTouched": true }
+  ],
+  "goldsets": [
+    { "id": "g_theme1", "name": "exit-theme gold · SRS 20", "constructId": "k_theme", "tier": "gold", "design": "srs", "status": "coding", "n": 20 }
+  ],
+  "analyses": [
+    { "id": "an_crosstab", "name": "pay × dept (DSL)", "kind": "crosstab", "level": "corrected", "createdAt": "2026-06-04T16:40:00Z" },
+    { "id": "an_triang", "name": "dictionary vs judge", "kind": "triangulation", "level": "stabilized", "createdAt": "2026-06-04T17:02:00Z" },
+    { "id": "an_subgroup", "name": "agreement by dept", "kind": "subgroup", "level": "calibrated", "createdAt": "2026-06-04T17:15:00Z" },
+    { "id": "an_model", "name": "quit-intent model", "kind": "model", "level": "corrected", "createdAt": "2026-06-04T18:03:00Z" }
+  ],
+  "briefs": [
+    { "id": "brief_a1", "corpusId": "corp_exit2025", "createdAt": "2026-06-01T09:32:00Z", "authoredBy": "director", "humanTouched": false, "sampleN": 312 }
+  ],
+  "runs": [
+    { "id": "run_panel_full", "instrumentId": "inst_panel", "corpusId": "corp_exit2025", "status": "complete", "done": 2500, "total": 2500, "costUSD": 3.86 },
+    { "id": "run_judge_pre", "instrumentId": "inst_judge_s", "corpusId": "corp_exit2025", "status": "pending", "done": 0, "total": 2500, "costUSD": 0 }
+  ]
+}

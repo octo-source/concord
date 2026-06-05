@@ -1,0 +1,126 @@
+{
+  "analyses": [
+    {
+      "id": "an_crosstab",
+      "kind": "crosstab",
+      "name": "pay × dept (DSL)",
+      "level": "corrected",
+      "createdAt": "2026-06-04T16:40:00Z",
+      "spec": { "construct": "k_theme", "value": "pay", "by": "dept", "instrumentId": "inst_judge_f", "goldsetId": "g_theme1", "estimator": "dsl" },
+      "results": {
+        "estimator": "DSL (design-based supervised learning), π from g_theme1",
+        "explainer": "Corrected for machine-labeling error using the gold sample (DSL). Machine accuracy buys precision, never validity.",
+        "chi2": 38.4, "df": 5, "p": 0.0000031, "minExpected": 11.2,
+        "rows": [
+          { "label": "Sales", "corrected": { "value": 0.41, "ci": [0.33, 0.49] }, "naive": { "value": 0.35 }, "n": 562, "evidence": ["u_d12f4a86c3e09b58", "u_91b3c07d2e8f4a16", "u_4b9c2e7d80a1f355"] },
+          { "label": "Support", "corrected": { "value": 0.34, "ci": [0.26, 0.42] }, "naive": { "value": 0.31 }, "n": 392, "evidence": ["u_3e8c5d0f7a92b441"] },
+          { "label": "Operations", "corrected": { "value": 0.27, "ci": [0.2, 0.34] }, "naive": { "value": 0.3 }, "n": 444, "evidence": ["u_ea6f3b8d0c92a154"] },
+          { "label": "Engineering", "corrected": { "value": 0.22, "ci": [0.16, 0.28] }, "naive": { "value": 0.26 }, "n": 678, "evidence": ["u_03d7e8a1f4b2c690"] },
+          { "label": "Marketing", "corrected": { "value": 0.19, "ci": [0.12, 0.26] }, "naive": { "value": 0.21 }, "n": 263, "evidence": [] },
+          { "label": "HR", "corrected": { "value": 0.15, "ci": [0.07, 0.23] }, "naive": { "value": 0.18 }, "n": 161, "evidence": ["u_47a3e9c5d2f1b860"] }
+        ],
+        "cells": {
+          "Sales": ["u_d12f4a86c3e09b58", "u_91b3c07d2e8f4a16", "u_4b9c2e7d80a1f355"],
+          "Support": ["u_3e8c5d0f7a92b441"],
+          "Operations": ["u_ea6f3b8d0c92a154"],
+          "Engineering": ["u_03d7e8a1f4b2c690"]
+        }
+      }
+    },
+    {
+      "id": "an_triang",
+      "kind": "triangulation",
+      "name": "dictionary vs judge",
+      "level": "stabilized",
+      "createdAt": "2026-06-04T17:02:00Z",
+      "spec": { "x": "inst_dict", "y": "inst_judge_s", "construct": "k_theme", "groupBy": "sub-theme", "threshold": 0.2 },
+      "results": {
+        "xLabel": "dictionary · work-themes",
+        "yLabel": "judge v3 (tuned)",
+        "threshold": 0.2,
+        "pearson": 0.71,
+        "points": [
+          { "x": 0.81, "y": 0.78, "label": "pay/base-salary", "id": "u_03d7e8a1f4b2c690" },
+          { "x": 0.74, "y": 0.71, "label": "growth", "id": "u_16d9a4e7f2c50b38" },
+          { "x": 0.66, "y": 0.62, "label": "remote/RTO", "id": "u_a8f04c6e3b92d715" },
+          { "x": 0.58, "y": 0.6, "label": "mgmt/reorgs", "id": "u_c6a91e2f7d40b833" },
+          { "x": 0.52, "y": 0.49, "label": "pay/equity", "id": null },
+          { "x": 0.61, "y": 0.23, "label": "sarcasm-heavy", "id": "u_8800c1d2e4a90b77" },
+          { "x": 0.44, "y": 0.47, "label": "onboarding", "id": null },
+          { "x": 0.34, "y": 0.37, "label": "tooling", "id": null },
+          { "x": 0.27, "y": 0.62, "label": "mixed-lang", "id": "u_91b3c07d2e8f4a16" },
+          { "x": 0.23, "y": 0.21, "label": "relocation", "id": "u_47a3e9c5d2f1b860" },
+          { "x": 0.15, "y": 0.17, "label": "perks", "id": null },
+          { "x": 0.41, "y": 0.68, "label": "pay/dismissed", "id": "u_2847f1a09c3d55b2" }
+        ],
+        "divergent": [
+          { "id": "u_8800c1d2e4a90b77", "label": "sarcasm-heavy", "x": 0.61, "y": 0.23, "note": "dictionary counts the words; the judge reads the irony" },
+          { "id": "u_91b3c07d2e8f4a16", "label": "mixed-lang", "x": 0.27, "y": 0.62, "note": "English dictionary misses Spanish pay language the judge catches" },
+          { "id": "u_2847f1a09c3d55b2", "label": "pay/dismissed", "x": 0.41, "y": 0.68, "note": "dictionary scores the dismissed pay mention; the judge follows the dismissal rule" }
+        ]
+      }
+    },
+    {
+      "id": "an_subgroup",
+      "kind": "subgroup",
+      "name": "agreement by dept",
+      "level": "calibrated",
+      "createdAt": "2026-06-04T17:15:00Z",
+      "spec": { "instrumentId": "inst_judge_f", "goldsetId": "g_theme1", "by": "dept" },
+      "results": {
+        "note": "Instrument agreement with gold, split by metadata group. Flagged rows fall more than .15 below the pooled κ — the instrument may read those groups differently.",
+        "pooledKappa": 0.79,
+        "rows": [
+          { "group": "Engineering", "n": 6, "kappa": 0.86, "percent": 0.83, "flagged": false, "evidence": ["u_03d7e8a1f4b2c690", "u_1f8d3c5b9e72a044", "u_9a4e7b1c2f86d520"] },
+          { "group": "Operations", "n": 4, "kappa": 0.81, "percent": 0.75, "flagged": false, "evidence": ["u_2847f1a09c3d55b2", "u_c6a91e2f7d40b833"] },
+          { "group": "Sales", "n": 5, "kappa": 0.78, "percent": 0.8, "flagged": false, "evidence": ["u_d12f4a86c3e09b58", "u_91b3c07d2e8f4a16"] },
+          { "group": "Support", "n": 3, "kappa": 0.55, "percent": 0.67, "flagged": true, "evidence": ["u_8800c1d2e4a90b77", "u_b05c8f2a6d31e947"], "note": "Support rows carry the heaviest sarcasm — the known failure mode." },
+          { "group": "es-language", "n": 2, "kappa": 0.61, "percent": 0.5, "flagged": true, "evidence": ["u_91b3c07d2e8f4a16", "u_30e6c2f8b9a4d157"], "note": "Spanish responses — small n, but worth a stratified gold top-up." }
+        ]
+      }
+    },
+    {
+      "id": "an_model",
+      "kind": "model",
+      "name": "quit-intent model",
+      "level": "corrected",
+      "createdAt": "2026-06-04T18:03:00Z",
+      "spec": { "outcome": "pay (k_theme)", "predictors": ["satisfaction", "tenure_years", "dept=Sales"], "model": "logit", "estimator": "dsl" },
+      "results": {
+        "model": "Logistic (IRLS), DSL pseudo-outcomes, HC1 sandwich SEs",
+        "explainer": "Outcome-side correction via the gold sample. Predictor-side measurement error is NOT corrected — read predictor coefficients with that caveat.",
+        "nUnits": 2439, "nGold": 18,
+        "coef": [
+          { "name": "(intercept)", "est": -0.42, "se": 0.21, "z": -2.0, "p": 0.0455 },
+          { "name": "satisfaction", "est": -0.38, "se": 0.09, "z": -4.22, "p": 0.000024 },
+          { "name": "tenure_years", "est": -0.05, "se": 0.04, "z": -1.25, "p": 0.211 },
+          { "name": "dept = Sales", "est": 0.61, "se": 0.18, "z": 3.39, "p": 0.0007 },
+          { "name": "region = LATAM", "est": 0.22, "se": 0.0, "z": null, "p": null, "note": "se = 0 — separation in the gold slice; estimate reported without a test" }
+        ],
+        "naive": [
+          { "name": "(intercept)", "est": -0.31, "se": 0.18 },
+          { "name": "satisfaction", "est": -0.45, "se": 0.08 },
+          { "name": "tenure_years", "est": -0.08, "se": 0.04 },
+          { "name": "dept = Sales", "est": 0.48, "se": 0.16 },
+          { "name": "region = LATAM", "est": 0.31, "se": 0.21 }
+        ]
+      }
+    }
+  ],
+  "templates": {
+    "descriptive": {
+      "kind": "descriptive",
+      "level": "exploratory",
+      "results": {
+        "prevalence": [
+          { "label": "pay", "value": 0.282, "evidence": ["u_03d7e8a1f4b2c690", "u_d12f4a86c3e09b58"] },
+          { "label": "workload-burnout", "value": 0.253, "evidence": ["u_1f8d3c5b9e72a044", "u_9a4e7b1c2f86d520"] },
+          { "label": "management", "value": 0.211, "evidence": ["u_c6a91e2f7d40b833"] },
+          { "label": "growth", "value": 0.166, "evidence": ["u_55e0a9d4b7c2f311"] },
+          { "label": "remote-policy", "value": 0.117, "evidence": ["u_a8f04c6e3b92d715"] }
+        ],
+        "summary": { "n": 2439, "labeled": 2439, "topLabel": "pay" }
+      }
+    }
+  }
+}

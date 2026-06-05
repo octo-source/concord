@@ -113,13 +113,15 @@ async function resolve() {
     if (result instanceof HTMLElement) {
       rootEl.replaceChildren(result);
     } else if (result && result.el instanceof HTMLElement) {
-      rootEl.replaceChildren(result.el);
+      if (result.el !== rootEl) rootEl.replaceChildren(result.el);
       if (typeof result.destroy === "function") activeTeardown = result.destroy;
     }
   } catch (err) {
     console.error(`route "${path}" failed`, err);
     rootEl.replaceChildren(errorView(err));
   }
+  // a new page starts at its top
+  rootEl.closest(".app-work")?.scrollTo?.(0, 0);
   bus.emit("route:changed", currentRoute);
 }
 

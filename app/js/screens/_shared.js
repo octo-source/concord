@@ -1,0 +1,341 @@
+// Shared furniture for the screens wave: headers, sections, sheets, estimate
+// chips, a safe mini-markdown renderer, async screen scaffolding, and the
+// project loader that keeps the rail in step. Screens compose H1 components;
+// this module only adds the connective tissue they share.
+
+import { el, clear, frag } from "../dom.js";
+import { store } from "../state.js";
+import api from "../api.js";
+import * as ladder from "../components/ladder.js";
+import * as glyph from "../components/glyph.js";
+import { fmtCost, fmtCount, fmtDuration } from "../format.js";
+
+/* ---- screen scaffolding ----------------------------------------------------- */
+
+/**
+ * screenHead({ overline, title, glyphState, lede, actions, marks }) → <header>
+ * The quiet top of every screen: section voice, Fraunces title, optional
+ * Director glyph, lede, action cluster on the right.
+ */
+export function screenHead({ overline, title, lede, actions = [], glyphState = null, titleSuffix = null } = {}) {
+  return el("header", { class: "screen__head" },
+    el("div", { class: "screen__head-text" },
+      overline ? el("p", { class: "overline" }, overline) : null,
+      el("h2", { class: "screen__title" },
+        title,
+        glyphState ? glyph.render(glyphState) : null,
+        titleSuffix,
+      ),
+      lede ? el("p", { class: "screen__lede" }, lede) : null,
+    ),
+    actions.length ? el("div", { class: "screen__actions" }, ...actions) : null,
+  );
+}
+
+export function section(title, ...children) {
+  return el("section", { class: "screen__section" },
+    title ? el("h3", { class: "overline screen__section-label" }, title) : null,
+    ...children,
+  );
+}
+
+export function emptyState({ mark = "◌", title, body, hint, actions = [] } = {}) {
+  return el("div", { class: "empty-state" },
+    el("p", { class: "empty-state__mark", aria: { hidden: "true" } }, mark),
+    el("h2", { class: "empty-state__title" }, title),
+    body ? el("p", { class: "empty-state__body" }, body) : null,
+    hint ? el("p", { class: "empty-state__hint" }, hint) : null,
+    actions.length ? el("p", { class: "empty-state__actions" }, ...actions) : null,
+  );
+}
+
+export function loadingView(line = "Composing…") {
+  return el("div", { class: "screen-loading", role: "status" },
+    el("span", { class: "screen-loading__rule", aria: { hidden: "true" } }),
+    el("p", { class: "screen-loading__line" }, line),
+  );
+}
+
+export function errorView(err, { retry } = {}) {
+  const isUnreachable = err?.code === "UNREACHABLE";
+  return el("div", { class: "empty-state" },
+    el("p", { class: "empty-state__mark empty-state__mark--signal", aria: { hidden: "true" } }, "◌"),
+    el("h2", { class: "empty-state__title" }, isUnreachable ? "The server is not answering." : "This page failed to compose."),
+    el("p", { class: "empty-state__body" }, String(err?.message ?? err)),
+    isUnreachable
+      ? el("p", { class: "empty-state__hint" }, "Start Concord with start.bat — or review the screens with fixtures: ",
+          el("a", { href: "#/dev/screens?fixtures=1" }, "open fixtures mode"), ".")
+      : null,
+    retry ? el("p", { class: "empty-state__actions" }, el("button", { class: "btn", type: "button", onclick: retry }, "Try again")) : null,
+  );
+}
+
+/**
+ * asyncMount(mount, loader, renderFn, loadingLine) — standard screen rhythm:
+ * loading rule → data → compose; errors land as the designed error state.
+ */
+export async function asyncMount(mount, loader, renderFn, loadingLine) {
+  clear(mount).append(loadingView(loadingLine));
+  try {
+    const data = await loader();
+    clear(mount);
+    await renderFn(data);
+  } catch (err) {
+    console.error(err);
+    clear(mount).append(errorView(err, { retry: () => asyncMount(mount, loader, renderFn, loadingLine) }));
+  }
+}
+
+/* ---- project loading ---------------------------------------------------------- */
+
+let loadedSlug = null;
+
+/** Load the project graph into the store (rail + chips follow). Cached per slug. */
+export async function ensureProject(slug) {
+  const current = store.get("project");
+  if (current?.slug === slug && loadedSlug === slug) return current;
+  const project = await api.projects.get(slug);
+  loadedSlug = slug;
+  store.set("project", project);
+  return project;
+}
+
+/** Re-fetch the graph after a mutation so the rail stays honest. */
+export async function refreshProject(slug) {
+  loadedSlug = null;
+  return ensureProject(slug);
+}
+
+/* ---- sheets — the sliding work surface ------------------------------------------ */
+
+/**
+ * sheet({ title, overline, wide, onClose }) → { el, body, foot, close }
+ * A paper sheet that slides up over a scrim. Escape and the scrim close it;
+ * focus moves in on open and returns to the opener on close.
+ */
+export function openSheet({ title, overline, wide = false, onClose } = {}) {
+  const opener = document.activeElement;
+  const body = el("div", { class: "sheet__body" });
+  const foot = el("div", { class: "sheet__foot" });
+
+  const panel = el("div", {
+    class: `sheet__panel${wide ? " sheet__panel--wide" : ""}`,
+    role: "dialog",
+    "aria-modal": "true",
+    aria: { label: title ?? "Sheet" },
+  },
+    el("header", { class: "sheet__head" },
+      el("div", {},
+        overline ? el("p", { class: "overline" }, overline) : null,
+        el("h2", { class: "sheet__title" }, title ?? ""),
+      ),
+      el("button", { class: "sheet__close", type: "button", aria: { label: "Close" }, onclick: () => close() }, "×"),
+    ),
+    body,
+    foot,
+  );
+
+  const root = el("div", { class: "sheet" },
+    el("div", { class: "sheet__scrim", onclick: () => close() }),
+    panel,
+  );
+
+  function onKey(e) {
+    if (e.key === "Escape") {
+      e.stopPropagation();
+      close();
+    } else if (e.key === "Tab") {
+      // soft focus trap — wrap within the panel
+      const focusables = panel.querySelectorAll("button, [href], input, select, textarea, [tabindex]:not([tabindex='-1'])");
+      if (focusables.length === 0) return;
+      const first = focusables[0];
+      const last = focusables[focusables.length - 1];
+      if (e.shiftKey && document.activeElement === first) { e.preventDefault(); last.focus(); }
+      else if (!e.shiftKey && document.activeElement === last) { e.preventDefault(); first.focus(); }
+    }
+  }
+
+  let closed = false;
+  function close() {
+    if (closed) return;
+    closed = true;
+    root.classList.add("sheet--leaving");
+    root.removeEventListener("keydown", onKey);
+    const remove = () => {
+      root.remove();
+      onClose?.();
+      if (opener?.isConnected && typeof opener.focus === "function") opener.focus();
+    };
+    panel.addEventListener("transitionend", remove, { once: true });
+    setTimeout(remove, 350);
+  }
+
+  root.addEventListener("keydown", onKey);
+  document.body.append(root);
+  // compose in after first style resolution (timeout, not rAF — hidden tabs)
+  setTimeout(() => root.classList.add("sheet--in"), 20);
+  setTimeout(() => panel.querySelector("input, select, textarea, button:not(.sheet__close)")?.focus(), 240);
+
+  return { el: root, body, foot, close };
+}
+
+/* ---- chips & lines ----------------------------------------------------------------- */
+
+/** Estimate chips: units · calls · $ · eta. Every screen quotes prices the same way. */
+export function estimateChips({ units, calls, usd, usdRange, etaMin } = {}) {
+  const chips = [];
+  if (units !== undefined && units !== null) chips.push(el("span", { class: "chip data" }, `${fmtCount(units)} units`));
+  if (calls !== undefined && calls !== null && calls !== units) chips.push(el("span", { class: "chip data" }, `${fmtCount(calls)} calls`));
+  if (usdRange) chips.push(el("span", { class: "chip data" }, `${fmtCost(usdRange[0])}–${fmtCost(usdRange[1])}`));
+  else if (usd !== undefined && usd !== null) chips.push(el("span", { class: "chip data" }, fmtCost(usd)));
+  if (etaMin !== undefined && etaMin !== null) chips.push(el("span", { class: "chip data" }, fmtDuration(etaMin)));
+  return el("span", { class: "estchips" }, ...chips);
+}
+
+/** A labeled value row for definition lists. */
+export function kv(label, ...value) {
+  return el("div", { class: "kv" },
+    el("dt", { class: "kv__label overline" }, label),
+    el("dd", { class: "kv__value" }, ...value),
+  );
+}
+
+export function kvList(...rows) {
+  return el("dl", { class: "kvlist" }, ...rows);
+}
+
+/** A value with its ladder mark — the canonical way a number appears. */
+export function markedValue(text, level, { size = "sm" } = {}) {
+  return el("span", { class: "markedvalue" },
+    el("span", { class: "data" }, text),
+    level ? ladder.render({ level, size }) : null,
+  );
+}
+
+/** Director-flagged margin annotation, dismissible. */
+export function annotation({ text, by = "director", onDismiss } = {}) {
+  const node = el("aside", { class: "annotation" },
+    by === "director" ? el("span", { class: "annotation__glyph", aria: { hidden: "true" } }, glyph.GLYPH) : null,
+    el("p", { class: "annotation__text" }, text),
+    onDismiss !== false
+      ? el("button", {
+          class: "annotation__dismiss", type: "button", aria: { label: "Dismiss annotation" },
+          onclick: () => { node.classList.add("annotation--leaving"); setTimeout(() => { node.remove(); onDismiss?.(); }, 200); },
+        }, "×")
+      : null,
+  );
+  return node;
+}
+
+/* ---- mini markdown — safe, tiny, enough for the Brief and methods --------------------
+   Supported: ## headings, **bold**, *italic*, `code`, paragraphs, - lists.
+   Built entirely from text nodes — corpus text can never become markup.
+   `chipFn(token)` may map a [bracketed:token] to a Node (citation chips). */
+
+export function mdInline(text, chipFn = null) {
+  const out = [];
+  // tokenize: chips first, then bold, italics, code
+  const re = /(\[[a-z]+:[^\]\s]+\])|(\*\*[^*]+\*\*)|(\*[^*\n]+\*)|(`[^`]+`)/g;
+  let last = 0;
+  let m;
+  while ((m = re.exec(text)) !== null) {
+    if (m.index > last) out.push(text.slice(last, m.index));
+    const tok = m[0];
+    if (m[1] && chipFn) {
+      const node = chipFn(tok.slice(1, -1));
+      out.push(node ?? tok);
+    } else if (m[1]) {
+      out.push(tok);
+    } else if (m[2]) {
+      out.push(el("strong", {}, tok.slice(2, -2)));
+    } else if (m[3]) {
+      out.push(el("em", {}, tok.slice(1, -1)));
+    } else if (m[4]) {
+      out.push(el("code", {}, tok.slice(1, -1)));
+    }
+    last = m.index + tok.length;
+  }
+  if (last < text.length) out.push(text.slice(last));
+  return out;
+}
+
+export function mdBlock(md, { chipFn = null } = {}) {
+  const root = el("div", { class: "md" });
+  const lines = String(md ?? "").split(/\r?\n/);
+  let list = null;
+  let para = [];
+  const flushPara = () => {
+    if (para.length) {
+      root.append(el("p", {}, ...mdInline(para.join(" "), chipFn)));
+      para = [];
+    }
+  };
+  const flushList = () => {
+    if (list) { root.append(list); list = null; }
+  };
+  for (const line of lines) {
+    const t = line.trim();
+    if (t === "") { flushPara(); flushList(); continue; }
+    const h = t.match(/^(#{1,4})\s+(.*)$/);
+    if (h) {
+      flushPara(); flushList();
+      const level = Math.min(4, h[1].length + 1); // # → h2 floor inside screens
+      root.append(el(`h${level}`, { class: "md__h" }, ...mdInline(h[2], chipFn)));
+      continue;
+    }
+    if (t.startsWith("- ")) {
+      flushPara();
+      if (!list) list = el("ul", { class: "md__list" });
+      list.append(el("li", {}, ...mdInline(t.slice(2), chipFn)));
+      continue;
+    }
+    para.push(t);
+  }
+  flushPara(); flushList();
+  return root;
+}
+
+/* ---- downloads ------------------------------------------------------------------------ */
+
+export function downloadText(filename, text, mime = "text/plain") {
+  const blob = new Blob([text], { type: `${mime};charset=utf-8` });
+  const url = URL.createObjectURL(blob);
+  const a = el("a", { href: url, download: filename });
+  document.body.append(a);
+  a.click();
+  a.remove();
+  setTimeout(() => URL.revokeObjectURL(url), 2000);
+}
+
+/* ---- misc ------------------------------------------------------------------------------- */
+
+export const LEVEL_PRICE = "~150 units, ~35 min";
+
+export function levelUpNudge({ construct, price = LEVEL_PRICE, onGo } = {}) {
+  return el("footer", { class: "nudge" },
+    el("span", { class: "nudge__mark", aria: { hidden: "true" } }, "◑ → ●"),
+    el("p", { class: "nudge__line" },
+      `Calibrate “${construct}” — ${price} of human coding — to make these numbers publication-grade.`),
+    el("button", { class: "btn btn--quiet nudge__go", type: "button", onclick: onGo }, "Open the Calibration Studio →"),
+  );
+}
+
+export function backLink(href, label = "Back") {
+  return el("a", { class: "backlink", href: `#/${String(href).replace(/^#?\/?/, "")}` }, "← ", label);
+}
+
+/** Reading mode: rail recedes, the column owns the page; inspector stays summonable. */
+export function setReading(on) {
+  const app = document.getElementById("app");
+  if (!app) return;
+  if (on) app.setAttribute("data-reading", "1");
+  else app.removeAttribute("data-reading");
+}
+
+/** Full bleed: everything recedes (the coding sprint). */
+export function setFullbleed(on) {
+  const app = document.getElementById("app");
+  if (!app) return;
+  if (on) app.setAttribute("data-fullbleed", "1");
+  else app.removeAttribute("data-fullbleed");
+}

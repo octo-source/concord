@@ -1,0 +1,175 @@
+{
+  "instruments": [
+    {
+      "id": "inst_dict",
+      "constructId": "k_theme",
+      "kind": "dictionary",
+      "name": "work-themes · dictionary",
+      "level": "exploratory",
+      "version": 2,
+      "versionHash": "d41a9ba3868e91b777f1c2d3e4a5b6c7",
+      "frozen": false,
+      "authoredBy": "human",
+      "humanTouched": true,
+      "createdAt": "2026-06-01T11:02:00Z",
+      "payload": {
+        "categories": [
+          { "name": "pay", "terms": [ { "term": "pay" }, { "term": "salary" }, { "term": "comp*", "weight": 0.8 }, { "term": "underpa*" }, { "term": "quota" }, { "term": "commission" }, { "term": "\"band compression\"" }, { "term": "equity", "weight": 0.7 }, { "term": "raise" } ] },
+          { "name": "management", "terms": [ { "term": "manager" }, { "term": "management" }, { "term": "leadership" }, { "term": "reorg*" }, { "term": "director" }, { "term": "skip-level" }, { "term": "\"org chart\"" } ] },
+          { "name": "workload", "terms": [ { "term": "workload" }, { "term": "burnout" }, { "term": "burned" }, { "term": "on-call" }, { "term": "pace" }, { "term": "hours" }, { "term": "pager" }, { "term": "weekend*", "weight": 0.6 } ] },
+          { "name": "growth", "terms": [ { "term": "promotion" }, { "term": "promoted" }, { "term": "growth" }, { "term": "career" }, { "term": "develop*" }, { "term": "ladder" }, { "term": "path" } ] },
+          { "name": "remote", "terms": [ { "term": "remote" }, { "term": "office" }, { "term": "rto" }, { "term": "\"return to office\"" }, { "term": "commute" }, { "term": "badge*" } ] }
+        ],
+        "negation": { "enabled": true, "window": 3 },
+        "scoring": "percentOfWords"
+      },
+      "sampleUnitIds": ["u_2847f1a09c3d55b2", "u_8800c1d2e4a90b77", "u_91b3c07d2e8f4a16", "u_a8f04c6e3b92d715", "u_16d9a4e7f2c50b38"]
+    },
+    {
+      "id": "inst_judge_x",
+      "constructId": "k_theme",
+      "kind": "judge",
+      "name": "exit-theme · judge v1",
+      "level": "exploratory",
+      "version": 1,
+      "versionHash": "1b93da241ce95a78a0b1c2d3e4f50617",
+      "frozen": false,
+      "authoredBy": "director",
+      "humanTouched": false,
+      "createdAt": "2026-06-01T11:30:00Z",
+      "payload": {
+        "provider": "anthropic",
+        "model": "claude-haiku-4-5",
+        "snapshot": "claude-haiku-4-5-20251001",
+        "params": { "temperature": 0, "maxTokens": 400 },
+        "promptTemplate": "You are coding one exit-survey response against a codebook.\n\nConstruct: {{definition}}\n\nDecision rules:\n{{criteria}}\n\nWorked examples:\n{{examples}}\n\nRead the response below, reason briefly, then answer with the single best label.\n\n<unit>\n{{unit}}\n</unit>",
+        "schema": { "type": "kclass", "options": ["pay", "management", "workload-burnout", "growth", "remote-policy", "other"] },
+        "rationaleFirst": true,
+        "workerClass": "small"
+      }
+    },
+    {
+      "id": "inst_judge_s",
+      "constructId": "k_theme",
+      "kind": "judge",
+      "name": "exit-theme · judge v3 (tuned)",
+      "level": "stabilized",
+      "version": 3,
+      "versionHash": "3c52e9f1a8b7d604c5d6e7f80901a2b3",
+      "frozen": false,
+      "authoredBy": "director",
+      "humanTouched": true,
+      "createdAt": "2026-06-02T09:15:00Z",
+      "payload": {
+        "provider": "anthropic",
+        "model": "claude-haiku-4-5",
+        "snapshot": "claude-haiku-4-5-20251001",
+        "params": { "temperature": 0, "maxTokens": 400 },
+        "promptTemplate": "You are coding one exit-survey response against a codebook. Label the theme the respondent treats as DECISIVE, not every theme mentioned.\n\nConstruct: {{definition}}\n\nDecision rules (apply in order):\n{{criteria}}\n\nSarcasm note: read sarcastic minimization (\"totally reasonable\", \"build character\") for its intended meaning.\nDismissal note: a theme mentioned only to be waved off (\"the pay was fine\") must NOT be labeled.\n\nWorked examples:\n{{examples}}\n\nReason briefly first, then answer with the single best label.\n\n<unit>\n{{unit}}\n</unit>",
+        "schema": { "type": "kclass", "options": ["pay", "management", "workload-burnout", "growth", "remote-policy", "other"] },
+        "rationaleFirst": true,
+        "workerClass": "small"
+      },
+      "stability": { "alpha": 0.86, "k": 3, "n": 100, "ranAt": "2026-06-02T10:01:00Z" },
+      "silver": {
+        "goldsetId": "silver_theme1",
+        "iterations": [
+          { "versionHash": "1b93da241ce95a78a0b1c2d3e4f50617", "agreement": 0.64, "note": "baseline v1 — confuses dismissed mentions (\"pay was fine\") with pay; misses sarcasm." },
+          { "versionHash": "2a41c8d7e6f5b394a4b5c6d7e8f90a1b", "agreement": 0.74, "note": "added dismissal rule; pay false-positives halve." },
+          { "versionHash": "3c52e9f1a8b7d604c5d6e7f80901a2b3", "agreement": 0.81, "note": "added sarcasm note + two worked examples; workload recall improves." },
+          { "versionHash": "3c52e9f1a8b7d604c5d6e7f80901a2b3", "agreement": 0.815, "note": "Δα = .005 < .01 — plateau, stopping." }
+        ]
+      }
+    },
+    {
+      "id": "inst_judge_f",
+      "constructId": "k_theme",
+      "kind": "judge",
+      "name": "exit-theme · judge v4",
+      "level": "calibrated",
+      "version": 4,
+      "versionHash": "9f2e1d0c8b7a65445566778899aabbcc",
+      "frozen": true,
+      "authoredBy": "director",
+      "humanTouched": true,
+      "createdAt": "2026-06-03T14:20:00Z",
+      "payload": {
+        "provider": "anthropic",
+        "model": "claude-haiku-4-5",
+        "snapshot": "claude-haiku-4-5-20251001",
+        "params": { "temperature": 0, "maxTokens": 400 },
+        "promptTemplate": "You are coding one exit-survey response against a codebook. Label the theme the respondent treats as DECISIVE, not every theme mentioned.\n\nConstruct: {{definition}}\n\nDecision rules (apply in order):\n{{criteria}}\n\nSarcasm note: read sarcastic minimization for its intended meaning.\nDismissal note: a theme mentioned only to be waved off must NOT be labeled.\nTie rule: if two themes are framed as equally decisive, prefer the first stated.\n\nWorked examples:\n{{examples}}\n\nReason briefly first, then answer with the single best label.\n\n<unit>\n{{unit}}\n</unit>",
+        "schema": { "type": "kclass", "options": ["pay", "management", "workload-burnout", "growth", "remote-policy", "other"] },
+        "rationaleFirst": true,
+        "workerClass": "small"
+      },
+      "stability": { "alpha": 0.88, "k": 3, "n": 100, "ranAt": "2026-06-03T13:40:00Z" },
+      "certificate": {
+        "frozenAt": "2026-06-04T15:12:00Z",
+        "goldsetId": "g_theme1",
+        "versionHash": "9f2e1d0c8b7a65445566778899aabbcc",
+        "modelPinned": true,
+        "agreement": {
+          "n": 18, "percent": 0.833, "kappa": 0.79, "alpha": 0.78, "ac1": 0.81,
+          "ci": { "lo": 0.61, "hi": 0.94, "method": "bootstrap, B=2000" },
+          "perClass": [
+            { "label": "pay", "precision": 1.0, "recall": 1.0, "f1": 1.0, "support": 4 },
+            { "label": "management", "precision": 0.67, "recall": 0.67, "f1": 0.67, "support": 3 },
+            { "label": "workload-burnout", "precision": 0.8, "recall": 0.8, "f1": 0.8, "support": 5 },
+            { "label": "growth", "precision": 1.0, "recall": 0.67, "f1": 0.8, "support": 3 },
+            { "label": "remote-policy", "precision": 1.0, "recall": 1.0, "f1": 1.0, "support": 2 },
+            { "label": "other", "precision": 0.5, "recall": 1.0, "f1": 0.67, "support": 1 }
+          ]
+        },
+        "humanAgreement": { "n": 14, "kappa": 0.72, "alpha": 0.71, "ci": { "lo": 0.48, "hi": 0.89, "method": "bootstrap, B=2000" } }
+      }
+    },
+    {
+      "id": "inst_panel",
+      "constructId": "k_theme",
+      "kind": "panel",
+      "name": "exit-theme · panel ×3",
+      "level": "exploratory",
+      "version": 1,
+      "versionHash": "77aa88bb99cc00dd1e2f3a4b5c6d7e8f",
+      "frozen": false,
+      "authoredBy": "director",
+      "humanTouched": true,
+      "createdAt": "2026-06-02T16:45:00Z",
+      "payload": {
+        "jurors": [
+          { "provider": "anthropic", "model": "claude-haiku-4-5", "snapshot": "claude-haiku-4-5-20251001", "family": "claude", "params": { "temperature": 0, "maxTokens": 400 }, "workerClass": "small" },
+          { "provider": "openai", "model": "gpt-5-mini", "snapshot": "gpt-5-mini-2025-08-07", "family": "gpt", "params": { "temperature": 0, "maxTokens": 400 }, "workerClass": "small" },
+          { "provider": "ollama", "model": "qwen2.5:7b-instruct", "snapshot": "qwen2.5:7b-instruct-q4_K_M", "family": "qwen", "params": { "temperature": 0, "maxTokens": 400 }, "workerClass": "small" }
+        ],
+        "aggregation": "majority"
+      }
+    }
+  ],
+  "previews": {
+    "inst_dict": [
+      { "unitId": "u_2847f1a09c3d55b2", "label": "management", "scores": { "pay": 2.6, "management": 5.1, "workload": 2.6, "growth": 0, "remote": 0 }, "hits": [ { "start": 52, "end": 55, "category": "pay", "term": "pay" }, { "start": 104, "end": 111, "category": "management", "term": "manager" }, { "start": 180, "end": 184, "category": "workload", "term": "jobs" } ] },
+      { "unitId": "u_8800c1d2e4a90b77", "label": "workload", "scores": { "pay": 0, "management": 0, "workload": 7.1, "growth": 0, "remote": 0 }, "hits": [ { "start": 13, "end": 21, "category": "workload", "term": "workload" } ] },
+      { "unitId": "u_91b3c07d2e8f4a16", "label": "(no hits — Spanish)", "scores": { "pay": 0, "management": 0, "workload": 0, "growth": 0, "remote": 0 }, "hits": [] },
+      { "unitId": "u_a8f04c6e3b92d715", "label": "remote", "scores": { "pay": 0, "management": 0, "workload": 0, "growth": 0, "remote": 8.8 }, "hits": [ { "start": 4, "end": 10, "category": "remote", "term": "return" }, { "start": 21, "end": 27, "category": "remote", "term": "office" }, { "start": 63, "end": 69, "category": "remote", "term": "remote" }, { "start": 88, "end": 94, "category": "remote", "term": "remote" } ] },
+      { "unitId": "u_16d9a4e7f2c50b38", "label": "growth", "scores": { "pay": 0, "management": 0, "workload": 0, "growth": 6.0, "remote": 0 }, "hits": [ { "start": 30, "end": 42, "category": "growth", "term": "architecture" }, { "start": 75, "end": 81, "category": "growth", "term": "ladder" } ] }
+    ],
+    "judge": [
+      { "unitId": "u_2847f1a09c3d55b2", "label": "management", "confidence": 0.84, "rationale": "Pay is explicitly dismissed (“the pay was fine”); the decisive clause is watching every good manager leave — leadership stewardship." },
+      { "unitId": "u_8800c1d2e4a90b77", "label": "workload-burnout", "confidence": 0.86, "rationale": "Sarcastic minimization (“totally reasonable… build character”) reads for intended meaning: unsustainable hours." },
+      { "unitId": "u_91b3c07d2e8f4a16", "label": "pay", "confidence": 0.91, "rationale": "“El salario nunca alcanzó” states compensation inadequacy directly; the affection for the team is valence, not theme." },
+      { "unitId": "u_a8f04c6e3b92d715", "label": "remote-policy", "confidence": 0.93, "rationale": "“The return-to-office mandate was the end for me” names the decisive grievance in its first sentence." },
+      { "unitId": "u_16d9a4e7f2c50b38", "label": "growth", "confidence": 0.88, "rationale": "No path, no ladder, external hires over internal candidates — blocked advancement is the operative complaint." }
+    ]
+  },
+  "silverTune": {
+    "iterations": [
+      { "versionHash": "1b93da241ce95a78a0b1c2d3e4f50617", "agreement": 0.64, "note": "baseline — confuses dismissed mentions with pay; misses sarcasm." },
+      { "versionHash": "2a41c8d7e6f5b394a4b5c6d7e8f90a1b", "agreement": 0.74, "note": "Director added a dismissal rule after reading 14 pay false-positives." },
+      { "versionHash": "3c52e9f1a8b7d604c5d6e7f80901a2b3", "agreement": 0.81, "note": "sarcasm note + 2 worked examples; workload recall +.11." },
+      { "versionHash": "3c52e9f1a8b7d604c5d6e7f80901a2b3", "agreement": 0.815, "note": "Δα = .005 < .01 — plateau, stopping." }
+    ],
+    "final": { "agreement": 0.815, "n": 200, "tier": "silver", "note": "Silver = Director labels; human gold supersedes." }
+  },
+  "stabilityResult": { "alpha": 0.86, "k": 3, "n": 100, "pass": true }
+}

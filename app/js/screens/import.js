@@ -1,0 +1,245 @@
+// Import — #/p/:slug/import — the door the corpus walks through. The global
+// drag-anywhere overlay (main.js) routes dropped files here; the screen also
+// offers its own quiet drop target and a file picker. Parsing yields a sheet:
+// detected columns as editable role chips with confidence, a 20-row preview,
+// issues as gentle annotations (never blockers), a unitization choice with the
+// Director's advised default, a junk-queue summary, and ONE confirm button.
+
+import { el, clear } from "../dom.js";
+import { store } from "../state.js";
+import api from "../api.js";
+import * as router from "../router.js";
+import * as toast from "../components/toast.js";
+import * as table from "../components/table.js";
+import * as glyph from "../components/glyph.js";
+import { fmtCount, fmtPct } from "../format.js";
+import { screenHead, section, emptyState, loadingView, errorView, ensureProject, refreshProject } from "./_shared.js";
+
+export const route = "p/:slug/import";
+export const title = "Import";
+
+const ROLES = ["text", "categorical", "numeric", "date", "id", "ignore"];
+
+export function render(mount, params) {
+  ensureProject(params.slug).catch(() => { /* a missing project still allows the drop affordance */ });
+
+  const pending = store.get("ui.pendingImport");
+  if (pending) {
+    store.set("ui.pendingImport", null);
+    beginUpload(mount, params, pending);
+    return;
+  }
+
+  clear(mount).append(
+    screenHead({ overline: "Import", title: "Bring a corpus." }),
+    dropTarget(mount, params),
+  );
+}
+
+function dropTarget(mount, params) {
+  const input = el("input", {
+    type: "file", class: "sr-only", id: "import-file",
+    accept: ".csv,.tsv,.xlsx,.docx,.pdf,.txt,.vtt,.srt,.json",
+    onchange: (e) => {
+      const file = e.target.files?.[0];
+      if (file) beginUpload(mount, params, file);
+    },
+  });
+
+  const zone = el("div", {
+    class: "dropzone",
+    ondragover: (e) => { e.preventDefault(); zone.classList.add("dropzone--over"); },
+    ondragleave: () => zone.classList.remove("dropzone--over"),
+    ondrop: (e) => {
+      e.preventDefault();
+      zone.classList.remove("dropzone--over");
+      const file = e.dataTransfer?.files?.[0];
+      if (file) beginUpload(mount, params, file);
+    },
+  },
+    emptyState({
+      mark: "⇣",
+      title: "Drop a file anywhere.",
+      body: "CSV, XLSX, DOCX, PDF, plain text, or VTT/SRT transcripts. Concord proposes the column mapping; you stay the editor.",
+      hint: "Files parse locally. Nothing leaves this machine at import.",
+      actions: [
+        el("label", { class: "btn btn--primary", for: "import-file" }, "Choose a file…"),
+      ],
+    }),
+    input,
+  );
+  return zone;
+}
+
+async function beginUpload(mount, params, file) {
+  clear(mount).append(
+    screenHead({ overline: "Import", title: file.name ?? "Parsing…" }),
+    loadingView(`Parsing ${file.name ?? "file"} locally…`),
+  );
+  try {
+    const proposal = await api.imports.upload(params.slug, file);
+    renderSheet(mount, params, proposal);
+  } catch (err) {
+    clear(mount).append(
+      screenHead({ overline: "Import", title: "The file did not parse." }),
+      errorView(err, { retry: () => render(mount, params) }),
+    );
+  }
+}
+
+function renderSheet(mount, params, proposal) {
+  clear(mount);
+  const columns = (proposal.columns ?? []).map((c) => ({ ...c }));
+  let unitization = proposal.unitization?.advised ?? "response";
+
+  mount.append(screenHead({
+    overline: "Import · review the mapping",
+    title: proposal.fileName ?? "Mapping",
+    lede: `${fmtCount(proposal.rows)} rows parsed locally. Adjust any column's role; nothing below blocks the import.`,
+  }));
+
+  /* -- column role chips -- */
+  const colList = el("div", { class: "colchips" },
+    ...columns.map((col) => columnChip(col)),
+  );
+  mount.append(section("Detected columns", colList));
+
+  /* -- 20-row preview -- */
+  const previewCols = columns.map((c) => ({
+    key: c.name,
+    label: c.name,
+    sortable: false,
+    numeric: c.role === "numeric",
+  }));
+  mount.append(section("Preview · first 20 rows",
+    table.render({
+      caption: "Import preview",
+      columns: previewCols,
+      rows: proposal.preview ?? [],
+      dense: true,
+      empty: { title: "No preview rows.", hint: "The parser returned no data — check the file." },
+    }),
+  ));
+
+  /* -- issues as annotations, not blockers -- */
+  if (proposal.issues?.length) {
+    mount.append(section("Noted, not blocking",
+      el("ul", { class: "issuelist", role: "list" },
+        ...proposal.issues.map((issue) =>
+          el("li", { class: "issue" },
+            el("span", { class: "chip chip--signal issue__kind" }, `${issue.kind} · ${fmtCount(issue.count)}`),
+            el("span", { class: "issue__note" }, issue.note),
+          ))),
+    ));
+  }
+
+  /* -- unitization -- */
+  const unitOptions = proposal.unitization?.options ?? [];
+  mount.append(section("Unit of analysis",
+    el("p", { class: "screen__hint" },
+      proposal.unitization?.advisedBy === "director" ? glyph.render({ authoredBy: "director", humanTouched: false }) : null,
+      " ", proposal.unitization?.note ?? "Choose what one measured unit is."),
+    el("div", { class: "choicelist choicelist--row", role: "radiogroup", aria: { label: "Unitization scheme" } },
+      ...unitOptions.map((opt) =>
+        el("label", { class: `choice choice--card${opt.estUnits === null ? " choice--disabled" : ""}` },
+          el("input", {
+            type: "radio", name: "unitization", value: opt.scheme,
+            checked: opt.scheme === unitization,
+            disabled: opt.estUnits === null,
+            onchange: () => { unitization = opt.scheme; },
+          }),
+          el("span", { class: "choice__text" },
+            el("span", { class: "choice__label" },
+              opt.label,
+              opt.scheme === (proposal.unitization?.advised) ? el("span", { class: "chip chip--ghost choice__advised" }, "advised") : null),
+            el("span", { class: "choice__hint" }, opt.hint),
+            opt.estUnits !== null ? el("span", { class: "choice__est data" }, `${fmtCount(opt.estUnits)} units`) : null),
+        ))),
+  ));
+
+  /* -- junk queue summary -- */
+  if (proposal.junkQueue) {
+    mount.append(section("Junk queue",
+      el("p", { class: "screen__hint" },
+        el("span", { class: "data" }, fmtCount(proposal.junkQueue.count)),
+        " rows look like placeholders (",
+        el("span", { class: "data" }, (proposal.junkQueue.examples ?? []).slice(0, 3).join(" · ")),
+        "). They import flagged and sit out of analyses until you restore them."),
+    ));
+  }
+
+  /* -- the one confirm -- */
+  const confirmBtn = el("button", {
+    class: "btn btn--primary btn--lg",
+    type: "button",
+    onclick: async () => {
+      confirmBtn.disabled = true;
+      const progress = progressRule("Unitizing…");
+      bar.replaceChildren(progress.el);
+      try {
+        const mapping = Object.fromEntries(columns.map((c) => [c.name, c.role]));
+        const result = await api.imports.confirm(params.slug, { mapping, unitization });
+        progress.finish();
+        toast.success(`Corpus imported — ${fmtCount(result.unitCount)} units.`, {
+          detail: `${fmtCount(result.junkQueue ?? 0)} junk-queued · ${unitization} unitization`, data: true,
+        });
+        await refreshProject(params.slug).catch(() => {});
+        router.navigate(`p/${params.slug}/corpus/${result.corpusId}/instant`);
+      } catch (err) {
+        confirmBtn.disabled = false;
+        bar.replaceChildren(confirmBtn);
+        toast.error("Import failed.", { detail: String(err.message ?? err) });
+      }
+    },
+  }, "Confirm import");
+  const bar = el("div", { class: "confirmbar" }, confirmBtn);
+  mount.append(bar);
+}
+
+function columnChip(col) {
+  const select = el("select", {
+    class: "colchip__role",
+    "aria-label": `Role for column ${col.name}`,
+    onchange: (e) => { col.role = e.target.value; wrap.dataset.role = col.role; },
+  },
+    ...ROLES.map((r) => el("option", { value: r, selected: r === col.role }, r)),
+  );
+  const statBits = [];
+  const s = col.stats ?? {};
+  if (s.distinct !== undefined) statBits.push(`${fmtCount(s.distinct)} distinct`);
+  if (s.meanLength !== undefined) statBits.push(`~${fmtCount(s.meanLength)} chars`);
+  if (s.min !== undefined && s.max !== undefined) statBits.push(`${s.min}–${s.max}`);
+  if (s.parseRate !== undefined) statBits.push(`${fmtPct(s.parseRate, 1)} parse`);
+
+  const wrap = el("div", { class: "colchip", dataset: { role: col.role } },
+    el("div", { class: "colchip__head" },
+      el("span", { class: "colchip__name data" }, col.name),
+      el("span", { class: "colchip__conf", title: "Detection confidence" },
+        el("span", { class: "colchip__confbar", style: { "--conf": `${Math.round((col.confidence ?? 0) * 100)}%` }, aria: { hidden: "true" } }),
+        el("span", { class: "data faint" }, fmtPct(col.confidence ?? 0, 0))),
+    ),
+    select,
+    statBits.length ? el("p", { class: "colchip__stats faint data" }, statBits.join(" · ")) : null,
+  );
+  return wrap;
+}
+
+function progressRule(label) {
+  const fill = el("span", { class: "progressrule__fill", style: { width: "8%" } });
+  const node = el("div", { class: "progressrule", role: "status", aria: { label } },
+    el("span", { class: "progressrule__track", aria: { hidden: "true" } }, fill),
+    el("span", { class: "progressrule__label" }, label),
+  );
+  let pct = 8;
+  const timer = setInterval(() => {
+    pct = Math.min(92, pct + 6 + Math.random() * 10);
+    fill.style.width = pct + "%";
+  }, 180);
+  return {
+    el: node,
+    finish() {
+      clearInterval(timer);
+      fill.style.width = "100%";
+    },
+  };
+}

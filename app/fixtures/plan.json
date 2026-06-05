@@ -1,0 +1,22 @@
+{
+  "planId": "plan_q1",
+  "question": "Do people who complain about pay actually intend to quit competitors, or are they negotiating?",
+  "plan": {
+    "summary": "Two constructs, one tuned judge each, run across the corpus, then a corrected crosstab of pay-grievance against quit-intent strength.",
+    "constructs": [
+      { "name": "Pay grievance", "type": "binary", "definition": "Whether the respondent treats compensation as a decisive grievance (not merely mentioned).", "authoredBy": "director", "humanTouched": false },
+      { "name": "Quit-intent framing", "type": "ordinal", "definition": "How the respondent frames their departure: negotiating (door open) < resigned < gone-for-good.", "authoredBy": "director", "humanTouched": false }
+    ],
+    "instruments": [
+      { "name": "pay-grievance · judge (haiku)", "kind": "judge", "workerClass": "small", "level": "exploratory" },
+      { "name": "quit-intent · judge (haiku)", "kind": "judge", "workerClass": "small", "level": "exploratory" }
+    ],
+    "estimate": { "usd": 2.96, "etaMin": 78, "units": 2439, "calls": 4878, "note": "two judge passes over the corpus, Director compile included" },
+    "analysis": { "kind": "crosstab", "spec": "pay-grievance × quit-intent framing", "note": "exploratory ◌ until a gold sample exists; the plan includes a calibration prompt after the first run" }
+  },
+  "approveResult": {
+    "constructIds": ["k_paygriev", "k_quitint"],
+    "instrumentIds": ["inst_paygriev_j", "inst_quitint_j"],
+    "runIds": []
+  }
+}

@@ -1,0 +1,192 @@
+{
+  "total": 2500,
+  "note": "30 representative units of the 2,500-row TechCorp exit survey. Paged unit listings in fixtures mode serve from this set; counts elsewhere honestly describe the full corpus.",
+  "units": [
+    {
+      "id": "u_2847f1a09c3d55b2",
+      "text": "I stayed three years longer than I should have. The pay was fine, honestly — it was watching every good manager leave while the broken processes stayed. By the end I was doing two jobs and interviewing for a third.",
+      "meta": { "dept": "Operations", "tenure_years": 5, "role_level": "IC3", "region": "NA", "exit_date": "2025-09-12", "satisfaction": 2 },
+      "pos": { "doc": "techcorp-exit-survey.csv", "row": 2847 }
+    },
+    {
+      "id": "u_91b3c07d2e8f4a16",
+      "text": "El salario nunca alcanzó y la gerencia jamás escuchaba; aun así, voy a extrañar muchísimo a mi equipo.",
+      "meta": { "dept": "Sales", "tenure_years": 3, "role_level": "IC2", "region": "LATAM", "exit_date": "2025-08-02", "satisfaction": 2 },
+      "pos": { "doc": "techcorp-exit-survey.csv", "row": 1093 },
+      "lang": "es"
+    },
+    {
+      "id": "u_55e0a9d4b7c2f311",
+      "text": "My director ⟨NAME_1⟩ promised a promotion for two cycles running. I believed ⟨NAME_1⟩ both times. That is on me.",
+      "meta": { "dept": "Engineering", "tenure_years": 4, "role_level": "IC4", "region": "NA", "exit_date": "2025-07-21", "satisfaction": 3 },
+      "pos": { "doc": "techcorp-exit-survey.csv", "row": 412 },
+      "flags": { "pii": ["NAME_1"] }
+    },
+    {
+      "id": "u_8800c1d2e4a90b77",
+      "text": "Oh sure, the workload was totally reasonable. Eighty-hour weeks build character, right?",
+      "meta": { "dept": "Support", "tenure_years": 2, "role_level": "IC2", "region": "NA", "exit_date": "2025-10-03", "satisfaction": 1 },
+      "pos": { "doc": "techcorp-exit-survey.csv", "row": 1881 }
+    },
+    {
+      "id": "u_03d7e8a1f4b2c690",
+      "text": "Base salary sat 18% under market for my level and the refresh grants never came. I gave finance two comp cycles to fix it. They didn't, so a competitor did.",
+      "meta": { "dept": "Engineering", "tenure_years": 6, "role_level": "IC5", "region": "NA", "exit_date": "2025-06-30", "satisfaction": 2 },
+      "pos": { "doc": "techcorp-exit-survey.csv", "row": 233 }
+    },
+    {
+      "id": "u_4b9c2e7d80a1f355",
+      "text": "Loved the people. Left for money. It really is that simple.",
+      "meta": { "dept": "Sales", "tenure_years": 1, "role_level": "IC1", "region": "NA", "exit_date": "2025-09-29", "satisfaction": 4 },
+      "pos": { "doc": "techcorp-exit-survey.csv", "row": 1410 }
+    },
+    {
+      "id": "u_d12f4a86c3e09b58",
+      "text": "Quota went up 40% in January with no territory change and commission accelerators got quietly capped. When the top three reps all leave in one quarter, the comp plan is the message.",
+      "meta": { "dept": "Sales", "tenure_years": 4, "role_level": "IC3", "region": "NA", "exit_date": "2025-05-16", "satisfaction": 1 },
+      "pos": { "doc": "techcorp-exit-survey.csv", "row": 977 }
+    },
+    {
+      "id": "u_7e50b3d9a2c4f181",
+      "text": "My manager was the single best thing about this company. When she left in March there was nobody steering, and the new org chart had me reporting to a committee.",
+      "meta": { "dept": "Marketing", "tenure_years": 3, "role_level": "IC3", "region": "EU", "exit_date": "2025-07-08", "satisfaction": 3 },
+      "pos": { "doc": "techcorp-exit-survey.csv", "row": 645 }
+    },
+    {
+      "id": "u_c6a91e2f7d40b833",
+      "text": "Four reorgs in eighteen months. Each time leadership promised clarity and each time we got a new layer of directors who had never met a customer. I stopped believing the all-hands slides about a year ago.",
+      "meta": { "dept": "Operations", "tenure_years": 7, "role_level": "M1", "region": "NA", "exit_date": "2025-08-19", "satisfaction": 2 },
+      "pos": { "doc": "techcorp-exit-survey.csv", "row": 1502 }
+    },
+    {
+      "id": "u_1f8d3c5b9e72a044",
+      "text": "On-call every third week for a year. I did the math at my doctor's office, which tells you everything.",
+      "meta": { "dept": "Engineering", "tenure_years": 2, "role_level": "IC3", "region": "NA", "exit_date": "2025-09-01", "satisfaction": 1 },
+      "pos": { "doc": "techcorp-exit-survey.csv", "row": 358 }
+    },
+    {
+      "id": "u_9a4e7b1c2f86d520",
+      "text": "Burned out, plainly. We shipped the migration with half the promised headcount and then the 'thank you' was a bigger roadmap. I have nothing left to give and that scares me more than leaving does.",
+      "meta": { "dept": "Engineering", "tenure_years": 3, "role_level": "IC4", "region": "NA", "exit_date": "2025-10-11", "satisfaction": 2 },
+      "pos": { "doc": "techcorp-exit-survey.csv", "row": 521 }
+    },
+    {
+      "id": "u_b05c8f2a6d31e947",
+      "text": "Support queue doubled, headcount didn't. Management calls it 'doing more with less.' I call it why my best people and now I are gone.",
+      "meta": { "dept": "Support", "tenure_years": 5, "role_level": "M1", "region": "NA", "exit_date": "2025-06-14", "satisfaction": 2 },
+      "pos": { "doc": "techcorp-exit-survey.csv", "row": 1923 }
+    },
+    {
+      "id": "u_e73a1d49c8b5f026",
+      "text": "Three years, zero promotions, two 'exceeds expectations' reviews. The growth conversations were always next quarter's conversation.",
+      "meta": { "dept": "Marketing", "tenure_years": 3, "role_level": "IC2", "region": "NA", "exit_date": "2025-07-30", "satisfaction": 2 },
+      "pos": { "doc": "techcorp-exit-survey.csv", "row": 689 }
+    },
+    {
+      "id": "u_5d2b9e8f1a73c460",
+      "text": "I asked for a development plan three times. What I got was a license to a learning platform and a manager who booked our careers chat over lunch and then ate through it.",
+      "meta": { "dept": "Operations", "tenure_years": 2, "role_level": "IC2", "region": "EU", "exit_date": "2025-08-25", "satisfaction": 3 },
+      "pos": { "doc": "techcorp-exit-survey.csv", "row": 1577 }
+    },
+    {
+      "id": "u_a8f04c6e3b92d715",
+      "text": "The return-to-office mandate was the end for me. I was hired remote, I built my life remote, and the badge-swipe dashboards made it clear trust had left the building before I did.",
+      "meta": { "dept": "Engineering", "tenure_years": 4, "role_level": "IC4", "region": "NA", "exit_date": "2025-09-18", "satisfaction": 2 },
+      "pos": { "doc": "techcorp-exit-survey.csv", "row": 460 }
+    },
+    {
+      "id": "u_6c1e5a9d4f28b073",
+      "text": "Mandating three days in an office two hours from my house is just a layoff with extra steps.",
+      "meta": { "dept": "Support", "tenure_years": 3, "role_level": "IC2", "region": "NA", "exit_date": "2025-10-22", "satisfaction": 1 },
+      "pos": { "doc": "techcorp-exit-survey.csv", "row": 2011 }
+    },
+    {
+      "id": "u_f29b7d3a1c50e684",
+      "text": "Honestly? Great run. I learned more here in four years than in the previous ten. The new role is a step up we both knew this place couldn't offer yet.",
+      "meta": { "dept": "Engineering", "tenure_years": 4, "role_level": "IC4", "region": "NA", "exit_date": "2025-05-09", "satisfaction": 5 },
+      "pos": { "doc": "techcorp-exit-survey.csv", "row": 290 }
+    },
+    {
+      "id": "u_30e6c2f8b9a4d157",
+      "text": "La política de regreso a la oficina no consideró a los equipos de LATAM. Tres días presenciales en una oficina que ni siquiera existe en mi país.",
+      "meta": { "dept": "Support", "tenure_years": 2, "role_level": "IC1", "region": "LATAM", "exit_date": "2025-09-05", "satisfaction": 2 },
+      "pos": { "doc": "techcorp-exit-survey.csv", "row": 2104 },
+      "lang": "es"
+    },
+    {
+      "id": "u_84d5f1b7e0c3a926",
+      "text": "asdf",
+      "meta": { "dept": "Sales", "tenure_years": 1, "role_level": "IC1", "region": "NA", "exit_date": "2025-06-02", "satisfaction": 3 },
+      "pos": { "doc": "techcorp-exit-survey.csv", "row": 1234 },
+      "flags": { "junk": "na" }
+    },
+    {
+      "id": "u_47a3e9c5d2f1b860",
+      "text": "Pay was fair, manager was kind, I just moved cities for family. Nothing here pushed me out.",
+      "meta": { "dept": "HR", "tenure_years": 5, "role_level": "IC3", "region": "NA", "exit_date": "2025-07-15", "satisfaction": 5 },
+      "pos": { "doc": "techcorp-exit-survey.csv", "row": 2290 }
+    },
+    {
+      "id": "u_92c8b4f6a1e7d503",
+      "text": "I regret leaving already, honestly. Signed elsewhere during the hiring freeze panic and the counter came two days too late. If the door reopens at the right level, call me.",
+      "meta": { "dept": "Sales", "tenure_years": 6, "role_level": "M1", "region": "NA", "exit_date": "2025-04-28", "satisfaction": 4 },
+      "pos": { "doc": "techcorp-exit-survey.csv", "row": 1066 }
+    },
+    {
+      "id": "u_0b6f9a2d8c45e317",
+      "text": "Middle management here is a weather system: unpredictable, mostly noise, occasionally destructive. My skip-level never learned my name in two years.",
+      "meta": { "dept": "Operations", "tenure_years": 2, "role_level": "IC2", "region": "APAC", "exit_date": "2025-08-08", "satisfaction": 2 },
+      "pos": { "doc": "techcorp-exit-survey.csv", "row": 1640 }
+    },
+    {
+      "id": "u_d94a7c1e5b28f063",
+      "text": "The work itself was the best of my career. The pace was not survivable. Both things are true and the second one wins.",
+      "meta": { "dept": "Engineering", "tenure_years": 3, "role_level": "IC4", "region": "EU", "exit_date": "2025-09-26", "satisfaction": 3 },
+      "pos": { "doc": "techcorp-exit-survey.csv", "row": 543 }
+    },
+    {
+      "id": "u_3e8c5d0f7a92b441",
+      "text": "Underpaid relative to the new hires doing my job with my training. HR confirmed the band compression in writing and then scheduled a meeting about scheduling a meeting.",
+      "meta": { "dept": "Support", "tenure_years": 4, "role_level": "IC3", "region": "NA", "exit_date": "2025-10-01", "satisfaction": 1 },
+      "pos": { "doc": "techcorp-exit-survey.csv", "row": 1957 }
+    },
+    {
+      "id": "u_71f2e6b9c4d8a035",
+      "text": "n/a",
+      "meta": { "dept": "Marketing", "tenure_years": 1, "role_level": "IC1", "region": "NA", "exit_date": "2025-05-20", "satisfaction": 3 },
+      "pos": { "doc": "techcorp-exit-survey.csv", "row": 712 },
+      "flags": { "junk": "na" }
+    },
+    {
+      "id": "u_c45d8e1a9f30b672",
+      "text": "Two managers in one year, neither of whom set a single clear priority. I wrote my own goals, graded my own homework, and eventually hired my own replacement employer.",
+      "meta": { "dept": "Marketing", "tenure_years": 2, "role_level": "IC3", "region": "NA", "exit_date": "2025-06-27", "satisfaction": 2 },
+      "pos": { "doc": "techcorp-exit-survey.csv", "row": 734 }
+    },
+    {
+      "id": "u_58b0c7f3e6a14d92",
+      "text": "Loved the people. Left for money. It really is that simple.",
+      "meta": { "dept": "Sales", "tenure_years": 2, "role_level": "IC2", "region": "NA", "exit_date": "2025-09-30", "satisfaction": 4 },
+      "pos": { "doc": "techcorp-exit-survey.csv", "row": 1411 },
+      "flags": { "dup": "u_4b9c2e7d80a1f355" }
+    },
+    {
+      "id": "u_ea6f3b8d0c92a154",
+      "text": "Compensation review was 'paused for macro conditions' while we sponsored a stadium. People notice. People do math. People leave.",
+      "meta": { "dept": "Operations", "tenure_years": 3, "role_level": "IC3", "region": "NA", "exit_date": "2025-08-14", "satisfaction": 2 },
+      "pos": { "doc": "techcorp-exit-survey.csv", "row": 1689 }
+    },
+    {
+      "id": "u_16d9a4e7f2c50b38",
+      "text": "I wanted to grow into architecture work. There was no path, no ladder, not even a wall to climb. Every senior role went to an external hire with a worse track record and a better network.",
+      "meta": { "dept": "Engineering", "tenure_years": 5, "role_level": "IC4", "region": "APAC", "exit_date": "2025-07-03", "satisfaction": 2 },
+      "pos": { "doc": "techcorp-exit-survey.csv", "row": 601 }
+    },
+    {
+      "id": "u_b3c1f5d8a07e2964",
+      "text": "Weekend releases became weekly releases became 'we own the pager now.' My kids started asking why the laptop comes on vacation. That question ended eleven years here.",
+      "meta": { "dept": "Engineering", "tenure_years": 11, "role_level": "M2", "region": "NA", "exit_date": "2025-10-17", "satisfaction": 2 },
+      "pos": { "doc": "techcorp-exit-survey.csv", "row": 388 }
+    }
+  ]
+}
