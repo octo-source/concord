@@ -141,19 +141,30 @@ function makeHeader(records, issues) {
   for (const r of records) if (r.length > width) width = r.length;
   if (looksLikeHeader(records[0])) {
     const names = [];
-    const seen = new Map();
+    const assigned = new Set();
+    // Raw header names are reserved up front so a synthesized "_N" suffix can
+    // never steal a REAL later column's name (headers "x,x,x_2" must keep all
+    // three columns: x, x_3, x_2 — not silently collapse two onto "x_2").
+    const rawSet = new Set(records[0].map((r) => r.trim()));
     let dup = false;
     for (const raw of records[0]) {
       const base = raw.trim();
-      const k = seen.get(base) || 0;
-      seen.set(base, k + 1);
-      if (k === 0) names.push(base);
-      else {
-        names.push(`${base}_${k + 1}`);
+      let name = base;
+      if (assigned.has(name)) {
         dup = true;
+        let k = 2;
+        while (assigned.has(`${base}_${k}`) || rawSet.has(`${base}_${k}`)) k++;
+        name = `${base}_${k}`;
       }
+      assigned.add(name);
+      names.push(name);
     }
-    while (names.length < width) names.push(`col${names.length + 1}`);
+    while (names.length < width) {
+      let i = names.length + 1;
+      while (assigned.has(`col${i}`)) i++;
+      assigned.add(`col${i}`);
+      names.push(`col${i}`);
+    }
     if (dup) issues.push({ kind: "dup_header", detail: "duplicate header names deduped with _N suffix" });
     return { names, dataStart: 1 };
   }

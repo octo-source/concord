@@ -122,6 +122,33 @@ test("csv: duplicate header names deduped with issue", async () => {
   rmSync(dir, { recursive: true, force: true });
 });
 
+test("csv: header dedup never collides with a real later column", async () => {
+  const dir = tempDir();
+  const p = join(dir, "dup2.csv");
+  writeFileSync(p, "x,x,x_2\n1,2,3\n");
+  const { rows, issues } = await csv.parse(p);
+  const keys = Object.keys(rows[0]);
+  assert.equal(keys.length, 3, `keys: ${keys.join(",")}`);
+  assert.equal(new Set(keys).size, 3, "all column names distinct");
+  // all three values survive: the synthesized name for the second "x" must
+  // not steal the real "x_2" column's name
+  assert.equal(rows[0].x, "1");
+  assert.equal(rows[0].x_3, "2");
+  assert.equal(rows[0].x_2, "3");
+  assert.ok(issues.some((i) => i.kind === "dup_header"));
+  rmSync(dir, { recursive: true, force: true });
+});
+
+test("csv: stray quote mid-field kept literal", async () => {
+  const dir = tempDir();
+  const p = join(dir, "stray.csv");
+  writeFileSync(p, 'a,b\n1,ab"cd\n');
+  const { rows } = await csv.parse(p);
+  assert.equal(rows.length, 1);
+  assert.equal(rows[0].b, 'ab"cd');
+  rmSync(dir, { recursive: true, force: true });
+});
+
 test("csv: CR-only and mixed line endings", async () => {
   const dir = tempDir();
   const p = join(dir, "mix.csv");
@@ -177,6 +204,18 @@ test("pdf: extracts both text objects as two paragraphs with page anchors", asyn
   assert.ok(Array.isArray(issues));
 });
 
+test("pdf: text items without a transform array are filtered, not fatal", () => {
+  const mk = (str, x, y) => ({ str, transform: [1, 0, 0, 1, x, y], height: 12 });
+  const items = [
+    mk("Hello", 72, 720),
+    { str: "ghost-no-transform" },
+    { str: "bad-transform", transform: null },
+    mk("world", 110, 720),
+  ];
+  const paras = pdf.pageParagraphs(items);
+  assert.deepEqual(paras, ["Hello world"]);
+});
+
 // =============================================================== text.js
 
 test("text: txt splits paragraphs on blank lines", async () => {
@@ -199,18 +238,62 @@ test("text: html strips tags/scripts/styles, keeps block boundaries", async () =
   assert.ok(!all.includes("<"), "tag leaked");
 });
 
+test("text: malformed numeric entity survives as literal, no throw", () => {
+  const paras = text.htmlToParas("<p>bad &#x110000; entity &amp; ok &#xD83D; lone</p>");
+  assert.equal(paras.length, 1);
+  assert.ok(paras[0].includes("&#x110000;"), `out-of-range entity kept literal, got: ${paras[0]}`);
+  assert.ok(paras[0].includes("& ok"), "amp still decodes");
+});
+
+test("text: named entities mdash/ndash/quotes/hellip decode", () => {
+  const paras = text.htmlToParas(
+    "<p>em&mdash;dash en&ndash;dash &lsquo;l&rsquo; &ldquo;d&rdquo; wait&hellip; it&apos;s</p>"
+  );
+  assert.equal(paras[0], "em—dash en–dash ‘l’ “d” wait… it's");
+});
+
 // =============================================================== transcript.js
 
-test("vtt: hour timestamps parsed, same-speaker cues merged", async () => {
+test("vtt: hour timestamps parsed; same-speaker cues an hour apart do NOT merge", async () => {
   const { turns } = await transcript.parse(fix("ingest-sample.vtt"));
-  assert.equal(turns.length, 2);
+  // Alice's second cue starts >1h after her first ends: that is a new turn.
+  // (Merging across arbitrary gaps was the old behavior — and the bug.)
+  assert.equal(turns.length, 3);
   assert.equal(turns[0].speaker, "Alice");
-  assert.equal(turns[0].text, "Hello everyone. Welcome to the meeting.");
+  assert.equal(turns[0].text, "Hello everyone.");
   assert.equal(turns[0].t0, 1);
-  assert.equal(turns[0].t1, 1 * 3600 + 2 * 60 + 6); // end of merged cue
-  assert.equal(turns[1].speaker, "Bob");
-  assert.equal(turns[1].t0, 1 * 3600 + 2 * 60 + 7);
-  assert.equal(turns[1].t1, 1 * 3600 + 2 * 60 + 9.25);
+  assert.equal(turns[0].t1, 4);
+  assert.equal(turns[1].speaker, "Alice");
+  assert.equal(turns[1].text, "Welcome to the meeting.");
+  assert.equal(turns[1].t0, 1 * 3600 + 2 * 60 + 3.5);
+  assert.equal(turns[1].t1, 1 * 3600 + 2 * 60 + 6);
+  assert.equal(turns[2].speaker, "Bob");
+  assert.equal(turns[2].t0, 1 * 3600 + 2 * 60 + 7);
+  assert.equal(turns[2].t1, 1 * 3600 + 2 * 60 + 9.25);
+});
+
+test("vtt: maxMergeGapSeconds option re-enables cross-gap merging", async () => {
+  const { turns } = await transcript.parse(fix("ingest-sample.vtt"), { maxMergeGapSeconds: 7200 });
+  assert.equal(turns.length, 2);
+  assert.equal(turns[0].text, "Hello everyone. Welcome to the meeting.");
+  assert.equal(turns[0].t1, 1 * 3600 + 2 * 60 + 6);
+});
+
+test("transcript: consecutive anonymous cues stay separate turns", async () => {
+  // Pin: speaker-less captions are often arbitrary mid-sentence breaks; a
+  // refactor must not silently fuse the whole file into one turn.
+  const dir = tempDir();
+  const p = join(dir, "anon.vtt");
+  writeFileSync(
+    p,
+    "WEBVTT\n\n00:00:01.000 --> 00:00:02.000\nfirst anonymous line\n\n00:00:02.500 --> 00:00:03.500\nsecond anonymous line\n"
+  );
+  const { turns } = await transcript.parse(p);
+  assert.equal(turns.length, 2);
+  assert.equal(turns[0].speaker, "Speaker");
+  assert.equal(turns[0].text, "first anonymous line");
+  assert.equal(turns[1].text, "second anonymous line");
+  rmSync(dir, { recursive: true, force: true });
 });
 
 test("srt: comma timestamps, speaker prefix, merge", async () => {
@@ -232,6 +315,21 @@ test("zoom json: speakers, times, merge", async () => {
   assert.equal(turns[0].t0, 1.2);
   assert.equal(turns[0].t1, 7);
   assert.equal(turns[1].speaker, "Dan");
+});
+
+test("zoom json: Otter/Rev words arrays join into text, not [object Object]", () => {
+  const raw = JSON.stringify({
+    segments: [
+      { speaker: "Eve", start: 0, end: 2.5, words: [{ text: "Deep" }, { word: "work" }, "matters", { text: "here" }] },
+      { speaker: "Frank", start: 3, end: 5, words: [{ text: "Agreed" }, { word: "fully" }] },
+    ],
+  });
+  const issues = [];
+  const cues = transcript.parseZoomJSON(raw, issues);
+  assert.equal(cues.length, 2);
+  assert.equal(cues[0].text, "Deep work matters here");
+  assert.equal(cues[1].text, "Agreed fully");
+  assert.ok(!cues.some((c) => c.text.includes("[object Object]")));
 });
 
 // =============================================================== mapping.js
@@ -350,6 +448,20 @@ test("unitize sentence: more abbreviation cases", () => {
   for (const [textIn, n] of cases) {
     const units = unitize(CORPUS, { rows: [{ t: textIn }], issues: [] }, "sentence", { textColumn: "t" });
     assert.equal(units.length, n, `"${textIn}" -> expected ${n}, got ${units.map((u) => JSON.stringify(u.text))}`);
+  }
+});
+
+test("unitize sentence: Unicode capitals (Ž, Cyrillic, Ý) open sentences; × does not", () => {
+  const cases = [
+    ["Okay. Žižek wrote it.", 2],
+    ["Да. Хорошо тогда.", 2],
+    ["Stop. Ýmir came home.", 2],
+    ["Three by five. × is the times sign.", 1], // × (U+00D7) is not a capital letter
+    ["lower case start. no split here.", 1], // lowercase sentence starts intentionally do not split
+  ];
+  for (const [textIn, n] of cases) {
+    const units = unitize(CORPUS, { rows: [{ t: textIn }], issues: [] }, "sentence", { textColumn: "t" });
+    assert.equal(units.length, n, `"${textIn}" -> got ${JSON.stringify(units.map((u) => u.text))}`);
   }
 });
 
@@ -566,6 +678,32 @@ test("junk: na variants and keyboard mash flagged", () => {
   assert.equal(units[0].flags?.junk, undefined);
 });
 
+test("junk: keyboard mash means row runs or repeats, not any row-letter word", () => {
+  for (const t of ["asdf", "asdfasdf", "qwerty", "zxcv", "qwert", "jkl", "xxxx", "sdfg", "poiuy"]) {
+    assert.equal(junk.isKeyboardMash(t), true, `"${t}" should be flagged as mash`);
+  }
+  // real words spelled entirely from home/top-row letters are NOT mash
+  for (const t of ["true", "power", "quiet", "all", "sad", "were", "salad", "yes", "ok sure"]) {
+    assert.equal(junk.isKeyboardMash(t), false, `"${t}" should NOT be flagged as mash`);
+  }
+});
+
+test("junk: bare 'no' and 'nope' are substantive answers, not NA", () => {
+  assert.equal(junk.isNa("no"), false);
+  assert.equal(junk.isNa("No."), false);
+  assert.equal(junk.isNa("nope"), false);
+  // none/nothing/na variants remain NA
+  for (const t of ["none", "nothing", "n/a", "NA", "n.a.", "none."]) {
+    assert.equal(junk.isNa(t), true, `"${t}" should remain NA`);
+  }
+});
+
+test("junk: scan does not flag 'no'/'nope'/row-letter words as na", () => {
+  const units = mkUnits(["no", "nope", "true", "power", "quiet all sad"]);
+  const { flagged, counts } = junk.scan(units);
+  assert.equal(counts.na, 0, JSON.stringify(flagged));
+});
+
 test("junk: short flag when corpus median is long", () => {
   const long = Array.from({ length: 8 }, (_, i) => `A long enough answer number ${i} with many words.`);
   const units = mkUnits([...long, "too short"]);
@@ -669,8 +807,69 @@ test("pii: scan finds emails, phones, ssn, user-urls, names", () => {
 
   assert.ok(kinds(units[2]).includes("ssn"));
   assert.ok(kinds(units[3]).includes("url_user"));
+  // the credentialed URL contains "pw@internal.example.org", which also matches
+  // the email regex — the longer url_user span must suppress that email span
+  assert.ok(!kinds(units[3]).includes("email"), "embedded email span suppressed by url_user");
+  const urlSpan = byId[units[3].id].find((s) => s.kind === "url_user");
+  assert.equal(units[3].text.slice(urlSpan.start, urlSpan.end), "https://user:pw@internal.example.org/path");
   assert.ok(kinds(units[4]).includes("phone"));
   assert.equal(byId[units[5].id], undefined);
+});
+
+test("pii: dates and year lists are not masked as phones", () => {
+  const units = mkPiiUnits([
+    "Project kicked off 2024-01-15 with the team.",
+    "Deadline moved to 10.04.2022 after review.",
+    "We compared 2022 2023 2024 results side by side.",
+    "Slash date 1/15/2024 also appears.",
+  ]);
+  const { findings, counts } = pii.scan(units);
+  assert.equal(counts.phone, 0, `dates flagged as phones: ${JSON.stringify(findings)}`);
+});
+
+test("pii: real phone formats still detected", () => {
+  const units = mkPiiUnits([
+    "Call 555-867-5309 today.",
+    "Or (555) 867-5309 works.",
+    "Maybe 555.867.5309 instead.",
+    "London office +44 20 7946 0958 line.",
+    "US desk +1-202-555-0143 anytime.",
+    "Bare intl +14155550123 mobile.",
+  ]);
+  const { findings, counts } = pii.scan(units);
+  assert.equal(counts.phone, 6, JSON.stringify(findings.map((f) => f.spans)));
+  const texts = findings.flatMap((f) => f.spans).filter((s) => s.kind === "phone").map((s) => s.text);
+  assert.ok(texts.includes("(555) 867-5309"), `parens format detected, got ${JSON.stringify(texts)}`);
+  assert.ok(texts.includes("+44 20 7946 0958"));
+});
+
+test("pii: spans slice exactly with astral chars (emoji) before the match", () => {
+  const t = "🎉🎉 reach jane@x.org or 555-867-5309 now";
+  const spans = pii.scanText(t);
+  const email = spans.find((s) => s.kind === "email");
+  assert.ok(email, "email found after emoji");
+  assert.equal(t.slice(email.start, email.end), "jane@x.org");
+  const phone = spans.find((s) => s.kind === "phone");
+  assert.ok(phone, "phone found after emoji");
+  assert.equal(t.slice(phone.start, phone.end), "555-867-5309");
+});
+
+test("pii: accented names detected, masked, and restored exactly", async () => {
+  const dir = tempDir();
+  const vaultPath = join(dir, "vault.json");
+  const original = "Hablé con José García ayer.";
+  const spans = pii.scanText(original);
+  const name = spans.find((s) => s.kind === "name");
+  assert.ok(name, `name span found, got ${JSON.stringify(spans)}`);
+  assert.equal(original.slice(name.start, name.end), "José García");
+
+  const units = mkPiiUnits([original]);
+  const { units: masked } = await pii.pseudonymize(units, vaultPath);
+  assert.ok(masked[0].text.includes("[NAME_1]"), `got: ${masked[0].text}`);
+  assert.ok(!masked[0].text.includes("José"));
+  const restored = await pii.reidentify(masked, vaultPath);
+  assert.equal(restored[0].text, original);
+  rmSync(dir, { recursive: true, force: true });
 });
 
 test("pii: name heuristic skips sentence starts and stoplisted bigrams", () => {
@@ -716,6 +915,67 @@ test("pii: pseudonymize -> reidentify roundtrip, stable tokens, vault written", 
 
   const restored = await pii.reidentify(masked, vaultPath);
   assert.deepEqual(restored.map((u) => u.text), originals);
+  rmSync(dir, { recursive: true, force: true });
+});
+
+test("pii: second batch accumulates into the vault — distinct tokens, both reidentify", async () => {
+  const dir = tempDir();
+  const vaultPath = join(dir, "vault.json");
+  const batch1 = mkPiiUnits(["Email alpha@one.com about the audit."]);
+  const { units: m1 } = await pii.pseudonymize(batch1, vaultPath);
+  assert.ok(m1[0].text.includes("[EMAIL_1]"));
+
+  const batch2 = mkPiiUnits(["Email beta@two.com and alpha@one.com again."]);
+  const { units: m2 } = await pii.pseudonymize(batch2, vaultPath);
+  // the NEW address continues numbering; it must NOT reuse [EMAIL_1]
+  assert.ok(m2[0].text.includes("[EMAIL_2]"), `got: ${m2[0].text}`);
+  // the repeated address reuses its batch-1 token
+  assert.ok(m2[0].text.includes("[EMAIL_1]"), `got: ${m2[0].text}`);
+
+  const v = JSON.parse(readFileSync(vaultPath, "utf8"));
+  assert.equal(v.tokens["[EMAIL_1]"], "alpha@one.com");
+  assert.equal(v.tokens["[EMAIL_2]"], "beta@two.com");
+
+  // both batches reidentify correctly against the shared vault
+  const r1 = await pii.reidentify(m1, vaultPath);
+  assert.equal(r1[0].text, "Email alpha@one.com about the audit.");
+  const r2 = await pii.reidentify(m2, vaultPath);
+  assert.equal(r2[0].text, "Email beta@two.com and alpha@one.com again.");
+  rmSync(dir, { recursive: true, force: true });
+});
+
+test("pii: pseudonymize re-run on already-masked text is a no-op", async () => {
+  const dir = tempDir();
+  const vaultPath = join(dir, "vault.json");
+  const units = mkPiiUnits(["Reach jane.doe@example.com or 555-867-5309 soon."]);
+  const { units: masked } = await pii.pseudonymize(units, vaultPath);
+  assert.ok(masked[0].text.includes("[EMAIL_1]") && masked[0].text.includes("[PHONE_1]"), masked[0].text);
+  const vaultBefore = JSON.parse(readFileSync(vaultPath, "utf8"));
+
+  const { units: again } = await pii.pseudonymize(masked, vaultPath);
+  assert.equal(again[0].text, masked[0].text, "re-masking already-masked text must not change it");
+  const vaultAfter = JSON.parse(readFileSync(vaultPath, "utf8"));
+  assert.deepEqual(vaultAfter.tokens, vaultBefore.tokens, "vault tokens must survive a re-run");
+  // originals are still recoverable
+  const restored = await pii.reidentify(again, vaultPath);
+  assert.equal(restored[0].text, "Reach jane.doe@example.com or 555-867-5309 soon.");
+  rmSync(dir, { recursive: true, force: true });
+});
+
+test("pii: pseudonymize refuses to remap an existing token (VAULT_CONFLICT)", async () => {
+  const dir = tempDir();
+  const vaultPath = join(dir, "vault.json");
+  await pii.pseudonymize(mkPiiUnits(["First mail alpha@one.com here."]), vaultPath);
+  // This text carries [EMAIL_2], which the vault does NOT define — proceeding
+  // would let the next minted email token alias it to a different original.
+  const tainted = mkPiiUnits(["Old export said [EMAIL_2] but new mail is beta@two.com."]);
+  await assert.rejects(
+    () => pii.pseudonymize(tainted, vaultPath),
+    (e) => e.name === "ConcordError" && e.code === "VAULT_CONFLICT"
+  );
+  // the failed run must not have damaged the existing vault
+  const v = JSON.parse(readFileSync(vaultPath, "utf8"));
+  assert.deepEqual(v.tokens, { "[EMAIL_1]": "alpha@one.com" });
   rmSync(dir, { recursive: true, force: true });
 });
 

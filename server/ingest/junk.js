@@ -3,18 +3,38 @@
 // dups, flags.dup = original unit id) and returns {flagged, counts}.
 // Precedence per unit: na > bot > dup > short.
 
+// NOTE: bare "no" / "nope" are deliberately NOT here — they are substantive
+// answers to yes/no survey questions, not non-answers.
 const NA_SET = new Set([
-  "na", "n/a", "n.a.", "n.a", "none", "nothing", "null", "nil", "no", "-", "--",
-  "—", ".", "..", "...", "x", "xx", "xxx", "idk", "n/a.", "nope",
+  "na", "n/a", "n.a.", "n.a", "none", "nothing", "null", "nil", "-", "--",
+  "—", ".", "..", "...", "x", "xx", "xxx", "idk", "n/a.",
 ]);
 
-const KEY_ROWS = [/^[qwertyuiop]+$/, /^[asdfghjkl;']+$/, /^[zxcvbnm,.]+$/];
+// Keyboard mash = a token that is a contiguous run along one keyboard row
+// ("asdf", "qwerty", "poiuy" — forward or reversed), or a short chunk repeated
+// to fill the whole token ("asdfasdf", "xxxx"). Mere set-membership over row
+// letters is NOT enough: real words like "true", "power", "sad", "salad" are
+// spelled entirely from row letters and must not be flagged.
+const ROW_SEQS = ["qwertyuiop", "asdfghjkl", "zxcvbnm"];
+const ROW_RUNS = [...ROW_SEQS, ...ROW_SEQS.map((r) => [...r].reverse().join(""))];
 
-// "asdf-like keyboard mash": every token is >=3 chars drawn from one keyboard row.
+function isRowRun(tok) {
+  return tok.length >= 3 && ROW_RUNS.some((row) => row.includes(tok));
+}
+
+function isRepeatedChunk(tok) {
+  if (tok.length < 3) return false;
+  for (let len = 1; len <= 4 && len * 2 <= tok.length; len++) {
+    if (tok.length % len !== 0) continue;
+    if (tok.slice(0, len).repeat(tok.length / len) === tok) return true;
+  }
+  return false;
+}
+
 export function isKeyboardMash(text) {
   const tokens = text.toLowerCase().split(/\s+/).filter(Boolean);
   if (tokens.length === 0) return false;
-  return tokens.every((tok) => tok.length >= 3 && KEY_ROWS.some((re) => re.test(tok)));
+  return tokens.every((tok) => isRowRun(tok) || isRepeatedChunk(tok));
 }
 
 export function isNa(text) {

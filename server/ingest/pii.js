@@ -14,7 +14,10 @@ const SSN_RE = /\b\d{3}-\d{2}-\d{4}\b/g;
 // US formats (555-867-5309, (555) 867-5309, 555.867.5309) and international-ish
 // (+44 20 7946 0958, +1-202-555-0143): an optional +CC then 7-12 digits with
 // separators. Requires at least one separator or a leading + to avoid bare ids.
-const PHONE_RE = /(?:\+\d{1,3}[-.\s]?)?(?:\(\d{2,4}\)[-.\s]?)?\d{2,4}(?:[-.\s]\d{2,4}){2,4}|\+\d{8,14}\b/g;
+// Three branches: parenthesized area code (needs only one more separator,
+// "(555) 867-5309"), plain separated runs (need two, so "12-34" stays out),
+// and bare +international.
+const PHONE_RE = /(?:\+\d{1,3}[-.\s]?)?\(\d{2,4}\)[-.\s]?\d{2,4}(?:[-.\s]\d{2,4}){1,4}|(?:\+\d{1,3}[-.\s]?)?\d{2,4}(?:[-.\s]\d{2,4}){2,4}|\+\d{8,14}\b/g;
 
 // Capitalized-bigram name heuristic stoplist: common capitalized words that
 // start places, orgs, months, weekdays, honorific phrases.
@@ -39,7 +42,11 @@ const NAME_STOP = new Set([
   "English", "Spanish", "French", "German", "Chinese", "Japanese",
 ]);
 
-const BIGRAM_RE = /\b([A-Z][a-z]+)[ \t]+([A-Z][a-z]+)\b/g;
+// Unicode-aware capitalized bigram: \p{Lu}\p{L}+ matches "José García",
+// "Łukasz Kowalski", Cyrillic names, ... — the old ASCII [A-Z][a-z]+ class
+// produced zero spans for accented names. Sentence-start suppression and the
+// stoplist below still apply.
+const BIGRAM_RE = /\b(\p{Lu}\p{L}+)[ \t]+(\p{Lu}\p{L}+)\b/gu;
 
 function atSentenceStart(text, idx) {
   // Walk back over whitespace; sentence start = string start, or after
@@ -77,6 +84,12 @@ function findRegex(text, re, kind, validate) {
 }
 
 function validPhone(s) {
+  const t = s.trim();
+  // Date shapes are not phones: ISO "2024-01-15", EU/US "10.04.2022" /
+  // "1-15-2024", and bare year-list runs like "2022 2023 2024".
+  if (/^\d{4}[-./]\d{1,2}[-./]\d{1,2}$/.test(t)) return false;
+  if (/^\d{1,2}[-./]\d{1,2}[-./]\d{2,4}$/.test(t)) return false;
+  if (/^\d{4}(?:\s\d{4})+$/.test(t)) return false;
   const digits = s.replace(/\D/g, "");
   return digits.length >= 7 && digits.length <= 15;
 }
@@ -134,17 +147,80 @@ async function writeJsonAtomic(path, obj) {
   await rename(tmp, path);
 }
 
+const TOKEN_RE = /\[(EMAIL|PHONE|SSN|URL|NAME)_\d+\]/g;
+const TOKEN_PARSE = /^\[([A-Z]+)_(\d+)\]$/;
+const LABEL_KIND = Object.fromEntries(Object.entries(KIND_TOKEN).map(([k, v]) => [v, k]));
+
+// Load an existing vault for accumulation. Missing file -> null (fresh vault);
+// unreadable/garbled file -> BAD_VAULT (never silently start over and lose the
+// existing token map).
+async function loadVault(vaultPath) {
+  let raw;
+  try {
+    raw = await readFile(vaultPath, "utf8");
+  } catch (e) {
+    if (e.code === "ENOENT") return null;
+    throw new ConcordError("BAD_VAULT", `cannot read vault at ${vaultPath}: ${e.message}`, { vaultPath });
+  }
+  let vault;
+  try {
+    vault = JSON.parse(raw);
+  } catch (e) {
+    throw new ConcordError("BAD_VAULT", `vault at ${vaultPath} is not valid JSON: ${e.message}`, { vaultPath });
+  }
+  if (!vault || typeof vault.tokens !== "object" || vault.tokens === null) {
+    throw new ConcordError("BAD_VAULT", "vault file has no tokens map", { vaultPath });
+  }
+  return vault;
+}
+
 // Replace every PII span with a stable token ([EMAIL_1], [NAME_2], ...) —
 // the same original string always maps to the same token. Returns new unit
 // objects (ids preserved); writes the reversible map to vaultPath.
+//
+// The vault ACCUMULATES: if vaultPath already exists it is loaded, token
+// numbering continues from the highest existing index per kind, and the new
+// mappings are unioned in — a second batch can never reuse [EMAIL_1] for a
+// different address, and re-running over already-masked text is a no-op
+// (vault-known [KIND_n] tokens in the input are left untouched). A token-
+// shaped string that the vault does NOT know means the text was masked
+// against some other vault; remapping it would corrupt re-identification, so
+// that throws VAULT_CONFLICT and leaves the vault file unmodified.
 export async function pseudonymize(units, vaultPath) {
   if (!vaultPath) throw new ConcordError("NO_VAULT_PATH", "pseudonymize requires a vault path outside the project bundle", {});
+  const existing = await loadVault(vaultPath);
+  const tokens = { ...(existing?.tokens || {}) }; // token -> original (union)
   const tokenOf = new Map(); // `${kind}|${original}` -> token
-  const tokens = {}; // token -> original
-  const counters = {};
+  const counters = {}; // label -> highest index in use
+  for (const [token, original] of Object.entries(tokens)) {
+    const m = TOKEN_PARSE.exec(token);
+    if (!m) continue;
+    const kind = LABEL_KIND[m[1]];
+    if (kind && !tokenOf.has(`${kind}|${original}`)) tokenOf.set(`${kind}|${original}`, token);
+    counters[m[1]] = Math.max(counters[m[1]] || 0, parseInt(m[2], 10));
+  }
   const counts = { email: 0, phone: 0, ssn: 0, url_user: 0, name: 0 };
   const masked = units.map((u) => {
-    const spans = scanText(u.text);
+    // Token-shaped spans already in the text: vault-known -> protected no-op
+    // (idempotent re-run); unknown -> refuse (see VAULT_CONFLICT above).
+    const protectedRanges = [];
+    TOKEN_RE.lastIndex = 0;
+    let tm;
+    while ((tm = TOKEN_RE.exec(u.text))) {
+      if (Object.prototype.hasOwnProperty.call(tokens, tm[0])) {
+        protectedRanges.push([tm.index, tm.index + tm[0].length]);
+      } else {
+        throw new ConcordError(
+          "VAULT_CONFLICT",
+          `text contains pseudonym token ${tm[0]} that is not in the vault; refusing to remap an existing token to a different original`,
+          { vaultPath, token: tm[0], unitId: u.id }
+        );
+      }
+    }
+    let spans = scanText(u.text);
+    if (protectedRanges.length) {
+      spans = spans.filter((s) => !protectedRanges.some(([a, b]) => s.start < b && a < s.end));
+    }
     if (spans.length === 0) return { ...u };
     // Assign tokens in reading order so numbering follows first occurrence...
     for (const span of spans) {
@@ -153,6 +229,11 @@ export async function pseudonymize(units, vaultPath) {
         const label = KIND_TOKEN[span.kind];
         counters[label] = (counters[label] || 0) + 1;
         const token = `[${label}_${counters[label]}]`;
+        if (Object.prototype.hasOwnProperty.call(tokens, token) && tokens[token] !== span.text) {
+          // invariant guard: counters continue past every vault index, so a
+          // collision here means the vault was edited out from under us
+          throw new ConcordError("VAULT_CONFLICT", `token ${token} already maps to a different original`, { vaultPath, token });
+        }
         tokenOf.set(key, token);
         tokens[token] = span.text;
       }
@@ -167,17 +248,20 @@ export async function pseudonymize(units, vaultPath) {
     const flags = { ...(u.flags || {}), pii: [...new Set(spans.map((s) => s.kind))] };
     return { ...u, text, flags };
   });
+  // Cumulative occurrence counts across every batch written to this vault.
+  const vaultCounts = { ...counts };
+  for (const [k, v] of Object.entries(existing?.counts || {})) {
+    vaultCounts[k] = (vaultCounts[k] || 0) + v;
+  }
   const vault = {
     version: 1,
-    createdAt: new Date().toISOString(),
+    createdAt: existing?.createdAt || new Date().toISOString(),
     tokens,
-    counts,
+    counts: vaultCounts,
   };
   await writeJsonAtomic(vaultPath, vault);
   return { units: masked, vault: { path: vaultPath, counts, tokenCount: Object.keys(tokens).length } };
 }
-
-const TOKEN_RE = /\[(EMAIL|PHONE|SSN|URL|NAME)_\d+\]/g;
 
 // Restore original text from the vault map. Returns new unit objects.
 export async function reidentify(units, vaultPath) {

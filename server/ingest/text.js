@@ -12,13 +12,20 @@ const BLOCK_TAGS = new Set([
   "figcaption", "hr", "form", "fieldset", "address", "dt", "dd", "dl",
 ]);
 
-const ENTITIES = { amp: "&", lt: "<", gt: ">", quot: '"', apos: "'", nbsp: " " };
+const ENTITIES = {
+  amp: "&", lt: "<", gt: ">", quot: '"', apos: "'", nbsp: " ",
+  mdash: "—", ndash: "–", rsquo: "’", lsquo: "‘",
+  ldquo: "“", rdquo: "”", hellip: "…",
+};
 
 function decodeEntities(s) {
   return s.replace(/&(#x?[0-9a-fA-F]+|[a-zA-Z]+);/g, (m, body) => {
     if (body[0] === "#") {
       const code = body[1] === "x" || body[1] === "X" ? parseInt(body.slice(2), 16) : parseInt(body.slice(1), 10);
-      return Number.isFinite(code) ? String.fromCodePoint(code) : m;
+      // Guard the code-point range: String.fromCodePoint throws a RangeError on
+      // values above 0x10FFFF (e.g. malformed "&#x110000;"); emit the literal
+      // source text instead of crashing the import.
+      return Number.isFinite(code) && code >= 0 && code <= 0x10ffff ? String.fromCodePoint(code) : m;
     }
     return ENTITIES[body.toLowerCase()] ?? m;
   });

@@ -33,17 +33,24 @@ function stripTags(s) {
   return s.replace(/<[^>]*>/g, "").trim();
 }
 
-// Merge consecutive same-speaker cues into turns.
-function mergeCues(cues) {
+// Merge consecutive same-speaker cues into turns — but only when the silence
+// between them is short. A same-speaker cue that starts more than
+// maxMergeGapSeconds after the previous one ends is a NEW turn (an hour-long
+// gap is a different moment in the meeting, not one continuous utterance).
+const DEFAULT_MAX_MERGE_GAP_SECONDS = 30;
+
+function mergeCues(cues, maxMergeGapSeconds = DEFAULT_MAX_MERGE_GAP_SECONDS) {
   const turns = [];
   for (const cue of cues) {
     if (!cue.text) continue;
     const last = turns[turns.length - 1];
+    // Unknown timestamps (null) cannot prove a gap, so they merge.
+    const gap = last && cue.t0 != null && last.t1 != null ? cue.t0 - last.t1 : 0;
     // Consecutive cues WITHOUT speakers intentionally do NOT merge: stored
     // turns coerce a null speaker to "Speaker" while incoming cues keep null,
     // so this check fails for them. Anonymous captions are often arbitrary
     // mid-sentence breaks; merging them would fuse the whole file into one turn.
-    if (last && last.speaker === cue.speaker) {
+    if (last && last.speaker === cue.speaker && gap <= maxMergeGapSeconds) {
       last.text += (last.text ? " " : "") + cue.text;
       last.t1 = cue.t1 ?? last.t1;
     } else {
@@ -118,7 +125,16 @@ export function parseZoomJSON(raw, issues = []) {
       if (d !== null) t1 = t0 + d;
     }
     const rawText = seg.text ?? seg.caption ?? seg.words ?? "";
-    const text = String(rawText).trim();
+    // Otter/Rev-style `words` arrays: [{text}, {word}, "literal", ...] — join
+    // the word strings; String() on the array would yield "[object Object]".
+    const text = Array.isArray(rawText)
+      ? rawText
+          .map((w) => w?.text ?? w?.word ?? (typeof w === "string" ? w : ""))
+          .map((w) => String(w).trim())
+          .filter(Boolean)
+          .join(" ")
+          .trim()
+      : String(rawText).trim();
     if (!text) {
       issues.push({ kind: "empty_segment", detail: "segment without text skipped" });
       continue;
@@ -128,7 +144,9 @@ export function parseZoomJSON(raw, issues = []) {
   return cues;
 }
 
-export async function parse(filePath) {
+// parse(filePath, {maxMergeGapSeconds}) — the option overrides the default
+// 30s same-speaker merge window.
+export async function parse(filePath, { maxMergeGapSeconds } = {}) {
   let raw;
   try {
     raw = await readFile(filePath, "utf8");
@@ -143,7 +161,7 @@ export async function parse(filePath) {
   else if (ext === ".srt") cues = parseSRT(raw, issues);
   else if (ext === ".json" || raw.trimStart().startsWith("{") || raw.trimStart().startsWith("[")) cues = parseZoomJSON(raw, issues);
   else throw new ConcordError("BAD_TRANSCRIPT", `unrecognized transcript format: ${ext || "no extension"}`, { filePath });
-  const turns = mergeCues(cues);
+  const turns = mergeCues(cues, maxMergeGapSeconds ?? DEFAULT_MAX_MERGE_GAP_SECONDS);
   if (turns.length === 0) issues.push({ kind: "empty", detail: "no turns extracted" });
   return { turns, issues };
 }

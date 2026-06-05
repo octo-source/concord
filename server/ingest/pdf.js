@@ -14,9 +14,13 @@ function loadPdfjs() {
 
 // Group one page's text items into paragraph strings.
 // Items carry transform[4]=x, transform[5]=y (origin bottom-left).
-function pageParagraphs(items) {
+// Items without a usable transform array are filtered out rather than crashing
+// the page. NOTE: rotated or multi-column pages degrade to scrambled-but-
+// nonempty text by design in v1 — items are clustered by raw y then x only,
+// with no rotation or column detection.
+export function pageParagraphs(items) {
   const placed = items
-    .filter((it) => it.str && it.str.trim().length > 0)
+    .filter((it) => it.str && it.str.trim().length > 0 && Array.isArray(it.transform) && it.transform.length >= 6)
     .map((it) => ({ str: it.str, x: it.transform[4], y: it.transform[5], h: it.height || 0 }));
   if (placed.length === 0) return [];
   // Cluster into lines by y (tolerance: half the median glyph height, min 2pt)
@@ -84,15 +88,19 @@ export async function parse(filePath) {
   const pages = []; // page anchor per paragraph (1-based)
   try {
     for (let p = 1; p <= doc.numPages; p++) {
-      let content;
+      // pageParagraphs runs INSIDE the per-page try: a malformed page becomes
+      // a bad_page issue and the rest of the document still imports, instead
+      // of one bad page aborting the whole doc.
+      let pageParas;
       try {
         const page = await doc.getPage(p);
-        content = await page.getTextContent();
+        const content = await page.getTextContent();
+        pageParas = pageParagraphs(content.items);
       } catch (e) {
         issues.push({ kind: "bad_page", detail: `page ${p}: ${e.message}` });
         continue;
       }
-      for (const para of pageParagraphs(content.items)) {
+      for (const para of pageParas) {
         paras.push(para);
         pages.push(p);
       }

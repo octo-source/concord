@@ -48,7 +48,12 @@ export function splitSentences(text) {
     while (k < t.length && /\s/.test(t[k])) k++;
     let c = t[k];
     if (c === '"' || c === "'" || c === "(" || c === "[") c = t[k + 1];
-    if (c === undefined || !/[A-Z0-9À-Ü]/.test(c)) continue; // next sentence starts with capital/digit
+    // Next sentence must open with an uppercase letter in ANY script (\p{Lu}
+    // covers Ž, Ý, Cyrillic, ... — the old [A-ZÀ-Ü] class missed those and
+    // wrongly included × U+00D7) or a digit. Lowercase starts intentionally do
+    // NOT split: they usually follow abbreviations, ellipses, or informal
+    // punctuation mid-sentence.
+    if (c === undefined || !/[\p{Lu}0-9]/u.test(c)) continue;
     if (ch === "." && endsWithAbbrev(t.slice(start, i + 1))) continue;
     out.push(t.slice(start, j + 1).trim());
     start = k;
