@@ -36,9 +36,12 @@ export async function put(projectDir, k, value) {
   try {
     await rename(tmp, file);
   } catch (err) {
-    // lost a same-key race — identical content already landed
-    if (await get(projectDir, k) === null) throw err;
-    await rm(tmp, { force: true });
+    // either we lost a same-key race (identical content already landed) or
+    // the rename genuinely failed — in both cases the tmp must not linger
+    let existing = null;
+    try { existing = await get(projectDir, k); } catch { /* unreadable -> treat as missing */ }
+    await rm(tmp, { force: true }).catch(() => {});
+    if (existing === null) throw err;
   }
   return value;
 }

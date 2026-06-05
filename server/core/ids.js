@@ -1,9 +1,14 @@
 import { createHash, randomBytes } from "node:crypto";
 
 // Canonical JSON: recursively sorted object keys, no whitespace, JSON value
-// semantics (undefined-valued keys dropped). Hashing canonical(obj) gives a
-// stable content address regardless of key insertion order.
+// semantics (undefined-valued keys dropped, toJSON honored — so a Date
+// canonicalizes to its ISO string exactly as JSON.stringify would persist it).
+// Hashing canonical(obj) gives a stable content address regardless of key
+// insertion order.
 export function canonical(value) {
+  if (value !== null && typeof value === "object" && typeof value.toJSON === "function") {
+    return canonical(value.toJSON());
+  }
   if (value === null || typeof value !== "object") return JSON.stringify(value);
   if (Array.isArray(value)) return "[" + value.map((v) => canonical(v === undefined ? null : v)).join(",") + "]";
   const keys = Object.keys(value).filter((k) => value[k] !== undefined).sort();

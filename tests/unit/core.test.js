@@ -1,7 +1,7 @@
 // Foundation tests: ids, store, ledger, objects, cache, router/server.
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { mkdtemp, rm, writeFile, readFile, mkdir } from "node:fs/promises";
+import { mkdtemp, rm, writeFile, readFile, mkdir, readdir, appendFile } from "node:fs/promises";
 import { existsSync } from "node:fs";
 import os from "node:os";
 import path from "node:path";
@@ -426,7 +426,7 @@ test("server: malformed JSON body is a 400 BAD_JSON; oversize body is TOO_LARGE"
     headers: { "content-type": "application/json" },
     body: JSON.stringify({ pad: "x".repeat(200) }),
   });
-  assert.equal(r2.status, 400);
+  assert.equal(r2.status, 413); // TOO_LARGE maps to 413 via the error-status table
   assert.equal((await r2.json()).error.code, "TOO_LARGE");
 });
 
@@ -516,6 +516,354 @@ test("server: parseServerMode parses --coder <goldsetId>:<coderId>", () => {
   assert.deepEqual(parseServerMode(["--coder", "gs_1:alice"]), { role: "coder", goldsetId: "gs_1", coderId: "alice" });
   assert.throws(() => parseServerMode(["--coder", "missing-colon"]), (e) => e.code === "VALIDATION");
   assert.throws(() => parseServerMode(["--coder"]), (e) => e.code === "VALIDATION");
+});
+
+// ------------------------------------------- regression: foundation hardening
+
+test("store: REGRESSION concurrent saveProject never corrupts project.json (2 writers x 50 rounds)", async (t) => {
+  const dir = await tmpdir(t);
+  const winners = new Set();
+  for (let round = 0; round < 50; round++) {
+    const a = { id: "p_a", name: "A".repeat(2000), slug: "race", round };
+    const b = { id: "p_b", name: "B", slug: "race", round };
+    const pair = round % 2 === 0 ? [a, b] : [b, a];
+    await Promise.all([saveProject(pair[0], dir), saveProject(pair[1], dir)]);
+    // the file must be parseable after every round, no matter who won
+    const loaded = JSON.parse(await readFile(path.join(dir, "race", "project.json"), "utf8"));
+    winners.add(loaded.id);
+  }
+  assert.ok(winners.has("p_a") && winners.has("p_b"), `both write orders observed (saw: ${[...winners]})`);
+  const leftovers = (await readdir(path.join(dir, "race"))).filter((f) => f !== "project.json");
+  assert.deepEqual(leftovers, [], "no stray tmp files left behind");
+});
+
+test("store: REGRESSION updateProject is single-flight read-modify-write (20 concurrent increments)", async (t) => {
+  const dir = await tmpdir(t);
+  const store = await import("../../server/core/store.js");
+  assert.equal(typeof store.updateProject, "function", "store must export updateProject(slug, mutatorFn, dir)");
+  await saveProject({ id: "p_1", name: "Counter", slug: "counter", n: 0 }, dir);
+  await Promise.all(Array.from({ length: 20 }, () => store.updateProject("counter", (p) => { p.n += 1; }, dir)));
+  assert.equal((await loadProject("counter", dir)).n, 20, "no increment may be lost");
+});
+
+test("store: REGRESSION listProjects surfaces damaged bundles as {slug, corrupt: true}", async (t) => {
+  const dir = await tmpdir(t);
+  await saveProject({ id: "p_1", name: "Good", slug: "good" }, dir);
+  await mkdir(path.join(dir, "broken"));
+  await writeFile(path.join(dir, "broken", "project.json"), "{nope", "utf8");
+  await mkdir(path.join(dir, "junk")); // no project.json at all — still silently skipped
+  const list = await listProjects(dir);
+  assert.deepEqual(list.find((p) => p.slug === "broken"), { slug: "broken", corrupt: true });
+  assert.equal(list.find((p) => p.slug === "good").name, "Good");
+  assert.equal(list.find((p) => p.slug === "junk"), undefined);
+});
+
+test("store: REGRESSION readNdjson skips a torn final line but still throws BAD_NDJSON elsewhere", async (t) => {
+  const dir = await tmpdir(t);
+  const torn = path.join(dir, "torn.ndjson");
+  await writeFile(torn, '{"a":1}\n{"b":', "utf8"); // crash mid-append: no trailing newline
+  assert.deepEqual(await readNdjson(torn), [{ a: 1 }], "torn tail is not corruption");
+
+  const midfile = path.join(dir, "midfile.ndjson");
+  await writeFile(midfile, '{"a":1}\nGARBAGE\n{"c":3}\n', "utf8");
+  await assert.rejects(readNdjson(midfile), (e) => e.code === "BAD_NDJSON", "mid-file garbage stays a hard fail");
+
+  const completeBad = path.join(dir, "completebad.ndjson");
+  await writeFile(completeBad, '{"a":1}\nGARBAGE\n', "utf8"); // newline-terminated => a complete, malformed line
+  await assert.rejects(readNdjson(completeBad), (e) => e.code === "BAD_NDJSON", "a complete malformed final line is corruption");
+});
+
+test("store: REGRESSION appendNdjson truncates a torn tail before appending", async (t) => {
+  const dir = await tmpdir(t);
+  const file = path.join(dir, "heal.ndjson");
+  await appendNdjson(file, { a: 1 });
+  await appendFile(file, '{"x":', "utf8"); // simulate a crash mid-append
+  await appendNdjson(file, { b: 2 });
+  const raw = await readFile(file, "utf8");
+  assert.ok(raw.endsWith("\n"), "file ends with a newline after healing");
+  assert.deepEqual(raw.trim().split("\n").map((l) => JSON.parse(l)), [{ a: 1 }, { b: 2 }], "fragment removed, no concatenation");
+});
+
+test("ledger: REGRESSION warm-process append after an external torn write heals instead of concatenating", async (t) => {
+  const dir = await tmpdir(t);
+  await ledger.append(dir, "human", "one", [], {});
+  const e2 = await ledger.append(dir, "human", "two", [], {});
+  await appendFile(path.join(dir, "ledger.ndjson"), '{"ts":"2026-', "utf8"); // torn external append
+  assert.deepEqual(await ledger.verify(dir), { ok: true, length: 2, tornTail: true }, "torn tail is reported, not a failure");
+  const e3 = await ledger.append(dir, "human", "three", [], {});
+  assert.equal(e3.prev, e2.hash, "chains onto the last durable event");
+  assert.deepEqual(await ledger.verify(dir), { ok: true, length: 3 });
+  const lines = (await readFile(path.join(dir, "ledger.ndjson"), "utf8")).trim().split("\n");
+  assert.equal(lines.length, 3, "fragment was truncated away");
+});
+
+test("ledger: REGRESSION cold-start append heals a torn tail and chains onto the last complete event", async (t) => {
+  const dir = await tmpdir(t);
+  const body = { ts: "2026-06-05T00:00:00.000Z", actor: "human", type: "seed", refs: [], payload: {} };
+  const hash = sha256("" + canonical(body));
+  await writeFile(path.join(dir, "ledger.ndjson"), JSON.stringify({ ...body, prev: "", hash }) + "\n" + '{"ts":"2026-06-05T0', "utf8");
+  const e2 = await ledger.append(dir, "human", "next", [], {});
+  assert.equal(e2.prev, hash);
+  assert.deepEqual(await ledger.verify(dir), { ok: true, length: 2 });
+});
+
+test("ledger: REGRESSION mid-file corruption still hard-fails verify even with torn-tail leniency", async (t) => {
+  const dir = await tmpdir(t);
+  await ledger.append(dir, "human", "a", [], {});
+  await ledger.append(dir, "human", "b", [], {});
+  const file = path.join(dir, "ledger.ndjson");
+  const lines = (await readFile(file, "utf8")).trim().split("\n");
+  await writeFile(file, "GARBAGE\n" + lines[1] + "\n", "utf8");
+  const result = await ledger.verify(dir);
+  assert.equal(result.ok, false);
+});
+
+test("ledger: REGRESSION stat-checks the cached tail so an external append is not orphaned", async (t) => {
+  const dir = await tmpdir(t);
+  const e1 = await ledger.append(dir, "human", "one", [], {});
+  // a second process appends a valid event behind our back
+  const body = { ts: "2026-06-05T00:00:00.000Z", actor: "human", type: "two", refs: [], payload: {} };
+  const hash = sha256(e1.hash + canonical(body));
+  await appendNdjson(path.join(dir, "ledger.ndjson"), { ...body, prev: e1.hash, hash });
+  const e3 = await ledger.append(dir, "human", "three", [], {});
+  assert.equal(e3.prev, hash, "must chain onto the externally appended event, not the stale cached tail");
+  assert.deepEqual(await ledger.verify(dir), { ok: true, length: 3 });
+});
+
+test("ledger: 20 parallel appends serialize into a verifiable chain", async (t) => {
+  const dir = await tmpdir(t);
+  await Promise.all(Array.from({ length: 20 }, (_, i) => ledger.append(dir, "system", "tick", [], { i })));
+  const result = await ledger.verify(dir);
+  assert.deepEqual(result, { ok: true, length: 20 });
+});
+
+test("ids: REGRESSION canonical honors toJSON (Date)", () => {
+  assert.equal(canonical(new Date(0)), JSON.stringify("1970-01-01T00:00:00.000Z"));
+  assert.equal(canonical({ at: new Date(0), n: 1 }), '{"at":"1970-01-01T00:00:00.000Z","n":1}');
+  assert.equal(canonical([new Date(0)]), '["1970-01-01T00:00:00.000Z"]');
+});
+
+test("ledger: REGRESSION a Date in the payload does not brick verify (hash-what-you-persist)", async (t) => {
+  const dir = await tmpdir(t);
+  const e = await ledger.append(dir, "human", "ran", [], { at: new Date("2026-06-05T01:02:03.456Z"), n: 1 });
+  assert.equal(e.payload.at, "2026-06-05T01:02:03.456Z", "payload is normalized to what JSON persists");
+  assert.deepEqual(await ledger.verify(dir), { ok: true, length: 1 });
+});
+
+test("objects: REGRESSION createInstrument rejects frozen:true input", () => {
+  assert.throws(
+    () => createInstrument({ constructId: "c_1", kind: "judge", payload: {}, frozen: true }),
+    (e) => e.code === "VALIDATION");
+});
+
+test("store: REGRESSION frozen instruments stay frozen after loadProject (rehydrate)", async (t) => {
+  const dir = await tmpdir(t);
+  const inst = createInstrument({ constructId: "c_1", kind: "judge", payload: { prompt: "v1" } });
+  freeze(inst, { frozenAt: "2026-06-05T00:00:00Z", goldsetId: "gs_1", versionHash: inst.versionHash, modelPinned: true });
+  const project = createProject({ name: "Frozen Pilot" });
+  project.instruments.push(inst);
+  await saveProject(project, dir);
+  const got = (await loadProject("frozen-pilot", dir)).instruments[0];
+  assert.equal(got.frozen, true);
+  assert.throws(() => { got.payload.prompt = "hacked"; }, TypeError, "payload edits must throw after rehydration");
+  assert.throws(() => { got.level = "corrected"; }, TypeError);
+});
+
+test("store: REGRESSION loadProject validates instrument enums on rehydrate", async (t) => {
+  const dir = await tmpdir(t);
+  await mkdir(path.join(dir, "badinst"));
+  const project = { id: "p_1", name: "Bad", slug: "badinst", instruments: [{ id: "i1", kind: "wizard", level: "exploratory", frozen: false, payload: {} }] };
+  await writeFile(path.join(dir, "badinst", "project.json"), JSON.stringify(project), "utf8");
+  await assert.rejects(loadProject("badinst", dir), (e) => e.code === "VALIDATION");
+});
+
+test("objects: REGRESSION versionInstrument resets ladder state on the unfrozen path", () => {
+  const inst = createInstrument({
+    constructId: "c_1", kind: "judge", payload: { p: 1 },
+    level: "calibrated", stability: { runs: 3 }, silver: { n: 200 },
+  });
+  versionInstrument(inst, { p: 2 });
+  assert.equal(inst.version, 2);
+  assert.equal(inst.level, "exploratory", "evidence level resets when the payload changes");
+  assert.equal(inst.stability, undefined);
+  assert.equal(inst.silver, undefined);
+  assert.equal(inst.certificate, undefined);
+});
+
+test("objects: REGRESSION freeze survives cyclic payloads (freeze before recurse)", () => {
+  const inst = createInstrument({ constructId: "c_1", kind: "judge", payload: { a: {} } });
+  inst.payload.a.self = inst.payload; // cycle introduced after hashing
+  freeze(inst, { frozenAt: "2026-06-05T00:00:00Z", goldsetId: "gs_1", versionHash: inst.versionHash, modelPinned: true });
+  assert.ok(Object.isFrozen(inst.payload.a));
+  assert.ok(Object.isFrozen(inst.payload));
+});
+
+test("cache: torn cache write reads as a miss", async (t) => {
+  const dir = await tmpdir(t);
+  const k = cache.key("u", "v", "s");
+  const file = path.join(dir, "cache", k.slice(0, 2), k.slice(2));
+  await mkdir(path.dirname(file), { recursive: true });
+  await writeFile(file, '{"label":"ye', "utf8");
+  assert.equal(await cache.get(dir, k), null);
+});
+
+test("cache: REGRESSION put removes its tmp file when the rename fails", async (t) => {
+  const dir = await tmpdir(t);
+  const k = cache.key("u2", "v2", "s2");
+  const file = path.join(dir, "cache", k.slice(0, 2), k.slice(2));
+  await mkdir(file, { recursive: true }); // a directory squatting on the entry path forces rename to fail
+  await assert.rejects(cache.put(dir, k, { x: 1 }));
+  const left = (await readdir(path.dirname(file))).filter((f) => f.endsWith(".tmp"));
+  assert.deepEqual(left, [], "tmp file must be cleaned up on the failure path");
+});
+
+test("errors: REGRESSION ConcordError carries an explicit status and a cause", () => {
+  const root = new Error("root cause");
+  const e = new ConcordError("X", "msg", { a: 1 }, { status: 418, cause: root });
+  assert.equal(e.status, 418);
+  assert.equal(e.cause, root);
+  assert.equal(e.code, "X");
+  assert.deepEqual(e.details, { a: 1 });
+  assert.equal(new ConcordError("Y", "m").status, undefined, "status is optional; the router maps codes");
+});
+
+test("server: REGRESSION ConcordError codes map onto proper HTTP statuses", async (t) => {
+  const srv = await startTestServer(t);
+  const cases = [
+    ["NOT_FOUND", 404], ["TOO_LARGE", 413], ["PRIVACY_BLOCKED", 403],
+    ["RATE_LIMITED_EXHAUSTED", 503], ["VALIDATION", 400], ["BAD_JSON", 400],
+    ["SCHEMA_INVALID", 400], ["CONFIG_MISSING", 400], ["MYSTERY_CODE", 400],
+  ];
+  for (const [code] of cases) {
+    srv.router.addRoute("GET", `/api/err/${code}`, async () => { throw new ConcordError(code, `boom ${code}`); });
+  }
+  srv.router.addRoute("GET", "/api/err/explicit", async () => {
+    throw new ConcordError("NOT_FOUND", "teapot wins", {}, { status: 418 });
+  });
+  for (const [code, status] of cases) {
+    const r = await fetch(`${srv.url}/api/err/${code}`);
+    assert.equal(r.status, status, `${code} must map to ${status}`);
+    assert.equal((await r.json()).error.code, code);
+  }
+  const r = await fetch(`${srv.url}/api/err/explicit`);
+  assert.equal(r.status, 418, "an explicit status beats the per-code map");
+});
+
+test("server: REGRESSION static stream open failure does not crash the server", async (t) => {
+  const appDir = await tmpdir(t);
+  await writeFile(path.join(appDir, "real.txt"), "hello", "utf8");
+  await writeFile(path.join(appDir, "alive.txt"), "alive", "utf8");
+  const { createReadStream } = await import("node:fs");
+  const { stat } = await import("node:fs/promises");
+  // stat sees the real file, but the open happens on a path deleted in between
+  const fsImpl = {
+    stat,
+    createReadStream: (file) => createReadStream(file.includes("real.txt") ? path.join(appDir, "vanished-between-stat-and-open") : file),
+  };
+  const router = createRouter({ appDir, fsImpl });
+  const { default: http } = await import("node:http");
+  const raw = http.createServer((req, res) => router.handle(req, res));
+  await new Promise((resolve) => raw.listen(0, "127.0.0.1", resolve));
+  t.after(() => new Promise((resolve) => { raw.closeAllConnections?.(); raw.close(resolve); }));
+  const url = `http://127.0.0.1:${raw.address().port}`;
+  const first = await fetch(`${url}/real.txt`).then((r) => r.text()).catch(() => "CONNECTION_DESTROYED");
+  assert.notEqual(first, "hello", "the injected fs seam must be honored (open must fail)");
+  // the server process survived the stream error and still serves
+  const second = await fetch(`${url}/alive.txt`);
+  assert.equal(second.status, 200);
+  assert.equal(await second.text(), "alive");
+});
+
+test("server: REGRESSION parseMultipart enforces the file size limit (TOO_LARGE -> 413)", async (t) => {
+  const srv = await startTestServer(t);
+  srv.router.addRoute("POST", "/api/upload-limited", async (req) => {
+    const { files } = await parseMultipart(req, { maxFileSize: 64 });
+    return { n: files.length };
+  });
+  const fd = new FormData();
+  fd.append("upload", new Blob(["x".repeat(4096)], { type: "text/plain" }), "big.txt");
+  const r = await fetch(`${srv.url}/api/upload-limited`, { method: "POST", body: fd });
+  assert.equal(r.status, 413);
+  assert.equal((await r.json()).error.code, "TOO_LARGE");
+});
+
+test("server: REGRESSION parseMultipart settles (rejects) when the client aborts mid-upload", async (t) => {
+  const srv = await startTestServer(t);
+  let settle;
+  const outcome = new Promise((resolve) => { settle = resolve; });
+  srv.router.addRoute("POST", "/api/upload-abort", async (req) => {
+    try {
+      await parseMultipart(req);
+      settle("resolved");
+    } catch (err) {
+      settle(`rejected:${err.code}`);
+    }
+    return null;
+  });
+  const net = await import("node:net");
+  const sock = net.connect(srv.port, "127.0.0.1");
+  await new Promise((resolve) => sock.on("connect", resolve));
+  const boundary = "----concordtestboundary";
+  sock.write(
+    `POST /api/upload-abort HTTP/1.1\r\nhost: 127.0.0.1\r\n` +
+    `content-type: multipart/form-data; boundary=${boundary}\r\ncontent-length: 100000\r\n\r\n` +
+    `--${boundary}\r\ncontent-disposition: form-data; name="f"; filename="x.bin"\r\n` +
+    `content-type: application/octet-stream\r\n\r\npartial bytes only...`);
+  await new Promise((resolve) => setTimeout(resolve, 150)); // let the handler start parsing
+  sock.destroy(); // client walks away mid-body
+  const result = await Promise.race([outcome, new Promise((resolve) => setTimeout(() => resolve("HUNG"), 3000))]);
+  assert.match(String(result), /^rejected:/, `parseMultipart must settle on abort (got: ${result})`);
+});
+
+test("server: REGRESSION sse exposes closed + onClose wired to client disconnect", async (t) => {
+  const srv = await startTestServer(t);
+  let conn;
+  let sawClose;
+  const closedSignal = new Promise((resolve) => { sawClose = resolve; });
+  srv.router.addRoute("GET", "/api/stream-hold", async (req, res) => {
+    conn = sse(res);
+    assert.equal(conn.closed, false, "sse() must expose a closed boolean");
+    conn.onClose(() => sawClose("closed"));
+    conn.send("tick", { i: 1 });
+    // intentionally never conn.close() — the client will disconnect
+  });
+  const ac = new AbortController();
+  const r = await fetch(`${srv.url}/api/stream-hold`, { signal: ac.signal });
+  await r.body.getReader().read(); // first tick arrived; handler ran
+  ac.abort();
+  const result = await Promise.race([closedSignal, new Promise((resolve) => setTimeout(() => resolve("HUNG"), 3000))]);
+  assert.equal(result, "closed", "onClose must fire when the client disconnects");
+  assert.equal(conn.closed, true);
+});
+
+test("server: REGRESSION close() returns promptly with a live SSE connection", async (t) => {
+  const srv = await startServer({ port: 0, appDir: await tmpdir(t) });
+  t.after(() => { srv.server.closeAllConnections?.(); return new Promise((resolve) => srv.server.close(resolve)); });
+  srv.router.addRoute("GET", "/api/stream-hold2", async (req, res) => {
+    sse(res).send("tick", { i: 1 }); // held open forever
+  });
+  const r = await fetch(`http://127.0.0.1:${srv.port}/api/stream-hold2`);
+  await r.body.getReader().read();
+  const result = await Promise.race([
+    srv.close().then(() => "closed"),
+    new Promise((resolve) => setTimeout(() => resolve("HUNG"), 3000)),
+  ]);
+  assert.equal(result, "closed", "close() must not wait forever on live connections");
+});
+
+test("server: REGRESSION traversal guard blocks backslash escapes (/..%5C)", async (t) => {
+  const appDir = await tmpdir(t);
+  await writeFile(path.join(appDir, "ok.txt"), "ok", "utf8");
+  const parent = path.dirname(appDir);
+  const secretName = path.basename(appDir) + "-bs-secret.txt";
+  await writeFile(path.join(parent, secretName), "secret", "utf8");
+  t.after(() => rm(path.join(parent, secretName), { force: true }));
+  const srv = await startTestServer(t, { appDir });
+  for (const probe of [`/..%5C${secretName}`, `/%2e%2e%5C${secretName}`, `/..%2F${secretName}`]) {
+    const r = await fetch(`${srv.url}${probe}`);
+    assert.equal(r.status, 404, `probe ${probe} must be blocked`);
+    assert.notEqual(await r.text(), "secret", `probe ${probe} must not leak the file`);
+  }
 });
 
 test("server: readPort falls back to 7341 when config is absent or malformed", async (t) => {

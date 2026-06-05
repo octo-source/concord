@@ -139,6 +139,9 @@ export function createInstrument(input = {}) {
   reqString(input.constructId, "constructId");
   oneOf(input.kind, INSTRUMENT_KINDS, "kind");
   plainObject(input.payload, "payload");
+  // Constructors create NEW things: a frozen instrument can only come from
+  // freeze() (which mints the certificate) or rehydrateProject() on load.
+  if (input.frozen) fail("createInstrument cannot create a frozen instrument — use freeze()", { field: "frozen" });
   const out = {
     id: input.id ?? newId("inst"),
     constructId: input.constructId,
@@ -179,14 +182,24 @@ export function versionInstrument(inst, newPayload) {
   inst.payload = newPayload;
   inst.version += 1;
   inst.versionHash = instrumentVersionHash(newPayload);
+  // The payload changed, so every piece of accumulated evidence is stale:
+  // back to exploratory, and stability/silver/certificate cannot survive
+  // (a certificate can only exist on a frozen instrument).
+  inst.level = "exploratory";
+  delete inst.stability;
+  delete inst.silver;
+  delete inst.certificate;
   return inst;
 }
 
+// Freeze BEFORE recursing: marks the node visited, so cyclic payloads
+// terminate instead of overflowing the stack.
 function deepFreeze(obj) {
+  Object.freeze(obj);
   for (const v of Object.values(obj)) {
     if (v !== null && typeof v === "object" && !Object.isFrozen(v)) deepFreeze(v);
   }
-  return Object.freeze(obj);
+  return obj;
 }
 
 export function freeze(inst, certificate) {
@@ -195,6 +208,18 @@ export function freeze(inst, certificate) {
   inst.frozen = true;
   inst.certificate = certificate;
   return deepFreeze(inst);
+}
+
+// Re-arm invariants on a project parsed back from disk: JSON.parse returns
+// plain mutable objects, so frozen instruments must be deep-frozen again (and
+// enums sanity-checked cheaply). store.loadProject calls this before returning.
+export function rehydrateProject(project) {
+  for (const inst of project?.instruments ?? []) {
+    oneOf(inst.kind, INSTRUMENT_KINDS, "kind");
+    oneOf(inst.level, EVIDENCE_LEVELS, "level");
+    if (inst.frozen === true) deepFreeze(inst);
+  }
+  return project;
 }
 
 // ---------------------------------------------------------------- GoldSet

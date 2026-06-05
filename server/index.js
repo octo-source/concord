@@ -82,7 +82,11 @@ export async function startServer({
     server,
     router,
     port: server.address().port,
-    close: () => new Promise((resolve) => server.close(resolve)),
+    close: () => new Promise((resolve) => {
+      server.close(resolve);
+      // live SSE/keep-alive connections would hold close() open forever
+      server.closeAllConnections?.();
+    }),
   };
 }
 
