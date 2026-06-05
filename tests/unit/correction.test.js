@@ -131,7 +131,87 @@ test("ppiMean accepts explicit classical and numeric lambda", () => {
   // λ=0 → est = mean gold Y = 1
   const r0 = ppiMean(units, { lambda: 0 });
   assert.ok(Math.abs(r0.est - 1) < EPS);
-  assertThrowsCode(() => ppiMean(units, { lambda: "auto" }), "E_STAT_INPUT");
+  assertThrowsCode(() => ppiMean(units, { lambda: "cubic" }), "E_STAT_INPUT");
+});
+
+test("I2: ppiMean rejects unequal gold inclusion probabilities (PPI assumes SRS)", () => {
+  const units = [
+    { yhat: 1, y: 1, pi: 0.5 },
+    { yhat: 0, y: 0, pi: 0.3 }, // stratified/uncertainty design → not SRS
+    { yhat: 1 },
+    { yhat: 0 },
+  ];
+  assert.throws(
+    () => ppiMean(units),
+    (err) =>
+      err instanceof ConcordError &&
+      err.code === "E_STAT_INPUT" &&
+      /equal-probability/.test(err.message) &&
+      /DSL/.test(err.message)
+  );
+  // equal π (within 1e-12) stays fine
+  const ok = ppiMean([
+    { yhat: 1, y: 1, pi: 0.5 },
+    { yhat: 0, y: 0, pi: 0.5 },
+    { yhat: 1 },
+    { yhat: 0 },
+  ]);
+  assert.ok(Number.isFinite(ok.est));
+});
+
+// ---------- R1: PPI++ power tuning (lambda = "auto") ----------
+
+// Shared 4-unit dataset for the auto-λ goldens; gold = first two units.
+//   Ŷ_all = [1,2,3,4] → mean 2.5, v_f = sampleVar = 5/3
+//   gold: Ŷ_g = [1,2], Y = [2,3] → v_fg = 1/2, v_Y = 1/2, ĉ = cov(Y,Ŷ_g) = 1/2
+function autoLambdaUnits() {
+  return [
+    { yhat: 1, y: 2, pi: 0.5 },
+    { yhat: 2, y: 3, pi: 0.5 },
+    { yhat: 3 },
+    { yhat: 4 },
+  ];
+}
+
+test("R1(a): lambda 1 path equals classical exactly", () => {
+  const a = ppiMean(autoLambdaUnits(), { lambda: 1 });
+  const b = ppiMean(autoLambdaUnits(), { lambda: "classical" });
+  assert.equal(a.est, b.est);
+  assert.equal(a.se, b.se);
+});
+
+test("R1(b): lambda 0 equals the gold-only mean and SE exactly", () => {
+  // gold Y = [2,3]: mean 2.5, se = sqrt(sampleVar/n_g) = sqrt(0.5/2) = 0.5
+  const r = ppiMean(autoLambdaUnits(), { lambda: 0 });
+  assert.ok(Math.abs(r.est - 2.5) < EPS);
+  assert.ok(Math.abs(r.se - 0.5) < EPS);
+});
+
+test("R1: auto-λ golden — λ̂, estimate and SE match the hand derivation", () => {
+  // λ̂ minimizes V(λ) = λ²v_f/n + (v_Y − 2λĉ + λ²v_fg)/n_g
+  //   → λ̂ = ĉ / (v_fg + (n_g/n)·v_f) = (1/2)/(1/2 + (2/4)·(5/3)) = (1/2)/(4/3) = 3/8
+  // est = λ̂·mean(Ŷ_all) + mean(Y − λ̂Ŷ on gold)
+  //     = (3/8)·2.5 + mean([2 − 3/8, 3 − 6/8]) = 15/16 + 31/16 = 23/8
+  // rect = [13/8, 18/8] → sampleVar = 2·(5/16)² = 25/128
+  // se² = λ̂²·v_f/n + var(rect)/n_g = (9/64)(5/3)/4 + (25/128)/2
+  //     = 15/256 + 25/256 = 5/32
+  const r = ppiMean(autoLambdaUnits(), { lambda: "auto" });
+  assert.ok(Math.abs(r.lambda - 3 / 8) < EPS, `lambda ${r.lambda}`);
+  assert.ok(Math.abs(r.est - 23 / 8) < EPS, `est ${r.est}`);
+  assert.ok(Math.abs(r.se - Math.sqrt(5 / 32)) < EPS, `se ${r.se}`);
+});
+
+test("R1: auto-λ degenerate — constant Ŷ carries no information → λ̂ = 0 (gold-only)", () => {
+  const units = [
+    { yhat: 1, y: 2, pi: 0.5 },
+    { yhat: 1, y: 3, pi: 0.5 },
+    { yhat: 1 },
+    { yhat: 1 },
+  ];
+  const r = ppiMean(units, { lambda: "auto" });
+  assert.equal(r.lambda, 0);
+  assert.ok(Math.abs(r.est - 2.5) < EPS);
+  assert.ok(Math.abs(r.se - 0.5) < EPS);
 });
 
 // ---------- dslOLS ----------
@@ -192,6 +272,30 @@ test("dslOLS partial gold: corrects x-correlated machine bias (smoke, seeded)", 
     assert.ok(Number.isFinite(c.z));
     assert.ok(c.p >= 0 && c.p <= 1);
   }
+});
+
+test("M2: se=0 coefficient rows report z/p as null with a note — JSON-safe, no ±Infinity", () => {
+  // noiseless all-gold fit on binary x → the Gauss–Jordan solve is exact in
+  // binary floating point (all divisors are powers of two), so residuals and
+  // hence the sandwich SEs are EXACTLY 0.
+  const units = [];
+  for (let i = 0; i < 10; i++) {
+    const x = i % 2;
+    const y = 1 + 2 * x;
+    units.push({ yhat: y, y, pi: 1, x: [x] });
+  }
+  const r = dslOLS(units, 1);
+  for (const c of [...r.coef, ...r.naive]) {
+    assert.equal(c.se, 0);
+    assert.equal(c.z, null);
+    assert.equal(c.p, null);
+    assert.equal(typeof c.note, "string");
+    assert.ok(c.note.length > 0);
+  }
+  // JSON round-trip must not produce null-from-Infinity surprises or NaN text
+  const json = JSON.stringify(r);
+  assert.ok(!json.includes("Infinity") && !json.includes("NaN"));
+  assert.deepEqual(JSON.parse(json).coef[1].z, null);
 });
 
 // ---------- dslLogit ----------

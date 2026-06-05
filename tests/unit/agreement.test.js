@@ -8,6 +8,7 @@ import {
   cohenKappa,
   krippendorffAlpha,
   gwetAC1,
+  gwetAC2,
   perClass,
   confusion,
 } from "../../server/stats/agreement.js";
@@ -88,8 +89,10 @@ test("cohenKappa weighted quadratic on 3-cat table → 5/13", () => {
 
 test("cohenKappa weighted quadratic with 2 categories equals unweighted", () => {
   // With k=2 categories |i−j|/(k−1) ∈ {0,1} so weights coincide with nominal.
+  // String labels are order-sensitive under weighting → explicit order (C1).
   const data = kappaGoldenData();
-  assert.ok(Math.abs(cohenKappa(data, { weighted: "quadratic" }) - 0.5) < 1e-12);
+  const opts = { weighted: "quadratic", order: ["no", "yes"] };
+  assert.ok(Math.abs(cohenKappa(data, opts) - 0.5) < 1e-12);
 });
 
 test("gwetAC1 golden: AC1 = 0.25125/0.50125", () => {
@@ -175,8 +178,12 @@ test("property: α invariant under coder relabeling and row permutation", () => 
 test("property: ordinal α with 2 categories equals nominal α", () => {
   const data = kappaGoldenData(); // values "yes"/"no": two categories
   const nom = krippendorffAlpha(data, { level: "nominal" });
-  const ord = krippendorffAlpha(data, { level: "ordinal" });
+  // string labels are order-sensitive under ordinal level → explicit order (C1);
+  // with 2 categories the property holds for either direction of the scale.
+  const ord = krippendorffAlpha(data, { level: "ordinal", order: ["no", "yes"] });
+  const ordRev = krippendorffAlpha(data, { level: "ordinal", order: ["yes", "no"] });
   assert.ok(Math.abs(nom - ord) < 1e-12);
+  assert.ok(Math.abs(ord - ordRev) < 1e-12);
 });
 
 test("perClass: hand-derived precision/recall/f1/support", () => {
@@ -232,6 +239,221 @@ test("confusion: only jointly coded units count", () => {
   assert.deepEqual(matrix, [[1]]);
 });
 
+// ---------- C1: explicit `order` for ordinal/weighted statistics ----------
+//
+// Ordinal α and weighted κ depend on the CATEGORY SCALE ORDER. For string
+// labels the old code silently used alphabetical order, which is wrong for
+// scales like low/medium/high (alphabetical: high < low < medium). The
+// reviewer demonstrated the bug with ordinal α = 0.3397 (correct numeric
+// coding) vs 0.6286 (alphabetical strings) on one dataset; their exact
+// dataset is not recoverable from the two rounded numbers, so the golden
+// below is an equivalent hand-derived demonstration with the same failure
+// direction (alphabetical order inflates α).
+
+// Demonstration dataset, 2 coders, hand-derived:
+//   units: (low,high), (low,high), (high,high), (low,low), (medium,medium)
+//   coincidence: o_lh = o_hl = 2, o_hh = 2, o_ll = 2, o_mm = 2 → n = 10
+//   margins: low 4, medium 2, high 4
+// TRUE order (low, medium, high) → margins [4,2,4]:
+//   δ²(low,med)  = ((4+2)/2)² = 9
+//   δ²(med,high) = ((2+4)/2)² = 9
+//   δ²(low,high) = (4+2+4 − (4+4)/2)² = 6² = 36
+//   D_o = (o_lh+o_hl)·36/10 = 4·36/10 = 14.4
+//   D_e = [2·4·2·9 + 2·2·4·9 + 2·4·4·36]/(10·9) = 1440/90 = 16
+//   α = 1 − 14.4/16 = 0.1
+// ALPHABETICAL order (high, low, medium) → margins [4,4,2]:
+//   δ²(high,low) = ((4+4)/2)² = 16 → D_o = 4·16/10 = 6.4
+//   δ²(low,med)  = ((4+2)/2)² = 9, δ²(high,med) = (10−3)² = 49
+//   D_e = [2·4·4·16 + 2·4·2·9 + 2·4·2·49]/90 = 1440/90 = 16
+//   α = 1 − 6.4/16 = 0.6  ← silently inflated by the old behavior
+function ordinalStringDemo(mapFn = (v) => v) {
+  return rows2([
+    [mapFn("low"), mapFn("high")],
+    [mapFn("low"), mapFn("high")],
+    [mapFn("high"), mapFn("high")],
+    [mapFn("low"), mapFn("low")],
+    [mapFn("medium"), mapFn("medium")],
+  ]);
+}
+const LMH = { low: 1, medium: 2, high: 3 };
+
+test("C1: ordinal α with string labels and no order throws E_STAT_INPUT", () => {
+  assert.throws(
+    () => krippendorffAlpha(ordinalStringDemo(), { level: "ordinal" }),
+    (err) =>
+      err instanceof ConcordError &&
+      err.code === "E_STAT_INPUT" &&
+      /order/.test(err.message) &&
+      /non-numeric/.test(err.message)
+  );
+});
+
+test("C1: weighted κ with string labels and no order throws E_STAT_INPUT", () => {
+  const data = rows2([["low", "low"], ["medium", "medium"], ["high", "high"], ["low", "high"]]);
+  assert.throws(
+    () => cohenKappa(data, { weighted: "linear" }),
+    (err) => err instanceof ConcordError && err.code === "E_STAT_INPUT" && /order/.test(err.message)
+  );
+});
+
+test("C1: ordinal α with order — hand-derived golden 0.1, not the alphabetical 0.6", () => {
+  const a = krippendorffAlpha(ordinalStringDemo(), {
+    level: "ordinal",
+    order: ["low", "medium", "high"],
+  });
+  assert.ok(Math.abs(a - 0.1) < EPS, `α = ${a}, want 0.1`);
+});
+
+test("C1: ordinal α recode invariance — string+order EXACTLY equals numeric recode", () => {
+  const aStr = krippendorffAlpha(ordinalStringDemo(), {
+    level: "ordinal",
+    order: ["low", "medium", "high"],
+  });
+  const aNum = krippendorffAlpha(ordinalStringDemo((v) => LMH[v]), { level: "ordinal" });
+  assert.equal(aStr, aNum);
+});
+
+test("C1: weighted κ recode invariance — string+order EXACTLY equals numeric recode", () => {
+  const strData = rows2([["low", "low"], ["medium", "medium"], ["high", "high"], ["low", "high"]]);
+  for (const weighted of ["linear", "quadratic"]) {
+    const kStr = cohenKappa(strData, { weighted, order: ["low", "medium", "high"] });
+    const kNum = cohenKappa(weightedKappaData(), { weighted });
+    assert.equal(kStr, kNum, `${weighted}: ${kStr} vs ${kNum}`);
+  }
+  // and the linear value is the hand-derived 0.5 from the numeric golden above
+  assert.ok(
+    Math.abs(cohenKappa(strData, { weighted: "linear", order: ["low", "medium", "high"] }) - 0.5) < EPS
+  );
+});
+
+test("C1: numeric labels keep working without order (existing goldens unchanged)", () => {
+  const a = krippendorffAlpha(rows2([[1, 1], [2, 2], [3, 3], [1, 2]]), { level: "ordinal" });
+  assert.ok(Math.abs(a - 0.79) < EPS);
+  const k = cohenKappa(weightedKappaData(), { weighted: "linear" });
+  assert.ok(Math.abs(k - 0.5) < EPS);
+});
+
+test("C1: order must cover every observed category; duplicates rejected", () => {
+  assertThrowsCode(
+    () =>
+      krippendorffAlpha(ordinalStringDemo(), { level: "ordinal", order: ["low", "medium"] }),
+    "E_STAT_INPUT"
+  );
+  assertThrowsCode(
+    () =>
+      krippendorffAlpha(ordinalStringDemo(), {
+        level: "ordinal",
+        order: ["low", "low", "medium", "high"],
+      }),
+    "E_STAT_INPUT"
+  );
+});
+
+test("C1: interval α with string labels uses order indices as the scale", () => {
+  // order indices 0,1,2 ↔ numeric recode 1,2,3 shifted by 1 — interval δ² is
+  // translation-invariant, so the two must agree exactly.
+  const data = rows2([["lo", "lo"], ["mid", "hi"], ["hi", "hi"]]);
+  const aStr = krippendorffAlpha(data, { level: "interval", order: ["lo", "mid", "hi"] });
+  const num = rows2([[0, 0], [1, 2], [2, 2]]);
+  const aNum = krippendorffAlpha(num, { level: "interval" });
+  assert.equal(aStr, aNum);
+});
+
+// ---------- R2: Gwet's AC2 (weighted companion to AC1) ----------
+
+test("R2: gwetAC2 identity weights ≡ gwetAC1 exactly (any data, incl. missing)", () => {
+  const d1 = kappaGoldenData();
+  assert.equal(gwetAC2(d1, { weights: "identity" }), gwetAC1(d1));
+  const d2 = [
+    { unitId: "u1", coder: "c1", value: "A" },
+    { unitId: "u1", coder: "c2", value: "A" },
+    { unitId: "u1", coder: "c3", value: "B" },
+    { unitId: "u2", coder: "c1", value: "A" },
+    { unitId: "u2", coder: "c2", value: "A" },
+    { unitId: "u3", coder: "c1", value: "B" },
+    { unitId: "u3", coder: "c2", value: "B" },
+    { unitId: "u3", coder: "c3", value: "B" },
+    { unitId: "u4", coder: "c2", value: "C" }, // m=1: counts for π, not p_a
+  ];
+  assert.equal(gwetAC2(d2, { weights: "identity" }), gwetAC1(d2));
+});
+
+test("R2: gwetAC2 with q=2 categories and linear weights ≡ AC1 (weights reduce to identity)", () => {
+  // q=2 → off-diagonal linear weight 1 − 1/(q−1) = 0, diagonal 1 → identity.
+  const data = kappaGoldenData();
+  const ac2 = gwetAC2(data, { weights: "linear", order: ["no", "yes"] });
+  assert.ok(Math.abs(ac2 - gwetAC1(data)) < EPS);
+});
+
+test("R2: gwetAC2 perfect agreement → 1 (all weight kinds)", () => {
+  const data = rows2([[1, 1], [2, 2], [3, 3], [1, 1], [2, 2]]);
+  for (const weights of ["identity", "linear", "quadratic"]) {
+    assert.ok(Math.abs(gwetAC2(data, { weights }) - 1) < EPS, weights);
+  }
+});
+
+test("R2: gwetAC2 hand-derived golden: linear weights on (1,1),(2,2),(3,3),(1,3) → 13/29", () => {
+  // q=3, linear weights w_kl = 1 − |k−l|/2: w12=w23=1/2, w13=0, diag 1.
+  // p_a per unit (m=2, denominator m(m−1)=2):
+  //   (1,1): r=[2,0,0], r*_1 = w11·2 = 2 → Σ r_k(r*_k−1) = 2·1 = 2 → 1
+  //   (2,2), (3,3): same → 1 each
+  //   (1,3): r=[1,0,1], r*_1 = 1 + w13·1 = 1, r*_3 = 1 → Σ = 1·0 + 1·0 = 0 → 0
+  //   p_a = (1+1+1+0)/4 = 3/4
+  // π_k = mean of r_ik/m_i: π = [(1+½)/4, 1/4, (1+½)/4] = [3/8, 1/4, 3/8]
+  //   Σ π_k(1−π_k) = 15/64 + 12/64 + 15/64 = 42/64 = 21/32
+  // T_w = Σ_kl w_kl = 3 + 2(½ + 0 + ½) = 5
+  //   p_e = T_w/(q(q−1)) · Σπ(1−π) = 5/6 · 21/32 = 35/64
+  // AC2 = (3/4 − 35/64)/(1 − 35/64) = (13/64)/(29/64) = 13/29
+  const ac2 = gwetAC2(weightedKappaData(), { weights: "linear" });
+  assert.ok(Math.abs(ac2 - 13 / 29) < EPS, `AC2 = ${ac2}`);
+});
+
+test("R2: gwetAC2 order rules — string labels need order unless weights are identity", () => {
+  const strData = rows2([["low", "low"], ["medium", "medium"], ["high", "high"], ["low", "high"]]);
+  assertThrowsCode(() => gwetAC2(strData, { weights: "linear" }), "E_STAT_INPUT");
+  // identity weights are order-insensitive → no order needed
+  assert.ok(Number.isFinite(gwetAC2(strData, { weights: "identity" })));
+  // recode invariance: string + order EXACTLY equals numeric recode
+  const kStr = gwetAC2(strData, { weights: "linear", order: ["low", "medium", "high"] });
+  const kNum = gwetAC2(weightedKappaData(), { weights: "linear" });
+  assert.equal(kStr, kNum);
+  assert.ok(Math.abs(kStr - 13 / 29) < EPS);
+});
+
+test("R2: gwetAC2 validation — bad weights, single category", () => {
+  assertThrowsCode(() => gwetAC2(weightedKappaData(), { weights: "cubic" }), "E_STAT_INPUT");
+  assertThrowsCode(() => gwetAC2(weightedKappaData(), {}), "E_STAT_INPUT");
+  assertThrowsCode(
+    () => gwetAC2(rows2([["x", "x"], ["x", "x"]]), { weights: "identity" }),
+    "E_STAT_DEGENERATE"
+  );
+});
+
+// ---------- M1: ""/NaN coding values are data bugs, not categories ----------
+
+test('M1: two "" codings throw E_STAT_INPUT, not α = 1', () => {
+  const data = [
+    { unitId: "u1", coder: "A", value: "" },
+    { unitId: "u1", coder: "B", value: "" },
+  ];
+  assert.throws(
+    () => krippendorffAlpha(data, { level: "nominal" }),
+    (err) =>
+      err instanceof ConcordError &&
+      err.code === "E_STAT_INPUT" &&
+      /missing codings must be absent rows/.test(err.message)
+  );
+  assertThrowsCode(() => percentAgreement(data), "E_STAT_INPUT");
+});
+
+test("M1: NaN coding values throw E_STAT_INPUT", () => {
+  const data = [
+    { unitId: "u1", coder: "A", value: NaN },
+    { unitId: "u1", coder: "B", value: 1 },
+  ];
+  assertThrowsCode(() => krippendorffAlpha(data, { level: "nominal" }), "E_STAT_INPUT");
+});
+
 // ---------- boot.js ----------
 
 test("mcnemar golden: b=3, c=2 → chi2 = 0.2, pExact = 1.0", () => {
@@ -261,6 +483,12 @@ test("mcnemar: b=10, c=0 → exact p = 2·(1/2)^10", () => {
   const r = mcnemar(pairs);
   assert.ok(Math.abs(r.chi2 - 10) < EPS);
   assert.ok(Math.abs(r.pExact - 2 * Math.pow(0.5, 10)) < EPS);
+});
+
+test("M3: bootstrapCI returns {lo, hi, method: 'bootstrap-percentile'}", () => {
+  const ci = bootstrapCI(kappaGoldenData(), (d) => cohenKappa(d), { B: 50, seed: 5 });
+  assert.equal(ci.method, "bootstrap-percentile");
+  assert.deepEqual(Object.keys(ci).sort(), ["hi", "lo", "method"]);
 });
 
 test("bootstrapCI: deterministic given seed, lo ≤ hi, sane range", () => {

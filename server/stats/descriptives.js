@@ -72,7 +72,92 @@ export function crosstab(units, rowKey, colKey) {
     }
     p = 1 - chi2Cdf(chi2, df);
   }
-  return { rows, cols, matrix, rowTotals, colTotals, total, expected, chi2, df, p };
+  // M8: smallest expected cell count, so the UI can warn when the χ²
+  // approximation is shaky (classic rule of thumb: expected < 5).
+  let minExpected = Infinity;
+  for (const row of expected) for (const e of row) if (e < minExpected) minExpected = e;
+  return { rows, cols, matrix, rowTotals, colTotals, total, expected, minExpected, chi2, df, p };
+}
+
+// ---------- R3: time trends ----------
+
+function pad2(v) {
+  return String(v).padStart(2, "0");
+}
+
+// ISO-8601 week label for a Date, using UTC calendar components.
+// Standard "nearest Thursday" construction: shift the date to the Thursday of
+// its ISO week (Mon=1..Sun=7 → +4−day); that Thursday's year is the ISO week
+// year, and the week number is the 1-based count of 7-day blocks since Jan 1.
+function isoWeekLabel(d) {
+  const t = new Date(Date.UTC(d.getUTCFullYear(), d.getUTCMonth(), d.getUTCDate()));
+  const day = t.getUTCDay() || 7;
+  t.setUTCDate(t.getUTCDate() + 4 - day);
+  const year = t.getUTCFullYear();
+  const week = Math.ceil(((t.getTime() - Date.UTC(year, 0, 1)) / 86400000 + 1) / 7);
+  return `${year}-W${pad2(week)}`;
+}
+
+// timeTrend(rows, {dateKey, valueKey?, bucket}) → {buckets, issues}.
+// buckets: [{bucket, n, mean?}] sorted ascending by bucket label (zero-padded
+// ISO labels sort correctly as strings). bucket: "day" → YYYY-MM-DD,
+// "week" → ISO week YYYY-Www, "month" → YYYY-MM. Bucketing uses UTC calendar
+// components of `new Date(value)`. Rows whose date is missing or unparsable
+// are counted in `issues` and skipped — never thrown (dirty dates are normal
+// in ingested data and must not kill a dashboard). With valueKey, mean is the
+// mean of the FINITE numeric values in the bucket (n still counts every row
+// in the bucket; a bucket with no finite values gets mean: null). Without
+// valueKey the mean field is omitted.
+export function timeTrend(rows, { dateKey, valueKey, bucket } = {}) {
+  if (!Array.isArray(rows)) throw bad("timeTrend requires an array of rows");
+  if (typeof dateKey !== "string" || dateKey === "") {
+    throw bad("timeTrend requires a string dateKey", { dateKey });
+  }
+  if (valueKey !== undefined && (typeof valueKey !== "string" || valueKey === "")) {
+    throw bad("timeTrend valueKey must be a string when given", { valueKey });
+  }
+  if (bucket !== "day" && bucket !== "week" && bucket !== "month") {
+    throw bad('timeTrend bucket must be "day", "week" or "month"', { bucket });
+  }
+  const acc = new Map(); // label → {n, sum, nFinite}
+  let issues = 0;
+  for (const row of rows) {
+    const raw = row?.[dateKey];
+    const d = raw instanceof Date ? raw : new Date(raw ?? NaN);
+    if (Number.isNaN(d.getTime())) {
+      issues++;
+      continue;
+    }
+    let label;
+    if (bucket === "day") {
+      label = `${d.getUTCFullYear()}-${pad2(d.getUTCMonth() + 1)}-${pad2(d.getUTCDate())}`;
+    } else if (bucket === "month") {
+      label = `${d.getUTCFullYear()}-${pad2(d.getUTCMonth() + 1)}`;
+    } else {
+      label = isoWeekLabel(d);
+    }
+    let slot = acc.get(label);
+    if (!slot) {
+      slot = { n: 0, sum: 0, nFinite: 0 };
+      acc.set(label, slot);
+    }
+    slot.n++;
+    if (valueKey !== undefined) {
+      const v = row?.[valueKey];
+      if (typeof v === "number" && Number.isFinite(v)) {
+        slot.sum += v;
+        slot.nFinite++;
+      }
+    }
+  }
+  const buckets = [...acc.entries()]
+    .sort((a, b) => (a[0] < b[0] ? -1 : a[0] > b[0] ? 1 : 0))
+    .map(([label, s]) => {
+      const out = { bucket: label, n: s.n };
+      if (valueKey !== undefined) out.mean = s.nFinite > 0 ? s.sum / s.nFinite : null;
+      return out;
+    });
+  return { buckets, issues };
 }
 
 // cooccurrence(labelSets) → {labels, matrix}; labelSets: array of label arrays

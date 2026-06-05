@@ -11,7 +11,7 @@
 // True logit slope (saturated binary-X model): logit(0.6) − logit(0.3).
 import test from "node:test";
 import assert from "node:assert/strict";
-import { dslDiff, dslLogit } from "../../server/stats/correction.js";
+import { dslDiff, dslLogit, dslOLS, ppiMean } from "../../server/stats/correction.js";
 import { mulberry32 } from "../../server/core/rng.js";
 
 const N = 2000;
@@ -51,6 +51,7 @@ test("DSL sim: dslDiff unbiased with honest coverage while naive diff is biased"
   let sumSlope = 0;
   let sumNaiveSlope = 0;
   let slopeCovered = 0;
+  let olsCovered = 0; // M7
   const t0 = process.hrtime.bigint();
 
   for (let rep = 0; rep < REPS; rep++) {
@@ -72,21 +73,27 @@ test("DSL sim: dslDiff unbiased with honest coverage while naive diff is biased"
     sumNaive += d.naive.est;
     if (d.ciLo <= TRUE_DIFF && TRUE_DIFF <= d.ciHi) covered++;
 
-    // logistic slope on the same data
-    const lg = dslLogit(
-      units.map((u) =>
-        u.pi !== undefined
-          ? { yhat: u.yhat, y: u.y, pi: u.pi, x: u.x }
-          : { yhat: u.yhat, x: u.x }
-      ),
-      1
+    const dslRows = units.map((u) =>
+      u.pi !== undefined
+        ? { yhat: u.yhat, y: u.y, pi: u.pi, x: u.x }
+        : { yhat: u.yhat, x: u.x }
     );
+
+    // logistic slope on the same data
+    const lg = dslLogit(dslRows, 1);
     const slope = lg.coef[1];
     sumSlope += slope.est;
     sumNaiveSlope += lg.naive[1].est;
     const lo = slope.est - 1.959963984540054 * slope.se;
     const hi = slope.est + 1.959963984540054 * slope.se;
     if (lo <= TRUE_SLOPE && TRUE_SLOPE <= hi) slopeCovered++;
+
+    // M7: dslOLS on the same data — with binary X the linear-probability slope
+    // is E[Y|X=1] − E[Y|X=0] = TRUE_DIFF, so its CI coverage is checkable here.
+    const olsSlope = dslOLS(dslRows, 1).coef[1];
+    const olo = olsSlope.est - 1.959963984540054 * olsSlope.se;
+    const ohi = olsSlope.est + 1.959963984540054 * olsSlope.se;
+    if (olo <= TRUE_DIFF && TRUE_DIFF <= ohi) olsCovered++;
   }
 
   const elapsedMs = Number(process.hrtime.bigint() - t0) / 1e6;
@@ -96,6 +103,7 @@ test("DSL sim: dslDiff unbiased with honest coverage while naive diff is biased"
   const meanSlope = sumSlope / REPS;
   const meanNaiveSlope = sumNaiveSlope / REPS;
   const slopeCoverage = slopeCovered / REPS;
+  const olsCoverage = olsCovered / REPS;
   const dslSlopeBias = Math.abs(meanSlope - TRUE_SLOPE);
   const naiveSlopeBias = Math.abs(meanNaiveSlope - TRUE_SLOPE);
 
@@ -103,7 +111,8 @@ test("DSL sim: dslDiff unbiased with honest coverage while naive diff is biased"
     `[dsl.sim] ${REPS} reps in ${elapsedMs.toFixed(0)}ms | ` +
       `diff: dsl=${meanDsl.toFixed(4)} naive=${meanNaive.toFixed(4)} cover=${coverage.toFixed(3)} | ` +
       `slope: dsl=${meanSlope.toFixed(4)} naive=${meanNaiveSlope.toFixed(4)} ` +
-      `(true ${TRUE_SLOPE.toFixed(4)}) cover=${slopeCoverage.toFixed(3)}`
+      `(true ${TRUE_SLOPE.toFixed(4)}) cover=${slopeCoverage.toFixed(3)} | ` +
+      `olsSlope cover=${olsCoverage.toFixed(3)}`
   );
 
   // dslDiff: unbiased within MC error; naive visibly biased; honest coverage
@@ -120,4 +129,91 @@ test("DSL sim: dslDiff unbiased with honest coverage while naive diff is biased"
     slopeCoverage >= 0.91 && slopeCoverage <= 0.985,
     `DSL slope coverage ${slopeCoverage}`
   );
+
+  // M7: dslOLS slope CI coverage on the same designs
+  assert.ok(
+    olsCoverage >= 0.91 && olsCoverage <= 0.985,
+    `dslOLS slope coverage ${olsCoverage}`
+  );
+});
+
+// ---------- R1: PPI++ auto-λ power tuning ----------
+//
+// Design: continuous outcome Y = 1 + ε, ε ~ N(0,1); machine proxy
+// Ŷ = 0.5·Y + N(0,1). n = 1000, gold = SRS of 100 (π = 0.1 for all gold).
+// Population quantities: v_Y = 1, c = Cov(Y,Ŷ) = 0.5, v_f = 0.25 + 1 = 1.25.
+// Theoretical λ* = c/(v_f(1 + n_g/n)) = 0.5/(1.25·1.1) ≈ 0.364 and
+//   Var(λ=0, gold-only)  = 1/100               = 0.01000
+//   Var(λ=1, classical)  = 1.25/1000 + 1.25/100 = 0.01375
+//   Var(λ*)              ≈ 0.00818
+// so auto-λ must beat BOTH baselines — the defining property of power tuning.
+// MC slack: each empirical variance over 200 reps has relative sd
+// ≈ √(2/199) ≈ 10%, so a ratio test carries ≈ 14% noise; the true ratios are
+// ≤ 0.82, leaving a wide margin under a 1.10 multiplicative slack.
+test("R1 sim: auto-λ variance ≤ classical and ≤ gold-only (+MC slack); honest coverage", { timeout: 120000 }, () => {
+  const N = 1000;
+  const NG = 100;
+  const TRUTH = 1;
+  const ests = { auto: [], classical: [], gold: [] };
+  let covered = 0;
+  let sumLambda = 0;
+
+  for (let rep = 0; rep < REPS; rep++) {
+    const rand = mulberry32(550_007 + rep * 11);
+    // Box–Muller standard normals from the seeded uniform stream
+    const normal = () => {
+      const u1 = 1 - rand(); // (0, 1] — avoids log(0)
+      const u2 = rand();
+      return Math.sqrt(-2 * Math.log(u1)) * Math.cos(2 * Math.PI * u2);
+    };
+    const units = [];
+    for (let i = 0; i < N; i++) {
+      const y = TRUTH + normal();
+      const yhat = 0.5 * y + normal();
+      units.push({ yhat, _y: y });
+    }
+    // SRS of NG without replacement (partial Fisher–Yates), equal π
+    const idx = Array.from({ length: N }, (_, i) => i);
+    for (let j = 0; j < NG; j++) {
+      const k = j + Math.floor(rand() * (N - j));
+      [idx[j], idx[k]] = [idx[k], idx[j]];
+    }
+    for (let j = 0; j < NG; j++) {
+      const u = units[idx[j]];
+      u.y = u._y;
+      u.pi = NG / N;
+    }
+    for (const u of units) delete u._y;
+
+    const auto = ppiMean(units, { lambda: "auto" });
+    ests.auto.push(auto.est);
+    ests.classical.push(ppiMean(units, { lambda: "classical" }).est);
+    ests.gold.push(ppiMean(units, { lambda: 0 }).est);
+    sumLambda += auto.lambda;
+    if (auto.ciLo <= TRUTH && TRUTH <= auto.ciHi) covered++;
+  }
+
+  const empVar = (a) => {
+    const m = a.reduce((x, y) => x + y, 0) / a.length;
+    return a.reduce((x, y) => x + (y - m) * (y - m), 0) / (a.length - 1);
+  };
+  const vAuto = empVar(ests.auto);
+  const vClassical = empVar(ests.classical);
+  const vGold = empVar(ests.gold);
+  const coverage = covered / REPS;
+  const meanLambda = sumLambda / REPS;
+
+  console.log(
+    `[ppi.sim] ${REPS} reps | var auto=${vAuto.toExponential(3)} ` +
+      `classical=${vClassical.toExponential(3)} gold=${vGold.toExponential(3)} | ` +
+      `mean λ̂=${meanLambda.toFixed(3)} cover=${coverage.toFixed(3)}`
+  );
+
+  // (c) power tuning: auto beats both baselines up to MC slack
+  assert.ok(vAuto <= vClassical * 1.1, `auto var ${vAuto} vs classical ${vClassical}`);
+  assert.ok(vAuto <= vGold * 1.1, `auto var ${vAuto} vs gold-only ${vGold}`);
+  // λ̂ actually tunes (≈0.364 here), i.e. it is neither pinned at 0 nor at 1
+  assert.ok(meanLambda > 0.2 && meanLambda < 0.55, `mean λ̂ ${meanLambda}`);
+  // (d) honest CIs at the plug-in λ̂
+  assert.ok(coverage >= 0.91 && coverage <= 0.985, `auto-λ coverage ${coverage}`);
 });

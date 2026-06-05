@@ -28,17 +28,33 @@ function lgamma(z) {
 }
 
 // ---------- regularized lower incomplete gamma P(a, x) ----------
+//
+// Iteration budget (I1): a FIXED 500-iteration cap silently truncates for
+// large shape a. The series t_n = t_{n−1}·x/(a+n) is used on x < a+1; at its
+// slowest point x ≈ a we have ln(t_n/t_0) = Σ_{i≤n} ln(x/(a+i)) ≈ −n²/(2a),
+// so reaching |t_n| < 1e-15·Σ needs n ≳ √(2a·ln 1e15) ≈ √(69a) ≈ 8.3·√a.
+// The Lentz continued fraction (x ≥ a+1) is slowest just above that boundary
+// with the same O(√a) behavior. Both caps therefore scale as
+// max(500, ceil(12·√a)) — a ~45% margin over the worst-case estimate — and
+// report convergence instead of returning a truncated sum.
+function gammaIter(a) {
+  return Math.max(500, Math.ceil(12 * Math.sqrt(a)));
+}
+
 function gammaPSeries(a, x) {
   let sum = 1 / a;
   let term = sum;
   let n = a;
-  for (let i = 0; i < 500; i++) {
+  const maxIter = gammaIter(a);
+  for (let i = 0; i < maxIter; i++) {
     n += 1;
     term *= x / n;
     sum += term;
-    if (Math.abs(term) < Math.abs(sum) * 1e-15) break;
+    if (Math.abs(term) < Math.abs(sum) * 1e-15) {
+      return { p: sum * Math.exp(-x + a * Math.log(x) - lgamma(a)), converged: true };
+    }
   }
-  return sum * Math.exp(-x + a * Math.log(x) - lgamma(a));
+  return { p: NaN, converged: false };
 }
 
 function gammaQContinuedFraction(a, x) {
@@ -48,7 +64,8 @@ function gammaQContinuedFraction(a, x) {
   let c = 1 / FPMIN;
   let d = 1 / b;
   let h = d;
-  for (let i = 1; i <= 500; i++) {
+  const maxIter = gammaIter(a);
+  for (let i = 1; i <= maxIter; i++) {
     const an = -i * (i - a);
     b += 2;
     d = an * d + b;
@@ -58,18 +75,48 @@ function gammaQContinuedFraction(a, x) {
     d = 1 / d;
     const del = d * c;
     h *= del;
-    if (Math.abs(del - 1) < 1e-15) break;
+    if (Math.abs(del - 1) < 1e-15) {
+      return { q: h * Math.exp(-x + a * Math.log(x) - lgamma(a)), converged: true };
+    }
   }
-  return h * Math.exp(-x + a * Math.log(x) - lgamma(a));
+  return { q: NaN, converged: false };
+}
+
+// Wilson–Hilferty fallback, generalized from χ²_df to Gamma(a) (= χ²_{2a}/2):
+// (X/a)^{1/3} is approximately Normal(1 − 1/(9a), 1/(9a)), i.e.
+//   P(a, x) ≈ Φ(((x/a)^{1/3} − 1 + 1/(9a)) · 3√a).
+// (For chi2Cdf(x, df) = P(df/2, x/2) this is the textbook
+// Φ(((x/df)^{1/3} − 1 + 2/(9df)) / √(2/(9df))).) The cube root absorbs the
+// O(1/√a) skewness term, leaving an absolute error of O(1/a) in the bulk —
+// at the shapes where the scaled iteration caps could fail (a ≳ 10⁶) that is
+// ≤ ~1e-6, far below any reported precision. Φ itself reuses gammaP at
+// a = 0.5, which always converges well inside 500 iterations (no recursion
+// risk into this fallback).
+function wilsonHilferty(a, x) {
+  const z = (Math.cbrt(x / a) - 1 + 1 / (9 * a)) * 3 * Math.sqrt(a);
+  return normCdf(z);
 }
 
 function gammaP(a, x) {
   if (x === 0) return 0;
-  if (x < a + 1) return gammaPSeries(a, x);
-  return 1 - gammaQContinuedFraction(a, x);
+  if (x < a + 1) {
+    const { p, converged } = gammaPSeries(a, x);
+    if (converged) return p;
+  } else {
+    const { q, converged } = gammaQContinuedFraction(a, x);
+    if (converged) return 1 - q;
+  }
+  return wilsonHilferty(a, x);
 }
 
 // ---------- regularized incomplete beta I_x(a, b) ----------
+// Same capped-iteration hazard as the gamma routines (I1): the modified-Lentz
+// CF needs O(√(max(a,b))) iterations when x sits near the mean a/(a+b) — ibeta
+// always evaluates the CF on the fast side of the split, but the cap still
+// scales for safety. On non-convergence ibeta throws E_STAT_NUMERIC (the
+// documented pick for the beta path: t-test p-values must never be silently
+// approximate; unlike χ² there is no equally well-characterized cheap
+// fallback covering both shape parameters).
 function betacf(a, b, x) {
   const FPMIN = 1e-300;
   const qab = a + b;
@@ -80,7 +127,8 @@ function betacf(a, b, x) {
   if (Math.abs(d) < FPMIN) d = FPMIN;
   d = 1 / d;
   let h = d;
-  for (let m = 1; m <= 500; m++) {
+  const maxIter = Math.max(500, Math.ceil(12 * Math.sqrt(Math.max(a, b))));
+  for (let m = 1; m <= maxIter; m++) {
     const m2 = 2 * m;
     let aa = (m * (b - m) * x) / ((qam + m2) * (a + m2));
     d = 1 + aa * d;
@@ -97,9 +145,9 @@ function betacf(a, b, x) {
     d = 1 / d;
     const del = d * c;
     h *= del;
-    if (Math.abs(del - 1) < 1e-15) break;
+    if (Math.abs(del - 1) < 1e-15) return { h, converged: true };
   }
-  return h;
+  return { h, converged: false };
 }
 
 function ibeta(a, b, x) {
@@ -107,8 +155,12 @@ function ibeta(a, b, x) {
   if (x >= 1) return 1;
   const lbeta = lgamma(a + b) - lgamma(a) - lgamma(b);
   const front = Math.exp(lbeta + a * Math.log(x) + b * Math.log(1 - x));
-  if (x < (a + 1) / (a + b + 2)) return (front * betacf(a, b, x)) / a;
-  return 1 - (front * betacf(b, a, 1 - x)) / b;
+  const flip = !(x < (a + 1) / (a + b + 2));
+  const cf = flip ? betacf(b, a, 1 - x) : betacf(a, b, x);
+  if (!cf.converged) {
+    throw new ConcordError("E_STAT_NUMERIC", "incomplete beta did not converge", { a, b, x });
+  }
+  return flip ? 1 - (front * cf.h) / b : (front * cf.h) / a;
 }
 
 // Internal standard-normal CDF via the incomplete gamma (high accuracy).

@@ -104,20 +104,31 @@ function ci(est, se) {
   return { ciLo: est - Z975 * se, ciHi: est + Z975 * se };
 }
 
-// Two-sided normal p-value from a z statistic, never NaN. se = 0 cases are
-// resolved by the caller passing z = ±Infinity (p → 0) or z = 0 (p → 1).
+// Two-sided normal p-value from a finite z statistic, never NaN.
 function pFromZ(z) {
   if (!Number.isFinite(z)) return 0;
   return 1 - chi2Cdf(z * z, 1);
 }
 
+// M2: se = 0 rows (typically a noiseless/saturated fit) get z: null, p: null
+// plus an explanatory note instead of ±Infinity — JSON.stringify(±Infinity)
+// is null anyway, which downstream readers would misparse as "no z computed
+// for an ordinary row". Explicit nulls + note keep the payload JSON-safe and
+// self-describing.
 function coefRows(names, est, se) {
   return names.map((name, j) => {
-    let z;
-    if (se[j] > 0) z = est[j] / se[j];
-    else z = est[j] === 0 ? 0 : Math.sign(est[j]) * Infinity;
-    const p = z === 0 ? 1 : pFromZ(z);
-    return { name, est: est[j], se: se[j], z, p };
+    if (!(se[j] > 0)) {
+      return {
+        name,
+        est: est[j],
+        se: se[j],
+        z: null,
+        p: null,
+        note: "standard error is 0 (no residual variation); z and p are undefined",
+      };
+    }
+    const z = est[j] / se[j];
+    return { name, est: est[j], se: se[j], z, p: pFromZ(z) };
   });
 }
 
@@ -219,27 +230,82 @@ export function dslLogit(units, k) {
 
 // ---------- PPI ----------
 
-// PPI classical (λ = 1 rectifier form):
-//   θ̂ = λ·mean(Ŷ_all) + mean over gold of (Y − λŶ)
-//   SE = sqrt(λ²·var(Ŷ_all)/n + var(Y − λŶ on gold)/n_gold)
-// lambda: "classical" (= 1) or a finite number. PPI++ power tuning ("auto")
-// is not implemented in v1 and is rejected explicitly.
+function sampleCov(a, b) {
+  const ma = mean(a);
+  const mb = mean(b);
+  let s = 0;
+  for (let i = 0; i < a.length; i++) s += (a[i] - ma) * (b[i] - mb);
+  return s / (a.length - 1);
+}
+
+// PPI mean (rectifier form):
+//   θ̂(λ) = λ·mean(Ŷ_all) + mean over gold of (Y − λŶ)
+//   SE(λ) = sqrt(λ²·var(Ŷ_all)/n + var(Y − λŶ on gold)/n_gold)
+// lambda: "classical" (= 1), a finite number, or "auto" (PPI++ power tuning).
+//
+// I2: classical PPI assumes the gold sample is equal-probability (SRS) — the
+// unweighted gold mean of (Y − λŶ) is only unbiased for its population mean
+// under equal π. Unequal gold π (stratified / uncertainty sampling) →
+// E_STAT_INPUT directing the researcher to the DSL estimator, which uses π.
+//
+// R1 — PPI++ power tuning, λ̂ derivation (Angelopoulos et al. 2023 style,
+// adapted to this implementation's variance functional). Writing
+//   v_f  = sampleVar(Ŷ) on ALL n units,
+//   v_fg = sampleVar(Ŷ) on the n_g GOLD units,
+//   v_Y  = sampleVar(Y) on gold,  ĉ = sampleCov(Y, Ŷ) on gold,
+// and using sampleVar(Y − λŶ) = v_Y − 2λĉ + λ²v_fg (bilinearity), the
+// variance we report is
+//   V(λ) = λ²·v_f/n + (v_Y − 2λĉ + λ²·v_fg)/n_g.
+// Minimizing: dV/dλ = 2λ·v_f/n − 2ĉ/n_g + 2λ·v_fg/n_g = 0
+//   → λ̂ = ĉ / (v_fg + (n_g/n)·v_f).
+// When v_fg ≈ v_f (gold IS an SRS of all units, so the two estimate the same
+// variance) this is the textbook PPI++ form λ̂ = ĉ/(v_f·(1 + n_g/n)); we keep
+// the gold-sample v_fg where the minimization puts it so that λ̂ is the exact
+// minimizer of the V(λ) we actually report. Degenerate denominator ≤ 0
+// (constant Ŷ — no information) → λ̂ = 0, the gold-only estimator. λ̂ is a
+// √n_g-consistent plug-in, so first-order inference may treat it as fixed
+// (PPI++ Prop. 2-style argument); SE = sqrt(V(λ̂)). The honesty of that
+// approximation is enforced by the seeded coverage simulation in
+// tests/sim/dsl.sim.test.js.
 export function ppiMean(units, { lambda } = { lambda: "classical" }) {
   let lam;
+  let auto = false;
   if (lambda === undefined || lambda === "classical") lam = 1;
+  else if (lambda === "auto") auto = true;
   else if (typeof lambda === "number" && Number.isFinite(lambda)) lam = lambda;
-  else throw bad('ppiMean lambda must be "classical" or a finite number (PPI++ "auto" is not in v1)', { lambda });
+  else throw bad('ppiMean lambda must be "classical", "auto" or a finite number', { lambda });
   const { n, nGold, yhat } = parseUnits(units);
   if (nGold < 2) {
     throw insufficient("ppiMean needs at least 2 gold units for a variance", { nGold });
   }
-  const rect = [];
+  const goldY = [];
+  const goldF = [];
+  let piMin = Infinity;
+  let piMax = -Infinity;
   for (const u of units) {
-    if (u.y !== undefined && u.y !== null) rect.push(u.y - lam * u.yhat);
+    if (u.y !== undefined && u.y !== null) {
+      goldY.push(u.y);
+      goldF.push(u.yhat);
+      if (u.pi < piMin) piMin = u.pi;
+      if (u.pi > piMax) piMax = u.pi;
+    }
   }
+  if (piMax - piMin > 1e-12) {
+    throw bad(
+      "PPI assumes an equal-probability (SRS) gold sample; " +
+        "for stratified or uncertainty designs use the DSL estimator",
+      { piMin, piMax }
+    );
+  }
+  const vF = sampleVar(yhat);
+  if (auto) {
+    const denom = sampleVar(goldF) + (nGold / n) * vF;
+    lam = denom > 0 ? sampleCov(goldY, goldF) / denom : 0;
+  }
+  const rect = goldY.map((y, i) => y - lam * goldF[i]);
   const est = lam * mean(yhat) + mean(rect);
-  const se = Math.sqrt((lam * lam * sampleVar(yhat)) / n + sampleVar(rect) / nGold);
+  const se = Math.sqrt((lam * lam * vF) / n + sampleVar(rect) / nGold);
   const naiveEst = mean(yhat);
-  const naiveSe = Math.sqrt(sampleVar(yhat) / n);
-  return { est, se, ...ci(est, se), naive: { est: naiveEst, se: naiveSe } };
+  const naiveSe = Math.sqrt(vF / n);
+  return { est, se, lambda: lam, ...ci(est, se), naive: { est: naiveEst, se: naiveSe } };
 }

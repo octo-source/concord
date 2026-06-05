@@ -82,9 +82,12 @@ export function bootstrapCI(data, statFn, { B = 2000, seed = 1, alpha = 0.05 } =
     });
   }
   stats.sort((a, b) => a - b);
+  // M3: name the method so downstream reports never have to guess which
+  // bootstrap variant produced the interval.
   return {
     lo: quantileSorted(stats, alpha / 2),
     hi: quantileSorted(stats, 1 - alpha / 2),
+    method: "bootstrap-percentile",
   };
 }
 
@@ -128,7 +131,7 @@ export function mcnemar(pairs) {
 // (H0: |mean d| ≥ bound) with df = #coders − 1. p = max of the two one-sided
 // p-values; equivalent ⇔ p < 0.05. Needs ≥ 3 coders (each LOO subset must
 // itself be codable by ≥ 2 coders).
-export function tostEquivalence(data, { bound, level } = {}) {
+export function tostEquivalence(data, { bound, level, order } = {}) {
   if (typeof bound !== "number" || !Number.isFinite(bound) || bound <= 0) {
     throw bad("tostEquivalence requires a positive equivalence bound", { bound });
   }
@@ -143,9 +146,9 @@ export function tostEquivalence(data, { bound, level } = {}) {
   if (coders.length < 3) {
     throw insufficient("tostEquivalence needs at least 3 coders", { coders: coders.length });
   }
-  const alphaFull = krippendorffAlpha(data, { level });
+  const alphaFull = krippendorffAlpha(data, { level, order });
   const alphaLOO = coders.map((cid) =>
-    krippendorffAlpha(data.filter((r) => String(r.coder) !== cid), { level })
+    krippendorffAlpha(data.filter((r) => String(r.coder) !== cid), { level, order })
   );
   const m = coders.length;
   const diffs = alphaLOO.map((a) => a - alphaFull);

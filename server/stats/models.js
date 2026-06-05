@@ -18,16 +18,29 @@ function bad(message, details = {}) {
 
 // Solve A·x = rhs for square A via Gaussian elimination with partial pivoting.
 // Throws E_STAT_DEGENERATE on (numerically) singular A.
+//
+// Singularity test (I3): the pivot is compared against a RELATIVE tolerance,
+// 1e-10 × the largest |entry| currently in the pivot column (all rows — the
+// already-pivoted rows above still carry the column's original scale under
+// Gauss–Jordan). An absolute tolerance (the old 1e-12) wrongly declared
+// well-conditioned but tiny-scaled covariates (~1e-8) singular; a relative
+// one is invariant under column rescaling. Truly collinear columns reduce to
+// rounding residue ~1e-16 × scale < tol → still throw. The tiny absolute
+// floor only catches the exactly-all-zero column (colMax = 0).
 function solveLinear(A, rhs) {
   const n = A.length;
   // augmented working copy
   const M = A.map((row, i) => [...row, rhs[i]]);
   for (let col = 0; col < n; col++) {
     let pivot = col;
-    for (let r = col + 1; r < n; r++) {
-      if (Math.abs(M[r][col]) > Math.abs(M[pivot][col])) pivot = r;
+    let colMax = Math.abs(M[0][col]);
+    for (let r = 1; r < n; r++) {
+      const v = Math.abs(M[r][col]);
+      if (v > colMax) colMax = v;
+      if (r > col && v > Math.abs(M[pivot][col])) pivot = r;
     }
-    if (Math.abs(M[pivot][col]) < 1e-12) {
+    const tol = Math.max(1e-10 * colMax, 1e-280);
+    if (Math.abs(M[pivot][col]) < tol) {
       throw new ConcordError(
         "E_STAT_DEGENERATE",
         "design matrix is singular (collinear or constant covariates)",
@@ -192,7 +205,9 @@ export function ols(y, X) {
   const XtXinv = matInverse(XtX);
   const meat = xtwx(design, resid.map((e) => e * e));
   const seHC1 = sandwichSE(XtXinv, meat, n / (n - p));
-  const r2 = sst > 0 ? 1 - sse / sst : 1;
+  // M6: R² = 1 − SSE/SST is undefined when y is constant (SST = 0). Returning
+  // 1 overstated fit; null says "not a meaningful quantity here".
+  const r2 = sst > 0 ? 1 - sse / sst : null;
   return { coef, seHC1, r2 };
 }
 

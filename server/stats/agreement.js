@@ -34,6 +34,47 @@ function sortKeys(keys) {
   return arr.sort((a, b) => (a < b ? -1 : a > b ? 1 : 0));
 }
 
+// Resolve the category scale for a statistic. Order-SENSITIVE statistics
+// (ordinal/interval α, weighted κ, weighted AC2) must never fall back to
+// alphabetical string order — that silently rescales the instrument (e.g.
+// low/medium/high sorts as high < low < medium). Rules:
+//   • `order` given → it IS the scale. Validated: non-empty array, unique
+//     category values (compared as String), covering every observed category.
+//     Unobserved entries are kept: the researcher declared the full scale and
+//     index spacing is meaningful for weighted/interval statistics.
+//   • no `order`, all observed categories numeric → numeric ascending.
+//   • no `order`, non-numeric categories, needScale → E_STAT_INPUT with a
+//     researcher-facing message.
+//   • no `order`, order-INsensitive statistic → plain deterministic sort.
+function resolveScale(keySet, order, needScale) {
+  const keys = [...keySet];
+  if (order !== undefined) {
+    if (!Array.isArray(order) || order.length === 0) {
+      throw bad("`order` must be a non-empty array of category values in scale order", { order });
+    }
+    const scale = order.map(String);
+    if (new Set(scale).size !== scale.length) {
+      throw bad("`order` contains duplicate categories", { order: scale });
+    }
+    const pos = new Set(scale);
+    const missing = keys.filter((k) => !pos.has(k));
+    if (missing.length > 0) {
+      throw bad("`order` must cover every observed category", { missing });
+    }
+    return scale;
+  }
+  const allNumeric = keys.length > 0 && keys.every((k) => Number.isFinite(Number(k)));
+  if (needScale && !allNumeric) {
+    const nonNumeric = keys.filter((k) => !Number.isFinite(Number(k))).sort();
+    throw bad(
+      "ordinal/weighted statistics need numeric category codes or an explicit `order`; " +
+        `got non-numeric categories: ${nonNumeric.join(", ")}`,
+      { nonNumeric }
+    );
+  }
+  return sortKeys(keys);
+}
+
 // Validate rows and group them: Map unitId → Map coder → {key, value}.
 // Duplicate (unitId, coder) rows are a data bug → E_STAT_INPUT.
 function groupByUnit(data) {
@@ -51,8 +92,16 @@ function groupByUnit(data) {
     if (coder === null || coder === undefined || coder === "") {
       throw bad("row missing coder", { row: i });
     }
-    if (value === null || value === undefined) {
-      throw bad("row has null value — missing codings must be absent rows", { row: i });
+    // M1: "", NaN and non-finite numbers are almost always failed parses or
+    // blank spreadsheet cells, not categories — treating them as categories
+    // silently fabricates agreement (two blanks "agree").
+    if (
+      value === null ||
+      value === undefined ||
+      value === "" ||
+      (typeof value === "number" && !Number.isFinite(value))
+    ) {
+      throw bad("row has null/empty/NaN value — missing codings must be absent rows", { row: i });
     }
     const uid = String(unitId);
     const cid = String(coder);
@@ -74,8 +123,9 @@ function groupByUnit(data) {
 
 // Krippendorff coincidence matrix over pairable units (m ≥ 2): each ordered
 // pair of values from different coders in a unit contributes 1/(m−1).
-// Returns {keys, index, o, margins, n} — keys sorted deterministically.
-function coincidenceMatrix(units) {
+// Returns {keys, index, o, margins, n, observed} — keys in scale order
+// (resolveScale); `observed` is the count of categories actually present.
+function coincidenceMatrix(units, { order, needScale = false } = {}) {
   const keySet = new Set();
   const pairable = [];
   for (const m of units.values()) {
@@ -88,7 +138,8 @@ function coincidenceMatrix(units) {
   if (pairable.length === 0) {
     throw insufficient("no unit was coded by two or more coders");
   }
-  const keys = sortKeys(keySet);
+  const observed = keySet.size;
+  const keys = resolveScale(keySet, order, needScale);
   const index = new Map(keys.map((k, i) => [k, i]));
   const k = keys.length;
   const o = Array.from({ length: k }, () => new Array(k).fill(0));
@@ -104,7 +155,7 @@ function coincidenceMatrix(units) {
   }
   const margins = o.map((row) => row.reduce((a, b) => a + b, 0));
   const n = margins.reduce((a, b) => a + b, 0);
-  return { keys, index, o, margins, n };
+  return { keys, index, o, margins, n, observed };
 }
 
 // Average pairwise agreement within units (the AC1 "po"): for each unit with
@@ -135,8 +186,11 @@ export function percentAgreement(data) {
 }
 
 // Cohen's κ for exactly two coders; optional ordinal weighting
-// ({weighted: "linear" | "quadratic"}) over deterministically sorted categories.
-export function cohenKappa(data, { weighted } = {}) {
+// ({weighted: "linear" | "quadratic", order?}). Weighted κ is order-sensitive:
+// with string labels an explicit `order` (array of category values in scale
+// order) is REQUIRED; numeric codes default to numeric ascending. Weights use
+// scale-index distances over the declared scale length.
+export function cohenKappa(data, { weighted, order } = {}) {
   if (weighted !== undefined && weighted !== "linear" && weighted !== "quadratic") {
     throw bad('cohenKappa weighted must be "linear" or "quadratic"', { weighted });
   }
@@ -157,11 +211,11 @@ export function cohenKappa(data, { weighted } = {}) {
     }
   }
   if (pairs.length === 0) throw insufficient("no unit was coded by both coders");
-  const keys = sortKeys(keySet);
-  const k = keys.length;
-  if (k < 2) {
-    throw degenerate("kappa is undefined with a single category", { category: keys[0] });
+  if (keySet.size < 2) {
+    throw degenerate("kappa is undefined with a single category", { category: [...keySet][0] });
   }
+  const keys = resolveScale(keySet, order, weighted !== undefined);
+  const k = keys.length;
   const index = new Map(keys.map((key, i) => [key, i]));
   const n = pairs.length;
   const joint = Array.from({ length: k }, () => new Array(k).fill(0));
@@ -190,17 +244,24 @@ export function cohenKappa(data, { weighted } = {}) {
 }
 
 // Krippendorff's α via the coincidence matrix. level: "nominal" | "ordinal" |
-// "interval". Ordinal uses Krippendorff's rank metric on coincidence margins;
-// interval requires numeric category values.
-export function krippendorffAlpha(data, { level } = {}) {
+// "interval"; optional `order` (array of category values in scale order).
+// Ordinal uses Krippendorff's rank metric on coincidence margins; interval
+// uses numeric category values, or — when `order` is given — the order
+// indices as an equally-spaced scale. Ordinal/interval levels are
+// order-sensitive: with string labels an explicit `order` is REQUIRED
+// (alphabetical fallback would silently rescale the instrument).
+export function krippendorffAlpha(data, { level, order } = {}) {
   if (level !== "nominal" && level !== "ordinal" && level !== "interval") {
     throw bad('krippendorffAlpha level must be "nominal", "ordinal" or "interval"', { level });
   }
   const { units } = groupByUnit(data);
-  const { keys, o, margins, n } = coincidenceMatrix(units);
+  const needScale = level === "ordinal" || level === "interval";
+  const { keys, o, margins, n, observed } = coincidenceMatrix(units, { order, needScale });
   const k = keys.length;
-  if (k < 2) {
-    throw degenerate("alpha is undefined with a single category", { category: keys[0] });
+  if (observed < 2) {
+    throw degenerate("alpha is undefined with a single category", {
+      category: keys[margins.findIndex((m) => m > 0)],
+    });
   }
   if (n < 2) throw insufficient("need at least two pairable values");
   // squared distance metric δ²(c, k) per measurement level
@@ -208,10 +269,9 @@ export function krippendorffAlpha(data, { level } = {}) {
   if (level === "nominal") {
     delta2 = (i, j) => (i === j ? 0 : 1);
   } else if (level === "interval") {
-    const vals = keys.map(Number);
-    if (!vals.every((v) => Number.isFinite(v))) {
-      throw bad("interval alpha requires numeric category values", { keys });
-    }
+    // With explicit `order` the scale is its indices (equally spaced); else
+    // the numeric category codes themselves (resolveScale guaranteed them).
+    const vals = order !== undefined ? keys.map((_, i) => i) : keys.map(Number);
     delta2 = (i, j) => (vals[i] - vals[j]) ** 2;
   } else {
     // ordinal: δ²(c,k) = (Σ_{g=c..k} n_g − (n_c + n_k)/2)² over sorted ranks
@@ -273,6 +333,83 @@ export function gwetAC1(data) {
   }
   pe /= Q - 1;
   return (po - pe) / (1 - pe);
+}
+
+// Gwet's AC2 — the weighted companion to AC1 (Gwet 2014, ch. 4), for ordinal
+// scales. weights: "identity" | "linear" | "quadratic"; `order` as in
+// krippendorffAlpha/cohenKappa (REQUIRED for non-identity weights when
+// categories are not numeric — distance weights are order-sensitive).
+//
+// With scale indices u, v over q categories and weights
+//   identity:  w(u,v) = 1{u=v}
+//   linear:    w(u,v) = 1 − |u−v|/(q−1)
+//   quadratic: w(u,v) = 1 − ((u−v)/(q−1))²
+// the coefficient is AC2 = (p_a − p_e)/(1 − p_e) with
+//   p_a = (1/n') Σ_{units, m_i≥2} Σ_k r_ik (r*_ik − 1) / (m_i(m_i−1)),
+//         r*_ik = Σ_l w_kl r_il   (r_il = #coders giving category l on unit i)
+//   p_e = T_w/(q(q−1)) · Σ_k π̂_k(1−π̂_k),  T_w = Σ_kl w_kl,
+//         π̂_k = mean over units (m_i ≥ 1) of r_ik/m_i.
+// Identity weights give T_w = q and r*_ik = r_ik, so AC2 reduces EXACTLY to
+// AC1 (Σ r(r−1)/(m(m−1)) is the pairwise agreement and q/(q(q−1)) = 1/(q−1)).
+export function gwetAC2(data, { weights, order } = {}) {
+  if (weights !== "identity" && weights !== "linear" && weights !== "quadratic") {
+    throw bad('gwetAC2 weights must be "identity", "linear" or "quadratic"', { weights });
+  }
+  const { units } = groupByUnit(data);
+  // category shares π̂ over all units with ≥ 1 coding, tallies for p_a
+  const keySet = new Set();
+  const shares = new Map();
+  const tallies = []; // per pairable unit: {tally: Map(key → r), m}
+  let nUnits = 0;
+  for (const m of units.values()) {
+    if (m.size < 1) continue;
+    nUnits++;
+    const tally = new Map();
+    for (const v of m.values()) tally.set(v.key, (tally.get(v.key) || 0) + 1);
+    for (const [key, r] of tally) {
+      keySet.add(key);
+      shares.set(key, (shares.get(key) || 0) + r / m.size);
+    }
+    if (m.size >= 2) tallies.push({ tally, m: m.size });
+  }
+  if (keySet.size < 2) {
+    throw degenerate("AC2 is undefined with a single category", { category: [...keySet][0] });
+  }
+  if (tallies.length === 0) throw insufficient("no unit was coded by two or more coders");
+  const keys = resolveScale(keySet, order, weights !== "identity");
+  const q = keys.length;
+  const index = new Map(keys.map((k, i) => [k, i]));
+  const weight = (u, v) => {
+    if (weights === "identity") return u === v ? 1 : 0;
+    const d = Math.abs(u - v) / (q - 1);
+    return weights === "linear" ? 1 - d : 1 - d * d;
+  };
+  // p_a: weighted average pairwise agreement within units
+  let pa = 0;
+  for (const { tally, m } of tallies) {
+    const entries = [...tally].map(([key, r]) => [index.get(key), r]);
+    let s = 0;
+    for (const [u, ru] of entries) {
+      let rStar = 0;
+      for (const [v, rv] of entries) rStar += weight(u, v) * rv;
+      s += ru * (rStar - 1);
+    }
+    pa += s / (m * (m - 1));
+  }
+  pa /= tallies.length;
+  // p_e: T_w over the DECLARED scale (q from `order` when given)
+  let Tw = 0;
+  for (let u = 0; u < q; u++) for (let v = 0; v < q; v++) Tw += weight(u, v);
+  let sumPi = 0;
+  for (const key of keySet) {
+    const piBar = (shares.get(key) || 0) / nUnits;
+    sumPi += piBar * (1 - piBar);
+  }
+  const pe = (Tw / (q * (q - 1))) * sumPi;
+  if (1 - pe <= 1e-12) {
+    throw degenerate("AC2 is undefined: expected agreement is 1", { pe });
+  }
+  return (pa - pe) / (1 - pe);
 }
 
 // Per-class precision/recall/F1 against a designated gold coder. Every other
