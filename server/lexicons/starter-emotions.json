@@ -1,0 +1,136 @@
+{
+ "name": "Concord Starter — Emotions",
+ "license": "CC0",
+ "origin": "Concord starter lexicon",
+ "description": "Eight basic-emotion categories (Plutchik-style names, original term lists) with workplace-survey register included. Valenced, so negation is on by default: 'not happy' scores NOT_joy, not joy.",
+ "language": "en",
+ "categories": [
+  {
+   "name": "joy",
+   "terms": [
+    {"term": "happy"}, {"term": "happiness"}, {"term": "joy"}, {"term": "joyful"},
+    {"term": "glad"}, {"term": "pleased"}, {"term": "pleasure"}, {"term": "delighted"},
+    {"term": "delightful"}, {"term": "cheerful"}, {"term": "smile"}, {"term": "smiling"},
+    {"term": "laugh"}, {"term": "laughter"}, {"term": "laughing"}, {"term": "enjoy"},
+    {"term": "enjoyed"}, {"term": "enjoyable"}, {"term": "love"}, {"term": "loved"},
+    {"term": "loving"}, {"term": "lovely"}, {"term": "wonderful"}, {"term": "fantastic"},
+    {"term": "amazing"}, {"term": "awesome"}, {"term": "brilliant"}, {"term": "excellent"},
+    {"term": "terrific"}, {"term": "fabulous"}, {"term": "upbeat"}, {"term": "elated"},
+    {"term": "ecstatic"}, {"term": "overjoyed"}, {"term": "thrilled"}, {"term": "excited"},
+    {"term": "fun"}, {"term": "celebrate"}, {"term": "celebration"}, {"term": "proud"},
+    {"term": "satisfied"}, {"term": "rewarding"}, {"term": "energized"}, {"term": "love my job"}
+   ]
+  },
+  {
+   "name": "sadness",
+   "terms": [
+    {"term": "sad"}, {"term": "sadness"}, {"term": "unhappy"}, {"term": "miserable"},
+    {"term": "misery"}, {"term": "depressed"}, {"term": "depressing"}, {"term": "depression"},
+    {"term": "gloomy"}, {"term": "gloom"}, {"term": "heartbroken"}, {"term": "heartbreaking"},
+    {"term": "grief"}, {"term": "grieving"}, {"term": "mourning"}, {"term": "sorrow"},
+    {"term": "sorrowful"}, {"term": "tearful"}, {"term": "tears"}, {"term": "crying"},
+    {"term": "cried"}, {"term": "despair"}, {"term": "hopeless"}, {"term": "hopelessness"},
+    {"term": "lonely"}, {"term": "loneliness"}, {"term": "isolated"}, {"term": "defeated"},
+    {"term": "demoralized"}, {"term": "demoralizing"}, {"term": "discouraged"}, {"term": "disheartened"},
+    {"term": "disheartening"}, {"term": "dejected"}, {"term": "melancholy"}, {"term": "regret"},
+    {"term": "regretful"}, {"term": "disappointed"}, {"term": "disappointing"}, {"term": "disappointment"},
+    {"term": "let down"}, {"term": "low morale"}
+   ]
+  },
+  {
+   "name": "anger",
+   "terms": [
+    {"term": "angry"}, {"term": "anger"}, {"term": "furious"}, {"term": "fury"},
+    {"term": "rage"}, {"term": "enraged"}, {"term": "outraged"}, {"term": "outrage"},
+    {"term": "mad"}, {"term": "irate"}, {"term": "livid"}, {"term": "frustrated"},
+    {"term": "frustrating"}, {"term": "frustration"}, {"term": "annoyed"}, {"term": "annoying"},
+    {"term": "annoyance"}, {"term": "irritated"}, {"term": "irritating"}, {"term": "irritation"},
+    {"term": "resent"}, {"term": "resentful"}, {"term": "resentment"}, {"term": "bitter"},
+    {"term": "bitterness"}, {"term": "hostile"}, {"term": "hostility"}, {"term": "aggravated"},
+    {"term": "aggravating"}, {"term": "infuriated"}, {"term": "infuriating"}, {"term": "indignant"},
+    {"term": "seething"}, {"term": "fuming"}, {"term": "exasperated"}, {"term": "exasperating"},
+    {"term": "disrespected"}, {"term": "fed up"}, {"term": "sick of"}, {"term": "ticked off"},
+    {"term": "pissed off"}, {"term": "slap in the face"}
+   ]
+  },
+  {
+   "name": "fear",
+   "terms": [
+    {"term": "afraid"}, {"term": "fear"}, {"term": "fearful"}, {"term": "scared"},
+    {"term": "scary"}, {"term": "frightened"}, {"term": "frightening"}, {"term": "terrified"},
+    {"term": "terrifying"}, {"term": "terror"}, {"term": "anxious"}, {"term": "anxiety"},
+    {"term": "worried"}, {"term": "worry"}, {"term": "worrying"}, {"term": "nervous"},
+    {"term": "nervousness"}, {"term": "dread"}, {"term": "dreading"}, {"term": "panic"},
+    {"term": "panicked"}, {"term": "alarmed"}, {"term": "alarming"}, {"term": "apprehensive"},
+    {"term": "apprehension"}, {"term": "uneasy"}, {"term": "unease"}, {"term": "insecure"},
+    {"term": "insecurity"}, {"term": "threatened"}, {"term": "threatening"}, {"term": "intimidated"},
+    {"term": "intimidating"}, {"term": "paranoid"}, {"term": "petrified"}, {"term": "horrified"},
+    {"term": "daunting"}, {"term": "ominous"}, {"term": "on edge"}, {"term": "walking on eggshells"}
+   ]
+  },
+  {
+   "name": "trust",
+   "terms": [
+    {"term": "trust"}, {"term": "trusted"}, {"term": "trusting"}, {"term": "trustworthy"},
+    {"term": "reliable"}, {"term": "reliability"}, {"term": "dependable"}, {"term": "honest"},
+    {"term": "honesty"}, {"term": "integrity"}, {"term": "sincere"}, {"term": "sincerity"},
+    {"term": "faith"}, {"term": "confident"}, {"term": "confidence"}, {"term": "credible"},
+    {"term": "credibility"}, {"term": "supportive"}, {"term": "supported"}, {"term": "respect"},
+    {"term": "respected"}, {"term": "respectful"}, {"term": "transparent"}, {"term": "transparency"},
+    {"term": "genuine"}, {"term": "authentic"}, {"term": "candid"}, {"term": "candor"},
+    {"term": "assurance"}, {"term": "assured"}, {"term": "reassured"}, {"term": "reassuring"},
+    {"term": "believe"}, {"term": "believed"}, {"term": "count on"}, {"term": "counted on"},
+    {"term": "rely on"}, {"term": "relied on"}, {"term": "has my back"}, {"term": "have my back"}
+   ]
+  },
+  {
+   "name": "disgust",
+   "terms": [
+    {"term": "disgust"}, {"term": "disgusted"}, {"term": "disgusting"}, {"term": "gross"},
+    {"term": "revolting"}, {"term": "repulsive"}, {"term": "repugnant"}, {"term": "vile"},
+    {"term": "nasty"}, {"term": "foul"}, {"term": "sickening"}, {"term": "sickened"},
+    {"term": "nauseating"}, {"term": "nauseous"}, {"term": "distasteful"}, {"term": "offensive"},
+    {"term": "offended"}, {"term": "appalled"}, {"term": "appalling"}, {"term": "abhorrent"},
+    {"term": "loathe"}, {"term": "loathing"}, {"term": "loathsome"}, {"term": "despicable"},
+    {"term": "detest"}, {"term": "detestable"}, {"term": "creepy"}, {"term": "sleazy"},
+    {"term": "slimy"}, {"term": "shady"}, {"term": "rotten"}, {"term": "toxic"},
+    {"term": "poisonous"}, {"term": "filthy"}, {"term": "hideous"}, {"term": "yuck"},
+    {"term": "yucky"}, {"term": "makes me sick"}, {"term": "turns my stomach"}, {"term": "can't stomach"}
+   ]
+  },
+  {
+   "name": "surprise",
+   "terms": [
+    {"term": "surprise"}, {"term": "surprised"}, {"term": "surprising"}, {"term": "surprisingly"},
+    {"term": "shock"}, {"term": "shocked"}, {"term": "shocking"}, {"term": "astonished"},
+    {"term": "astonishing"}, {"term": "astounded"}, {"term": "astounding"}, {"term": "stunned"},
+    {"term": "startled"}, {"term": "startling"}, {"term": "unexpected"}, {"term": "unexpectedly"},
+    {"term": "unanticipated"}, {"term": "unforeseen"}, {"term": "sudden"}, {"term": "suddenly"},
+    {"term": "blindsided"}, {"term": "bombshell"}, {"term": "abrupt"}, {"term": "abruptly"},
+    {"term": "flabbergasted"}, {"term": "dumbfounded"}, {"term": "speechless"}, {"term": "bewildered"},
+    {"term": "disbelief"}, {"term": "incredulous"}, {"term": "curveball"}, {"term": "revelation"},
+    {"term": "out of nowhere"}, {"term": "out of the blue"}, {"term": "without warning"},
+    {"term": "caught off guard"}, {"term": "jaw dropping"}, {"term": "eye opening"},
+    {"term": "all of a sudden"}, {"term": "took us by surprise"}
+   ]
+  },
+  {
+   "name": "anticipation",
+   "terms": [
+    {"term": "anticipate"}, {"term": "anticipated"}, {"term": "anticipating"}, {"term": "anticipation"},
+    {"term": "expect"}, {"term": "expected"}, {"term": "expecting"}, {"term": "expectation"},
+    {"term": "expectations"}, {"term": "await"}, {"term": "awaiting"}, {"term": "eager"},
+    {"term": "eagerly"}, {"term": "eagerness"}, {"term": "hopeful"}, {"term": "hope"},
+    {"term": "hoping"}, {"term": "hopes"}, {"term": "optimistic"}, {"term": "optimism"},
+    {"term": "upcoming"}, {"term": "soon"}, {"term": "future"}, {"term": "plan"},
+    {"term": "planning"}, {"term": "plans"}, {"term": "ahead"}, {"term": "prospect"},
+    {"term": "prospects"}, {"term": "potential"}, {"term": "promising"}, {"term": "preparing"},
+    {"term": "prepare"}, {"term": "readiness"}, {"term": "foresee"}, {"term": "momentum"},
+    {"term": "roadmap"}, {"term": "looking forward"}, {"term": "look forward"}, {"term": "down the road"},
+    {"term": "on the horizon"}, {"term": "can't wait"}
+   ]
+  }
+ ],
+ "negation": {"enabled": true, "window": 3},
+ "scoring": "percentOfWords"
+}

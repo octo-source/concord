@@ -1,0 +1,85 @@
+{
+ "name": "Concord Starter — Moral Intuitions",
+ "license": "CC0",
+ "origin": "Concord starter lexicon",
+ "description": "Original moral-foundations-style categories (care, fairness, loyalty, authority, sanctity). Each category mixes virtue and vice vocabulary, so a hit means the foundation is INVOKED, not endorsed. Not derived from MFD/eMFD term lists.",
+ "language": "en",
+ "categories": [
+  {
+   "name": "care",
+   "terms": [
+    {"term": "care"}, {"term": "caring"}, {"term": "compassion"}, {"term": "compassionate"},
+    {"term": "kindness"}, {"term": "kindly"}, {"term": "empathy"},
+    {"term": "empathetic"}, {"term": "nurture"}, {"term": "nurturing"}, {"term": "protect"},
+    {"term": "protection"}, {"term": "comfort"}, {"term": "comforting"}, {"term": "gentle"},
+    {"term": "warmth"}, {"term": "wellbeing"}, {"term": "safeguard"}, {"term": "harm"},
+    {"term": "harmed"}, {"term": "harmful"}, {"term": "hurt"}, {"term": "hurting"},
+    {"term": "suffer"}, {"term": "suffering"}, {"term": "cruel"}, {"term": "cruelty"},
+    {"term": "abuse"}, {"term": "abused"}, {"term": "neglect"}, {"term": "neglected"},
+    {"term": "mistreat*"}, {"term": "bully*"}, {"term": "take care of"}, {"term": "looked after"}
+   ]
+  },
+  {
+   "name": "fairness",
+   "terms": [
+    {"term": "fair"}, {"term": "fairness"}, {"term": "fairly"}, {"term": "unfair"},
+    {"term": "unfairly"}, {"term": "unfairness"}, {"term": "justice"}, {"term": "unjust"},
+    {"term": "injustice"}, {"term": "equal"}, {"term": "equally"}, {"term": "equality"},
+    {"term": "unequal"}, {"term": "inequality"}, {"term": "equity"}, {"term": "equitable"},
+    {"term": "inequitable"}, {"term": "impartial"}, {"term": "bias"}, {"term": "biased"},
+    {"term": "unbiased"}, {"term": "deserve"}, {"term": "deserved"}, {"term": "deserving"},
+    {"term": "undeserved"}, {"term": "cheat*"}, {"term": "fraud"}, {"term": "favoritism"},
+    {"term": "nepotism"}, {"term": "rigged"}, {"term": "exploit*"}, {"term": "reciprocity"},
+    {"term": "level playing field"}, {"term": "double standard"}
+   ]
+  },
+  {
+   "name": "loyalty",
+   "terms": [
+    {"term": "loyal"}, {"term": "loyalty"}, {"term": "disloyal"}, {"term": "betray"},
+    {"term": "betrayal"}, {"term": "betrayed"}, {"term": "traitor"}, {"term": "treachery"},
+    {"term": "faithful"}, {"term": "faithfulness"}, {"term": "unfaithful"}, {"term": "devoted"},
+    {"term": "devotion"}, {"term": "allegiance"}, {"term": "solidarity"}, {"term": "unity"},
+    {"term": "united"}, {"term": "teamwork"}, {"term": "camaraderie"}, {"term": "patriot"},
+    {"term": "patriotic"}, {"term": "abandon"}, {"term": "abandoned"}, {"term": "abandonment"},
+    {"term": "belong"}, {"term": "belonging"}, {"term": "member"}, {"term": "membership"},
+    {"term": "tribe"}, {"term": "kin"}, {"term": "stick together"}, {"term": "part of the family"},
+    {"term": "one of us"}
+   ]
+  },
+  {
+   "name": "authority",
+   "terms": [
+    {"term": "authority"}, {"term": "authorities"}, {"term": "obey"}, {"term": "obedience"},
+    {"term": "obedient"}, {"term": "disobey"}, {"term": "disobedient"}, {"term": "hierarchy"},
+    {"term": "hierarchical"}, {"term": "command"}, {"term": "comply"}, {"term": "compliance"},
+    {"term": "compliant"}, {"term": "defy"}, {"term": "defiance"}, {"term": "defiant"},
+    {"term": "rebel"}, {"term": "rebellion"}, {"term": "rebellious"}, {"term": "insubordinate"},
+    {"term": "insubordination"}, {"term": "leader"}, {"term": "leadership"}, {"term": "tradition"},
+    {"term": "traditional"}, {"term": "permission"}, {"term": "forbidden"}, {"term": "mandate"},
+    {"term": "mandatory"}, {"term": "protocol"}, {"term": "discipline"}, {"term": "duty"},
+    {"term": "dutiful"}, {"term": "superior"}, {"term": "subordinate"}, {"term": "chain of command"},
+    {"term": "follow orders"}, {"term": "by the book"}
+   ]
+  },
+  {
+   "name": "sanctity",
+   "terms": [
+    {"term": "sacred"}, {"term": "sanctity"}, {"term": "holy"}, {"term": "pure"},
+    {"term": "purity"}, {"term": "impure"}, {"term": "impurity"}, {"term": "clean"},
+    {"term": "cleanliness"}, {"term": "unclean"}, {"term": "contaminat*"}, {"term": "pollut*"},
+    {"term": "taint"}, {"term": "tainted"}, {"term": "defile"}, {"term": "defiled"},
+    {"term": "desecrate*"}, {"term": "profane"}, {"term": "pious"}, {"term": "piety"},
+    {"term": "devout"}, {"term": "reverence"}, {"term": "reverent"}, {"term": "irreverent"},
+    {"term": "sin"}, {"term": "sinful"}, {"term": "sinner"}, {"term": "virtuous"},
+    {"term": "wholesome"}, {"term": "decency"}, {"term": "indecent"},
+    {"term": "obscene"}, {"term": "obscenity"}, {"term": "vulgar"}, {"term": "degrading"},
+    {"term": "degraded"}, {"term": "corrupt"}, {"term": "corrupted"}, {"term": "corruption"},
+    {"term": "blessed"}, {"term": "blessing"}, {"term": "divine"}, {"term": "spiritual"},
+    {"term": "moral compass"}
+   ]
+  }
+ ],
+ "negation": {"enabled": false, "window": 3},
+ "scoring": "percentOfWords"
+}

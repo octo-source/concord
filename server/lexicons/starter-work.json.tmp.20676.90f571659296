@@ -1,0 +1,101 @@
+{
+ "name": "Concord Starter — Work Themes",
+ "license": "CC0",
+ "origin": "Concord starter lexicon",
+ "language": "en",
+ "description": "Workplace-survey topic categories aligned with the demo corpus themes: pay, management, workload, growth, remote, quit. Topical (not valenced), so negation is off by default.",
+ "categories": [
+  {
+   "name": "pay",
+   "terms": [
+    {"term": "salary"}, {"term": "salaries"}, {"term": "pay"}, {"term": "paid"},
+    {"term": "paycheck"}, {"term": "paychecks"}, {"term": "payroll"}, {"term": "compensation"},
+    {"term": "compensated"}, {"term": "underpa*"}, {"term": "raise"}, {"term": "raises"},
+    {"term": "bonus"}, {"term": "bonuses"}, {"term": "wage"}, {"term": "wages"},
+    {"term": "overtime"}, {"term": "commission"}, {"term": "benefits"}, {"term": "401k"},
+    {"term": "pension"}, {"term": "insurance"}, {"term": "reimbursement"}, {"term": "stipend"},
+    {"term": "earnings"}, {"term": "income"}, {"term": "stock options"}, {"term": "cost of living"},
+    {"term": "living wage"}, {"term": "minimum wage"}, {"term": "market rate"}, {"term": "take home pay"},
+    {"term": "merit increase"}
+   ]
+  },
+  {
+   "name": "management",
+   "terms": [
+    {"term": "manager"}, {"term": "managers"}, {"term": "management"}, {"term": "boss"},
+    {"term": "bosses"}, {"term": "supervis*"}, {"term": "leadership"}, {"term": "leader"},
+    {"term": "leaders"}, {"term": "executive"}, {"term": "executives"}, {"term": "director"},
+    {"term": "directors"}, {"term": "ceo"}, {"term": "hr"}, {"term": "micromanag*"},
+    {"term": "oversight"}, {"term": "accountability"}, {"term": "accountable"}, {"term": "delegate"},
+    {"term": "delegation"}, {"term": "favoritism"}, {"term": "feedback"}, {"term": "human resources"},
+    {"term": "senior leadership"}, {"term": "upper management"}, {"term": "middle management"},
+    {"term": "direct report"}, {"term": "direct reports"}, {"term": "one on one"},
+    {"term": "out of touch"}, {"term": "open door"}
+   ]
+  },
+  {
+   "name": "workload",
+   "terms": [
+    {"term": "workload"}, {"term": "workloads"}, {"term": "overworked"}, {"term": "overwork"},
+    {"term": "overwhelmed"}, {"term": "overwhelming"}, {"term": "busy"}, {"term": "swamped"},
+    {"term": "slammed"}, {"term": "understaffed"}, {"term": "understaffing"}, {"term": "staffing"},
+    {"term": "hours"}, {"term": "deadline"}, {"term": "deadlines"}, {"term": "pressure"},
+    {"term": "stress"}, {"term": "stressed"}, {"term": "stressful"}, {"term": "burnout"},
+    {"term": "exhausted"}, {"term": "exhausting"}, {"term": "exhaustion"}, {"term": "fatigue"},
+    {"term": "fatigued"}, {"term": "drained"}, {"term": "bandwidth"}, {"term": "capacity"},
+    {"term": "hectic"}, {"term": "frantic"}, {"term": "relentless"}, {"term": "unsustainable"},
+    {"term": "short staffed"}, {"term": "long hours"}, {"term": "burned out"}, {"term": "burnt out"},
+    {"term": "too much work"}, {"term": "too many meetings"}, {"term": "spread thin"},
+    {"term": "stretched thin"}, {"term": "back to back"}
+   ]
+  },
+  {
+   "name": "growth",
+   "terms": [
+    {"term": "growth"}, {"term": "promotion"},
+    {"term": "promotions"}, {"term": "promoted"}, {"term": "promote"}, {"term": "advancement"},
+    {"term": "advancing"}, {"term": "career"}, {"term": "careers"},
+    {"term": "development"}, {"term": "developing"}, {"term": "learning"}, {"term": "learn"},
+    {"term": "training"}, {"term": "mentor"}, {"term": "mentors"}, {"term": "mentorship"},
+    {"term": "mentoring"}, {"term": "coaching"}, {"term": "skill"}, {"term": "skills"},
+    {"term": "upskilling"}, {"term": "certification"}, {"term": "certifications"}, {"term": "courses"},
+    {"term": "opportunity"}, {"term": "opportunities"}, {"term": "progression"}, {"term": "stagnant"},
+    {"term": "stagnation"}, {"term": "plateau"}, {"term": "plateaued"}, {"term": "career path"},
+    {"term": "career ladder"}, {"term": "moving up"}, {"term": "professional development"},
+    {"term": "glass ceiling"}, {"term": "dead end"}, {"term": "room to grow"}
+   ]
+  },
+  {
+   "name": "remote",
+   "terms": [
+    {"term": "remote"}, {"term": "remotely"}, {"term": "wfh"}, {"term": "telework"},
+    {"term": "teleworking"}, {"term": "telecommute"}, {"term": "telecommuting"}, {"term": "hybrid"},
+    {"term": "rto"}, {"term": "commute"}, {"term": "commuting"}, {"term": "commuter"},
+    {"term": "onsite"}, {"term": "virtual"}, {"term": "zoom"}, {"term": "flexible"},
+    {"term": "flexibility"}, {"term": "flextime"}, {"term": "asynchronous"}, {"term": "async"},
+    {"term": "distributed"}, {"term": "relocate"}, {"term": "relocation"}, {"term": "timezone"},
+    {"term": "work from home"}, {"term": "working from home"}, {"term": "in the office"},
+    {"term": "in office"}, {"term": "return to office"}, {"term": "on site"}, {"term": "in person"},
+    {"term": "home office"}, {"term": "video call"}, {"term": "video calls"}, {"term": "time zone"},
+    {"term": "flex time"}
+   ]
+  },
+  {
+   "name": "quit",
+   "terms": [
+    {"term": "quit"}, {"term": "quitting"}, {"term": "resign"}, {"term": "resigned"},
+    {"term": "resigning"}, {"term": "resignation"}, {"term": "leaving"}, {"term": "turnover"},
+    {"term": "attrition"}, {"term": "departure"}, {"term": "departing"}, {"term": "exit"},
+    {"term": "retention"}, {"term": "churn"}, {"term": "counteroffer"},
+    {"term": "poached"}, {"term": "exit interview"}, {"term": "gave notice"}, {"term": "give notice"},
+    {"term": "two weeks"}, {"term": "new job"}, {"term": "job search"}, {"term": "job hunting"},
+    {"term": "interviewing elsewhere"}, {"term": "looking elsewhere"}, {"term": "moving on"},
+    {"term": "moved on"}, {"term": "out the door"}, {"term": "last day"}, {"term": "stepping down"},
+    {"term": "step down"}, {"term": "walked out"}, {"term": "put in my notice"},
+    {"term": "greener pastures"}, {"term": "leave the company"}, {"term": "leaving the company"}
+   ]
+  }
+ ],
+ "negation": {"enabled": false, "window": 3},
+ "scoring": "percentOfWords"
+}
