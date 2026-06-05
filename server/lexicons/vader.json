@@ -5,7 +5,7 @@
  "attribution": "Hutto, C.J. & Gilbert, E.E. (2014). VADER: A Parsimonious Rule-based Model for Sentiment Analysis of Social Media Text. ICWSM-14.",
  "fetched": "2026-06-05",
  "droppedNonWord": 149,
- "note": "149 emoticon/symbol entries from the upstream lexicon were dropped: they contain no word characters, so Concord's tokenizer can never match them.",
+ "note": "149 emoticon/symbol entries from the upstream lexicon were dropped: they contain no word characters, so Concord's tokenizer can never match them. Terms with non-trailing * removed (engine reserves * for trailing wildcards).",
  "terms": {
   "86": -1.6,
   "143": 3.2,
@@ -23,7 +23,6 @@
   "(^;0": 2,
   "(^;o": 1.9,
   "(o:": 1.6,
-  "*\\0/*": 2.3,
   "/o:": -1.4,
   "0-8": 0.1,
   "0-|": -1.2,
@@ -7364,5 +7363,6 @@
   "|-0": -1.2,
   "|-o": -1.2,
   "|o:": -0.9
- }
+ },
+ "droppedMisplacedStar": 1
 }

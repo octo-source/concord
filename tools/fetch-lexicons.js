@@ -31,6 +31,7 @@ async function main() {
   const terms = {};
   let skipped = 0;
   let droppedNonWord = 0;
+  let droppedMisplacedStar = 0;
   for (const line of text.split(/\r?\n/)) {
     if (line.trim() === "") continue;
     const cols = line.split("\t");
@@ -42,6 +43,11 @@ async function main() {
     }
     if (tokenize(term).length === 0) {
       droppedNonWord++; // emoticons etc. — unmatchable by the word tokenizer
+      continue;
+    }
+    const star = term.indexOf("*");
+    if (star !== -1 && star !== term.length - 1) {
+      droppedMisplacedStar++; // engine reserves * for trailing wildcards (upstream has "*\0/*")
       continue;
     }
     terms[term] = valence;
@@ -59,7 +65,11 @@ async function main() {
       "Hutto, C.J. & Gilbert, E.E. (2014). VADER: A Parsimonious Rule-based Model for Sentiment Analysis of Social Media Text. ICWSM-14.",
     fetched: new Date().toISOString().slice(0, 10),
     droppedNonWord,
-    note: `${droppedNonWord} emoticon/symbol entries from the upstream lexicon were dropped: they contain no word characters, so Concord's tokenizer can never match them.`,
+    droppedMisplacedStar,
+    note:
+      `${droppedNonWord} emoticon/symbol entries from the upstream lexicon were dropped: they contain no word ` +
+      `characters, so Concord's tokenizer can never match them. ${droppedMisplacedStar} entries with a ` +
+      `non-trailing * were dropped (the engine reserves * for trailing wildcards).`,
     terms,
   };
   mkdirSync(OUT_DIR, { recursive: true });

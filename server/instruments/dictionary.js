@@ -14,10 +14,28 @@
 //   underpa*                wildcard prefix (zero-or-more trailing chars)
 //   "work life balance"     quoted phrase (token sequence; any unquoted term
 //                           containing whitespace is also treated as a phrase)
+// "*" is ONLY valid as the final character of a term; anywhere else (e.g.
+// "under*pay", "*pay") compile() throws DICTIONARY_INVALID rather than
+// silently reinterpreting the term.
+//
+// Scoring semantics (per unit) — note the deliberate dedup asymmetry:
+//   percentOfWords  100 × (matched token positions) / (token count), where
+//                   positions are DEDUPED per effective category: a token
+//                   matched by several terms of the same category counts
+//                   once, so no category can exceed 100%. Phrases claim every
+//                   token they cover.
+//   count           the sum of weights over EVERY raw term hit, with NO
+//                   positional dedup: a token matched by N terms of one
+//                   category contributes N times (e.g. token "pay" against
+//                   terms `pay` and `pay*` in the same category scores 2).
+//                   Each phrase hit contributes once regardless of length.
+//   binary          1 if the category had any hit, else 0.
 //
 // Negation (the LIWC-ish convention): when negation.enabled, a negator token
 // within `window` tokens BEFORE a matched term flips that match into category
 // NOT_<category> instead of <category>. Spans are still reported for the UI.
+// Because results carry NOT_<category> and `empty` keys, category names may
+// not be "empty" or start with "NOT_".
 
 import { ConcordError } from "../core/errors.js";
 
@@ -66,13 +84,26 @@ function tokenizeSpans(text) {
 
 const COMPILED = Symbol.for("concord.dictionary.compiled");
 
+// Raw payload object → compiled matcher. WeakMap keeps memoization leak-free:
+// callers that pass the same payload object to score()/hits() repeatedly pay
+// the compile cost once instead of per call. Mutating a payload object after
+// its first compile is NOT picked up — build a new object instead.
+const RAW_CACHE = new WeakMap();
+
 /**
  * Compile a DictionaryPayload into a matcher: an exact-token map, a prefix
  * trie for wildcards, and a phrase table keyed by first word. score()/hits()
  * accept either a payload (compiled on the fly) or a compiled matcher.
+ * Compiling the same payload OBJECT twice returns the same memoized matcher
+ * (see RAW_CACHE above), so repeated raw-payload score()/hits() calls are
+ * harmless.
  */
 export function compile(payload) {
   if (payload && payload[COMPILED]) return payload;
+  const cached = typeof payload === "object" && payload !== null
+    ? RAW_CACHE.get(payload)
+    : undefined;
+  if (cached) return cached;
   validatePayload(payload);
 
   const matcher = {
@@ -81,9 +112,8 @@ export function compile(payload) {
     scoring: payload.scoring ?? "percentOfWords",
     negation: {
       enabled: Boolean(payload.negation?.enabled),
-      window: Number.isInteger(payload.negation?.window) && payload.negation.window > 0
-        ? payload.negation.window
-        : 3,
+      // validatePayload guarantees window, when present, is a positive integer.
+      window: payload.negation?.window ?? 3,
     },
     exact: new Map(), // token → [{cat, weight, src}]
     trieRoot: null, // char trie; node = {children: Map, entries: []|null}
@@ -111,6 +141,7 @@ export function compile(payload) {
       addTerm(matcher, ci, t.term, t.weight ?? 1);
     }
   }
+  RAW_CACHE.set(payload, matcher);
   return matcher;
 }
 
@@ -125,10 +156,23 @@ function validatePayload(payload) {
       { scoring: payload.scoring }
     );
   }
+  const win = payload.negation?.window;
+  if (win !== undefined && (!Number.isInteger(win) || win <= 0)) {
+    throw new ConcordError("DICTIONARY_INVALID", "negation.window must be a positive integer", {
+      window: win,
+    });
+  }
   const seen = new Set();
   for (const cat of payload.categories) {
     if (!cat || typeof cat.name !== "string" || cat.name === "") {
       throw new ConcordError("DICTIONARY_INVALID", "category name must be a non-empty string");
+    }
+    if (cat.name === "empty" || cat.name.startsWith("NOT_")) {
+      throw new ConcordError(
+        "DICTIONARY_INVALID",
+        `category name "${cat.name}" is reserved (result objects use "empty" and "NOT_<category>" keys)`,
+        { category: cat.name }
+      );
     }
     if (seen.has(cat.name)) {
       throw new ConcordError("DICTIONARY_INVALID", `duplicate category "${cat.name}"`);
@@ -147,6 +191,19 @@ function addTerm(matcher, cat, src, weight) {
   const quoted = body.length >= 2 && body.startsWith('"') && body.endsWith('"');
   if (quoted) body = body.slice(1, -1).trim();
 
+  // "*" is only meaningful as the final character (trailing wildcard). A star
+  // anywhere else would be silently dropped by the tokenizer — "under*pay"
+  // would become the phrase "under pay" and "*pay" the exact term "pay" — so
+  // reject it loudly instead of reinterpreting the author's intent.
+  const star = body.indexOf("*");
+  if (star !== -1 && star !== body.length - 1) {
+    throw new ConcordError(
+      "DICTIONARY_INVALID",
+      `term "${src}": "*" is only allowed as the final character (trailing wildcard)`,
+      { term: src }
+    );
+  }
+
   const words = tokenize(body); // normalizes case/apostrophes like real text
   if (words.length === 0) {
     throw new ConcordError("DICTIONARY_INVALID", `term "${src}" contains no word characters`);
@@ -164,7 +221,11 @@ function addTerm(matcher, cat, src, weight) {
       matcher.hasPrefixes = true;
       matcher.trieRoot ??= { children: new Map(), entries: null };
       let node = matcher.trieRoot;
-      for (const ch of w.value) {
+      // Insert CODE UNITS (w.value[i]), not code points (for…of), so the trie
+      // agrees with the code-unit walk in matchTokens — otherwise terms with
+      // astral-plane characters (surrogate pairs) could never match.
+      for (let ci = 0; ci < w.value.length; ci++) {
+        const ch = w.value[ci];
         let next = node.children.get(ch);
         if (!next) {
           next = { children: new Map(), entries: null };
@@ -271,12 +332,30 @@ function phraseMatchesAt(p, tokens, i, fromWord) {
 // ---------------------------------------------------------------------------
 
 /**
- * Score units against a payload (or precompiled matcher). Returns one result
- * object per unit: {<category>: value, ...} per payload.scoring; when negation
- * is enabled, NOT_<category> keys are always present too. Empty / zero-token
+ * Score units against a payload (or precompiled matcher). `units` must be an
+ * ARRAY of strings or {text} objects (a bare string throws DICTIONARY_INVALID
+ * — it would otherwise be scored per character). Returns one result object
+ * per unit: {<category>: value, ...} per payload.scoring; when negation is
+ * enabled, NOT_<category> keys are always present too. Empty / zero-token
  * units score 0 everywhere and carry `empty: true`.
+ *
+ * Dedup semantics differ by mode — this is intentional:
+ * - percentOfWords dedupes token POSITIONS per effective category: a token
+ *   matched by several terms of the same category counts once, so values
+ *   never exceed 100. Phrases claim every token they cover.
+ * - count applies NO positional dedup: every raw hit adds its term weight,
+ *   so a token matched by both `pay` and `pay*` in one category scores 2.
+ *   Each phrase hit adds its weight once regardless of phrase length.
+ * - binary reports 1 for any hit in the category, else 0.
  */
 export function score(units, payload) {
+  if (!Array.isArray(units)) {
+    throw new ConcordError(
+      "DICTIONARY_INVALID",
+      "score() units must be an array of strings or {text} objects",
+      { received: typeof units }
+    );
+  }
   const m = compile(payload);
   const results = new Array(units.length);
   for (let u = 0; u < units.length; u++) {
@@ -354,7 +433,7 @@ export function hits(unit, payload) {
 // ---------------------------------------------------------------------------
 
 /**
- * Parse LIWC .dic text into a DictionaryPayload:
+ * Parse LIWC .dic text:
  *   %
  *   1<TAB>posemo
  *   2<TAB>negemo
@@ -364,6 +443,14 @@ export function hits(unit, payload) {
  * Wildcards are preserved; a term field containing spaces becomes a phrase.
  * Negation defaults off (LIWC dictionaries do not encode it) and scoring
  * defaults to percentOfWords, the LIWC convention.
+ *
+ * Returns { payload, warnings } — NOT the bare payload. Genuine LIWC
+ * 2007/2015 files contain parenthesized conditional entries (e.g.
+ * `like<TAB>(2 134)2/96`) that plain term→category lines cannot express;
+ * each such line is skipped and reported in `warnings` as
+ * {line, term, reason: "LIWC conditional syntax unsupported"} so the rest of
+ * the file still imports. Malformed non-conditional lines still throw
+ * DICTIONARY_PARSE with their line number.
  */
 export function parseDic(text) {
   if (typeof text !== "string") {
@@ -407,6 +494,7 @@ export function parseDic(text) {
     throw new ConcordError("DICTIONARY_PARSE", ".dic has no categories");
   }
 
+  const warnings = [];
   for (; i < lines.length; i++) {
     const raw = lines[i];
     if (raw.trim() === "") continue;
@@ -433,6 +521,13 @@ export function parseDic(text) {
     if (term === "" || ids.length === 0 || ids[0] === "") {
       throw new ConcordError("DICTIONARY_PARSE", `bad term line: "${raw}"`, { line: i + 1 });
     }
+    // LIWC 2007/2015 conditional entries put a parenthesized expression in
+    // the id field, e.g. `like<TAB>(2 134)2/96`. Those are not expressible
+    // here — skip the line with a warning instead of failing the import.
+    if (ids.some((id) => id.startsWith("("))) {
+      warnings.push({ line: i + 1, term, reason: "LIWC conditional syntax unsupported" });
+      continue;
+    }
     for (const id of ids) {
       const idx = idToIndex.get(id);
       if (idx === undefined) {
@@ -445,26 +540,47 @@ export function parseDic(text) {
   }
 
   return {
-    categories,
-    negation: { enabled: false, window: 3 },
-    scoring: "percentOfWords",
+    payload: {
+      categories,
+      negation: { enabled: false, window: 3 },
+      scoring: "percentOfWords",
+    },
+    warnings,
   };
 }
 
 /**
  * Serialize a payload to LIWC .dic text. Terms shared across categories are
  * merged onto one line with multiple ids (the LIWC convention). Weights and
- * negation settings cannot be expressed in .dic — weighted payloads throw.
+ * negation settings cannot be expressed in .dic — weighted payloads throw,
+ * as do category names or terms containing tabs/newlines (the format's
+ * delimiters), all with DICTIONARY_UNSUPPORTED.
  */
 export function toDic(payload) {
   validatePayload(payload);
   const lines = ["%"];
-  payload.categories.forEach((cat, i) => lines.push(`${i + 1}\t${cat.name}`));
+  payload.categories.forEach((cat, i) => {
+    if (/[\t\n]/.test(cat.name)) {
+      throw new ConcordError(
+        "DICTIONARY_UNSUPPORTED",
+        ".dic format cannot express tabs or newlines in category names",
+        { category: cat.name }
+      );
+    }
+    lines.push(`${i + 1}\t${cat.name}`);
+  });
   lines.push("%");
 
   const termIds = new Map(); // verbatim term → [ids], in first-appearance order
   payload.categories.forEach((cat, i) => {
     for (const t of cat.terms) {
+      if (typeof t.term === "string" && /[\t\n]/.test(t.term)) {
+        throw new ConcordError(
+          "DICTIONARY_UNSUPPORTED",
+          ".dic format cannot express tabs or newlines in terms",
+          { category: cat.name, term: t.term }
+        );
+      }
       if (t.weight !== undefined && t.weight !== 1) {
         throw new ConcordError(
           "DICTIONARY_UNSUPPORTED",

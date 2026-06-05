@@ -18,6 +18,15 @@ const LEX_DIR = new URL("../../server/lexicons/", import.meta.url);
 const loadLexicon = (file) =>
   JSON.parse(readFileSync(new URL(file, LEX_DIR), "utf8"));
 
+// vader.json carries raw VADER entries including emoticons whose "*" is not a
+// trailing wildcard (e.g. "*\\0/*"). compile() rejects misplaced "*", so
+// payload builders drop those entries (they could never tokenize-match anyway).
+const wellFormedTermEntries = (terms) =>
+  Object.entries(terms).filter(([term]) => {
+    const star = term.indexOf("*");
+    return star === -1 || star === term.length - 1;
+  });
+
 const approx = (a, b, eps = 1e-9) =>
   assert.ok(Math.abs(a - b) < eps, `expected ${a} ≈ ${b} (±${eps})`);
 
@@ -173,6 +182,44 @@ test("wildcard matches the bare prefix itself (zero-or-more chars)", () => {
   assert.equal(r.pay, 3); // pay, payment, pays — not "paid"
 });
 
+test("misplaced wildcards (under*pay, *pay) throw DICTIONARY_INVALID naming the term; trailing underpa* still works", () => {
+  const mk = (term) => ({
+    categories: [{ name: "pay", terms: [{ term }] }],
+    negation: { enabled: false, window: 3 },
+    scoring: "count",
+  });
+  // Infix star must not silently become the phrase "under pay".
+  assert.throws(
+    () => compile(mk("under*pay")),
+    (e) =>
+      e.name === "ConcordError" &&
+      e.code === "DICTIONARY_INVALID" &&
+      e.message.includes("under*pay")
+  );
+  // Leading star must not silently become exact "pay".
+  assert.throws(
+    () => compile(mk("*pay")),
+    (e) =>
+      e.name === "ConcordError" &&
+      e.code === "DICTIONARY_INVALID" &&
+      e.message.includes("*pay")
+  );
+  // Trailing star remains the supported wildcard form.
+  const [r] = score(["underpaid"], mk("underpa*"));
+  assert.equal(r.pay, 1);
+});
+
+test("wildcard with astral-plane characters matches (trie is code-unit keyed)", () => {
+  // 𐌰/𐌱/𐌲 are Gothic letters outside the BMP: two UTF-16 code units each.
+  const payload = {
+    categories: [{ name: "gothic", terms: [{ term: "𐌰𐌱*" }] }],
+    negation: { enabled: false, window: 3 },
+    scoring: "count",
+  };
+  const [r] = score(["𐌰𐌱𐌲 𐌰𐌱 𐌰"], payload);
+  assert.equal(r.gothic, 2); // 𐌰𐌱𐌲 and bare 𐌰𐌱 — not lone 𐌰
+});
+
 // ------------------------------------------------------------------ phrases
 
 test('phrase "work life balance" matches and counts 3 tokens in percentOfWords', () => {
@@ -274,6 +321,16 @@ test("hits accepts a unit object with .text", () => {
   assert.equal(h[0].category, "pay");
 });
 
+test("hits: spans sliced from MIXED-CASE original text return the original casing", () => {
+  // Tokens are lowercased for matching, but spans index the verbatim text.
+  const text = "I am HAPPY with my PAY";
+  const h = hits(text, tinyPayload);
+  const happy = h.find((x) => x.term === "happy");
+  assert.equal(text.slice(happy.start, happy.end), "HAPPY");
+  const pay = h.find((x) => x.term === "pay");
+  assert.equal(text.slice(pay.start, pay.end), "PAY");
+});
+
 // ------------------------------------------------------------- scoring modes
 
 test("binary scoring is 0/1 regardless of hit count", () => {
@@ -316,6 +373,21 @@ test("percentOfWords counts unique token positions per category (no >100%)", () 
   approx(r.pay, 100); // one token matched twice still = 100%, not 200%
 });
 
+test("count mode does NOT dedupe positions: pay + pay* on one token sums to 2", () => {
+  // Twin of the percentOfWords overlap test above. count sums EVERY raw hit's
+  // weight — a token matched by two terms of the same category contributes
+  // twice. This asymmetry is intentional and documented in score().
+  const payload = {
+    categories: [
+      { name: "pay", terms: [{ term: "pay" }, { term: "pay*" }] }, // both match "pay"
+    ],
+    negation: { enabled: false, window: 3 },
+    scoring: "count",
+  };
+  const [r] = score(["pay"], payload);
+  assert.equal(r.pay, 2);
+});
+
 // ----------------------------------------------------------- compile() reuse
 
 test("compile once, score many: compiled matcher gives identical results", () => {
@@ -336,6 +408,69 @@ test("compile validates payload", () => {
   );
 });
 
+test("compile memoizes raw payloads: repeated compile()/hits() reuse one matcher", () => {
+  const payload = {
+    categories: [{ name: "pay", terms: [{ term: "pay" }] }],
+    negation: { enabled: false, window: 3 },
+    scoring: "count",
+  };
+  const m1 = compile(payload);
+  const m2 = compile(payload);
+  assert.equal(m1, m2); // reference-equal: second compile is a WeakMap cache hit
+  assert.equal(compile(m1), m1); // a compiled matcher still passes through untouched
+  // hits() with the same raw payload object twice goes through the memo too.
+  assert.deepEqual(hits("my pay", payload), hits("my pay", payload));
+});
+
+test('reserved category names "empty" and NOT_* throw DICTIONARY_INVALID', () => {
+  const mk = (name) => ({
+    categories: [{ name, terms: [{ term: "x" }] }],
+    negation: { enabled: false, window: 3 },
+    scoring: "count",
+  });
+  for (const name of ["empty", "NOT_pay"]) {
+    assert.throws(
+      () => compile(mk(name)),
+      (e) => e.name === "ConcordError" && e.code === "DICTIONARY_INVALID",
+      `category "${name}" must be rejected (collides with result keys)`
+    );
+  }
+});
+
+test("score() rejects non-array units (a bare string must not score per character)", () => {
+  assert.throws(
+    () => score("hello", tinyPayload),
+    (e) => e.name === "ConcordError" && e.code === "DICTIONARY_INVALID"
+  );
+});
+
+test("negation.window: zero, negative, and non-integer values throw", () => {
+  const mk = (window) => ({
+    categories: [{ name: "posemo", terms: [{ term: "happy" }] }],
+    negation: { enabled: true, window },
+    scoring: "count",
+  });
+  for (const window of [0, -1, 2.5, "3", NaN]) {
+    assert.throws(
+      () => compile(mk(window)),
+      (e) => e.name === "ConcordError" && e.code === "DICTIONARY_INVALID",
+      `window=${String(window)} must be rejected`
+    );
+  }
+});
+
+test("negation.window absent still defaults to 3", () => {
+  const payload = {
+    categories: [{ name: "posemo", terms: [{ term: "happy" }] }],
+    negation: { enabled: true },
+    scoring: "count",
+  };
+  const [flip] = score(["not a b happy"], payload); // distance 3 == default window
+  assert.equal(flip.NOT_posemo, 1);
+  const [keep] = score(["not a b c happy"], payload); // distance 4 > default window
+  assert.equal(keep.posemo, 1);
+});
+
 // ------------------------------------------------------------------- .dic IO
 
 test("parseDic parses the LIWC format", () => {
@@ -350,7 +485,8 @@ test("parseDic parses the LIWC format", () => {
     "grateful\t1",
     "bittersweet\t1\t2",
   ].join("\n");
-  const p = parseDic(dic);
+  const { payload: p, warnings } = parseDic(dic);
+  assert.deepEqual(warnings, []); // nothing skipped in a clean file
   assert.deepEqual(p.scoring, "percentOfWords");
   assert.deepEqual(p.negation, { enabled: false, window: 3 });
   assert.deepEqual(
@@ -372,7 +508,8 @@ test("parseDic(toDic(payload)) round-trips modulo ordering", () => {
     negation: { enabled: false, window: 3 },
     scoring: "percentOfWords",
   };
-  const round = parseDic(toDic(payload));
+  const { payload: round, warnings } = parseDic(toDic(payload));
+  assert.deepEqual(warnings, []);
   const norm = (p) => ({
     ...p,
     categories: p.categories.map((c) => ({
@@ -402,8 +539,58 @@ test("parseDic rejects malformed input", () => {
   );
   assert.throws(
     () => parseDic("%\n1\tposemo\n%\nhappy\t99"),
-    (e) => e.name === "ConcordError" && e.code === "DICTIONARY_PARSE"
+    (e) => e.name === "ConcordError" && e.code === "DICTIONARY_PARSE" && e.details.line === 4
   );
+});
+
+test("parseDic skips LIWC conditional lines with warnings, parses the rest", () => {
+  // Real LIWC 2007/2015 files carry parenthesized conditional entries; they
+  // are not expressible as plain terms, so they skip with a warning instead
+  // of failing the whole import.
+  const dic = [
+    "%",
+    "1\tposemo",
+    "2\tnegemo",
+    "%",
+    "happy\t1",
+    "like\t(2 134)2/96",
+    "kind\t(125 126)/(2 134)",
+    "sad\t2",
+  ].join("\n");
+  const { payload, warnings } = parseDic(dic);
+  assert.deepEqual(
+    payload.categories[0].terms.map((t) => t.term),
+    ["happy"]
+  );
+  assert.deepEqual(
+    payload.categories[1].terms.map((t) => t.term),
+    ["sad"]
+  );
+  assert.deepEqual(warnings, [
+    { line: 6, term: "like", reason: "LIWC conditional syntax unsupported" },
+    { line: 7, term: "kind", reason: "LIWC conditional syntax unsupported" },
+  ]);
+});
+
+test("toDic rejects tabs and newlines in category names and terms", () => {
+  const mk = (categories) => ({
+    categories,
+    negation: { enabled: false, window: 3 },
+    scoring: "count",
+  });
+  const cases = [
+    [{ name: "bad\tname", terms: [{ term: "x" }] }],
+    [{ name: "bad\nname", terms: [{ term: "x" }] }],
+    [{ name: "ok", terms: [{ term: "bad\tterm" }] }],
+    [{ name: "ok", terms: [{ term: "bad\nterm" }] }],
+  ];
+  for (const categories of cases) {
+    assert.throws(
+      () => toDic(mk(categories)),
+      (e) => e.name === "ConcordError" && e.code === "DICTIONARY_UNSUPPORTED",
+      `${JSON.stringify(categories[0])} must be rejected`
+    );
+  }
 });
 
 // --------------------------------------------------------- TSV lexicon import
@@ -468,7 +655,7 @@ test("vader.json loads and separates positive from negative", () => {
   const vader = loadLexicon("vader.json");
   assert.ok(vader.name.startsWith("VADER"));
   assert.ok(vader.license === "MIT" || vader.note); // full fetch or labeled fallback
-  const entries = Object.entries(vader.terms);
+  const entries = wellFormedTermEntries(vader.terms);
   assert.ok(entries.length >= 150, `expected >=150 terms, got ${entries.length}`);
   const payload = {
     categories: [
@@ -484,6 +671,28 @@ test("vader.json loads and separates positive from negative", () => {
   );
   assert.ok(pos.valence > 0, `positive sum ${pos.valence} should be > 0`);
   assert.ok(neg.valence < 0, `negative sum ${neg.valence} should be < 0`);
+});
+
+test("VADER multiword entries match end-to-end through score and hits (fed up)", () => {
+  const vader = loadLexicon("vader.json");
+  assert.ok("fed up" in vader.terms, "vader.json must carry the 'fed up' phrase");
+  const entries = wellFormedTermEntries(vader.terms);
+  const payload = {
+    categories: [
+      { name: "valence", terms: entries.map(([term, weight]) => ({ term, weight })) },
+    ],
+    negation: { enabled: false, window: 3 },
+    scoring: "count",
+  };
+  const m = compile(payload);
+  const text = "I am fed up with this";
+  const h = hits(text, m);
+  assert.equal(h.length, 1, "the phrase should be the only VADER hit in this sentence");
+  assert.equal(h[0].term, "fed up");
+  assert.equal(h[0].category, "valence");
+  assert.equal(text.slice(h[0].start, h[0].end), "fed up");
+  const [r] = score([text], m);
+  approx(r.valence, vader.terms["fed up"]); // −1.8, from the phrase alone
 });
 
 const starterSpecs = [
