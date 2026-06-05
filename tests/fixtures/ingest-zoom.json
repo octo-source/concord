@@ -1,0 +1,23 @@
+{
+  "recording_id": "rec_001",
+  "transcripts": [
+    {
+      "speaker": "Carol",
+      "start_time": "00:00:01.200",
+      "end_time": "00:00:04.000",
+      "text": "Let us begin."
+    },
+    {
+      "speaker": "Carol",
+      "start_time": "00:00:04.500",
+      "end_time": "00:00:07.000",
+      "text": "First item is budget."
+    },
+    {
+      "speaker": "Dan",
+      "start_time": "00:00:08.000",
+      "end_time": "00:00:10.000",
+      "text": "Sounds good."
+    }
+  ]
+}

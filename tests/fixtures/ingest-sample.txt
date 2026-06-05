@@ -1,0 +1,7 @@
+First paragraph of plain text.
+Still the first paragraph.
+
+Second paragraph here.
+
+
+Third paragraph after extra blanks.
