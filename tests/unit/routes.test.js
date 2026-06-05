@@ -274,6 +274,7 @@ const S = {
   panelRunId: null,
   dictRunId: null,
   crosstabAnalysisId: null,
+  crosstabAnalysis: null, // the full POST response, for the GET round-trip
 };
 
 const pdir = () => projectDir(S.slug);
@@ -410,8 +411,17 @@ test("corpora: instant read computes locally and caches into the corpus meta", a
   const dept = r.metaMarginals.find((m) => m.column === "dept");
   assert.ok(dept && dept.values.length === 2);
 
+  // the CTA price: the mock Director slot is configured → briefEstimate
+  // {usd, etaMin} rides the response (ONE Director call over the stratified
+  // sample, priced from the catalog — mock prices $0)
+  assert.ok(r.briefEstimate && typeof r.briefEstimate === "object", "briefEstimate present with a Director configured");
+  assert.equal(r.briefEstimate.usd, 0, "mock catalog pricing → $0");
+  assert.equal(typeof r.briefEstimate.etaMin, "number");
+  assert.ok(r.briefEstimate.etaMin > 0);
+
   const again = await ok("GET", `/api/projects/${S.slug}/corpora/${S.corpusA}/instantread`);
   assert.equal(again.computedAt, r.computedAt, "second call serves the cached result");
+  assert.deepEqual(again.briefEstimate, r.briefEstimate, "the cached read still quotes the brief price");
 });
 
 // =========================================================================
@@ -1029,6 +1039,11 @@ test("runs: strict project + anthropic instrument → preflight privacyOk false,
   assert.equal(pf.privacyOk, false);
   assert.match(pf.privacyError, /strict/);
   await fail("POST", "/api/projects/locked-project/runs", { instrumentId: inst.id, corpusId: confirmed.corpusId }, 403, "PRIVACY_BLOCKED");
+
+  // no Director slot on this project → the instant read has no honest brief
+  // price to quote: briefEstimate is null, never a fabricated $0
+  const ir = await ok("GET", `/api/projects/locked-project/corpora/${confirmed.corpusId}/instantread`);
+  assert.equal(ir.briefEstimate, null, "no Director configured → briefEstimate null");
 });
 
 test("runs: panel run → disagreement view ranks by entropy with a juror×juror matrix", async () => {
@@ -1103,6 +1118,7 @@ test("analyses: complete gold set with pi → crosstab auto-corrects (DSL) with 
     spec: { rowKey: "label", colKey: "dept", runId: S.runId },
   });
   S.crosstabAnalysisId = a.id;
+  S.crosstabAnalysis = a;
   assert.equal(a.level, "corrected", "gold present → DSL auto-selected");
   assert.equal(a.results.estimator, "dslProportion");
   assert.equal(a.spec.goldsetId, S.goldsetId);
@@ -1126,6 +1142,13 @@ test("analyses: complete gold set with pi → crosstab auto-corrects (DSL) with 
   // honesty: no significance stars anywhere in the results payload
   assert.ok(!JSON.stringify(a.results).includes("*"), "no star decoration");
   assert.ok(Object.keys(a.evidence.cells).length > 0, "evidence cells link units");
+});
+
+test("analyses: GET analyses/:id serves the persisted artifact; absent → 404; unknown project → 404", async () => {
+  const got = await ok("GET", `/api/projects/${S.slug}/analyses/${S.crosstabAnalysisId}`);
+  assert.deepEqual(got, S.crosstabAnalysis, "the artifact on disk deep-equals what POST returned");
+  await fail("GET", `/api/projects/${S.slug}/analyses/an_never_created`, undefined, 404, "NOT_FOUND");
+  await fail("GET", `/api/projects/no-such-project/analyses/${S.crosstabAnalysisId}`, undefined, 404, "NOT_FOUND");
 });
 
 test("analyses: model (logit) corrects coefficients with the naive fit beside", async () => {
@@ -1169,21 +1192,50 @@ test("analyses: triangulation between the frozen judge and a dictionary instrume
     "the Director-escalated unit diverges (judge no vs dictionary yes)");
 });
 
-test("analyses: subgroup audit with per-group corrected proportions", async () => {
+test("analyses: subgroup reliability audit — machine-vs-gold agreement + κ + error rate by group, flagged >0.1 below overall; corrected cells still ride", async () => {
   const a = await ok("POST", `/api/projects/${S.slug}/analyses`, {
     kind: "subgroup",
     spec: { by: "dept", runId: S.runId },
   });
   assert.equal(a.level, "corrected");
-  assert.equal(a.results.groups.length, 2);
-  for (const g of a.results.groups) {
-    assert.ok(g.n > 0 && g.dist);
+  const r = a.results;
+
+  // overall reference: accuracy-1.0 worker vs ORACLE gold — only the
+  // Director-escalated long unit can disagree, so agreement ≥ 23/24
+  assert.equal(typeof r.overall?.goldN, "number");
+  assert.equal(r.overall.goldN, 24, "every π-bearing gold unit is read");
+  assert.ok(r.overall.percentAgreement >= 23 / 24 - 1e-6, `near-perfect overall agreement (got ${r.overall.percentAgreement})`);
+  assert.ok(Math.abs(r.overall.errorRate - (1 - r.overall.percentAgreement)) < 2e-6);
+
+  assert.equal(r.groups.length, 2);
+  for (const g of r.groups) {
+    assert.ok(g.n > 0 && g.dist, "n + label distribution stay on every group");
+    assert.equal(typeof g.goldN, "number");
+    assert.ok(g.goldN > 0, `SRS gold reaches both depts (${g.group}: ${g.goldN})`);
+    assert.ok(g.percentAgreement >= 0.8, `dialed-in worker agrees within ${g.group} (got ${g.percentAgreement})`);
+    assert.ok(Math.abs(g.errorRate - (1 - g.percentAgreement)) < 2e-6, "errorRate = 1 − agreement");
+    assert.ok(typeof g.kappa === "number" || g.kappa === null, "κ number|null");
+    if (g.kappa === null) assert.equal(typeof g.note, "string", "a null κ explains itself");
+    // the flagged computation, exactly: >0.1 below the overall agreement
+    assert.equal(g.flagged, r.overall.percentAgreement - g.percentAgreement > 0.1);
+    assert.equal(g.flagged, false, "a uniformly accurate worker flags no dept");
     if (g.corrected) {
       assert.equal(typeof g.corrected.est, "number");
       assert.equal(typeof g.corrected.naive.est, "number");
     }
   }
-  assert.ok(a.results.groups.some((g) => g.corrected), "at least one group carries a corrected estimate");
+  assert.equal(r.groups.reduce((n, g) => n + g.goldN, 0), r.overall.goldN, "gold partitions over the groups");
+  assert.ok(r.groups.some((g) => g.corrected), "at least one group carries a corrected estimate");
+  assert.equal(r.estimator, "dslProportion", "the canonical corrected block survives for reporting/replication");
+});
+
+test("analyses: subgroup audit without a complete gold set → 400 with the calibrate-first message", async () => {
+  const err = await fail("POST", `/api/projects/${S.slug}/analyses`, {
+    kind: "subgroup",
+    spec: { by: "dept", runId: S.panelRunId },
+  }, 400, "VALIDATION");
+  assert.match(err.message, /calibrate first/i, "researcher-facing message names the fix");
+  assert.match(err.message, /gold/i);
 });
 
 // =========================================================================

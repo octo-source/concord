@@ -162,7 +162,7 @@ function setTitle(text) {
 export function renderDossier(d = {}) {
   const unit = d.unit ?? {};
   const hits = normalizeHits(d.dictionaryHits);
-  const outputs = Array.isArray(d.outputs) ? d.outputs : [];
+  const outputs = normalizeOutputs(d.outputs);
   const gold = normalizeGold(d.goldLabels);
   const level = d.level ?? null;
 
@@ -277,19 +277,40 @@ function describePos(pos) {
   return parts.join(" · ") || "—";
 }
 
-/* Tolerant shapes: dictionaryHits may arrive as spans with offsets or as
-   {category: [terms]} summaries. */
+/* Tolerant shapes for dictionaryHits:
+   - LIVE dossiers carry per-instrument wrappers
+       [{instrumentId, name, hits: [{category, term, start, end}]}]
+     → unwrap: spans keep their category (highlight colors), and the
+     Dictionary list groups under the INSTRUMENT NAME as its label.
+   - bare span arrays [{category, term, start, end}] (the gallery poses
+     these) group by hit category as before;
+   - {category: [terms]} summaries render terms without spans. */
 function normalizeHits(raw) {
   const spans = [];
-  const byCat = new Map();
+  const byCat = new Map(); // group label → Set(terms)
+  const addTerm = (label, term) => {
+    if (!byCat.has(label)) byCat.set(label, new Set());
+    if (term) byCat.get(label).add(term);
+  };
+  const addSpan = (h) => {
+    if (typeof h.start === "number" && typeof h.end === "number") {
+      spans.push({ start: h.start, end: h.end, category: h.category, kind: "dict" });
+    }
+  };
   if (Array.isArray(raw)) {
     for (const h of raw) {
-      if (typeof h.start === "number" && typeof h.end === "number") {
-        spans.push({ start: h.start, end: h.end, category: h.category, kind: "dict" });
+      if (h && Array.isArray(h.hits)) {
+        // live wrapper — one group per dictionary instrument
+        const label = h.name ?? h.instrumentId ?? "dictionary";
+        for (const hit of h.hits) {
+          addSpan(hit);
+          addTerm(label, hit.term);
+        }
+        continue;
       }
-      const cat = h.category ?? "match";
-      if (!byCat.has(cat)) byCat.set(cat, new Set());
-      if (h.term) byCat.get(cat).add(h.term);
+      // bare span (gallery) — group by the hit's category
+      addSpan(h);
+      addTerm(h.category ?? "match", h.term);
     }
   } else if (raw && typeof raw === "object") {
     for (const [cat, terms] of Object.entries(raw)) {
@@ -298,14 +319,46 @@ function normalizeHits(raw) {
   }
   return {
     spans,
-    byCategory: [...byCat.entries()].map(([category, terms]) => ({ category, terms: [...terms] })),
+    byCategory: [...byCat.entries()]
+      .filter(([, terms]) => terms.size > 0)
+      .map(([category, terms]) => ({ category, terms: [...terms] })),
   };
 }
 
+/* Live dossiers group machine readings by run: [{runId, instrumentId,
+   status, model, outputs: [juror lines]}]. Flatten to juror lines for the
+   Machine readings list; bare juror-line arrays (gallery) pass through. */
+function normalizeOutputs(raw) {
+  if (!Array.isArray(raw)) return [];
+  const flat = [];
+  for (const o of raw) {
+    if (o && Array.isArray(o.outputs)) {
+      for (const line of o.outputs) flat.push({ ...line, runId: o.runId });
+    } else if (o) {
+      flat.push(o);
+    }
+  }
+  return flat;
+}
+
+/* Live goldLabels are per-goldset entries [{goldsetId, tier, status,
+   coders: {coderId: label}, adjudicated}] → one row per coder plus the
+   adjudicated verdict. Bare rows and {coder: label} maps stay tolerated. */
 function normalizeGold(raw) {
   if (!raw) return [];
   if (Array.isArray(raw)) {
-    return raw.map((g) => ({ coder: g.coder ?? g.coderId ?? "coder", label: g.label, adjudicated: g.adjudicated }));
+    const rows = [];
+    for (const g of raw) {
+      if (g && g.coders && typeof g.coders === "object") {
+        for (const [coder, label] of Object.entries(g.coders)) rows.push({ coder, label });
+        if (g.adjudicated !== null && g.adjudicated !== undefined) {
+          rows.push({ coder: "adjudicated", label: g.adjudicated, adjudicated: true });
+        }
+        continue;
+      }
+      rows.push({ coder: g.coder ?? g.coderId ?? "coder", label: g.label, adjudicated: g.adjudicated });
+    }
+    return rows;
   }
   return Object.entries(raw).map(([coder, label]) =>
     coder === "adjudicated"

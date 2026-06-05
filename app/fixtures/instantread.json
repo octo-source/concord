@@ -1,63 +1,67 @@
 {
-  "computedIn": 0.74,
-  "allLocal": true,
-  "lengthHist": [
-    { "label": "1–10 words", "value": 312, "evidence": ["u_4b9c2e7d80a1f355", "u_84d5f1b7e0c3a926"] },
-    { "label": "11–25 words", "value": 696, "evidence": ["u_1f8d3c5b9e72a044", "u_6c1e5a9d4f28b073", "u_e73a1d49c8b5f026"] },
-    { "label": "26–50 words", "value": 884, "evidence": ["u_2847f1a09c3d55b2", "u_03d7e8a1f4b2c690", "u_ea6f3b8d0c92a154"] },
-    { "label": "51–100 words", "value": 488, "evidence": ["u_c6a91e2f7d40b833", "u_9a4e7b1c2f86d520"] },
-    { "label": "100+ words", "value": 120, "evidence": ["u_b3c1f5d8a07e2964"] }
-  ],
-  "langMix": [
-    { "lang": "en", "label": "English", "value": 2419, "share": 0.968, "evidence": ["u_2847f1a09c3d55b2"] },
-    { "lang": "es", "label": "Spanish", "value": 81, "share": 0.032, "evidence": ["u_91b3c07d2e8f4a16", "u_30e6c2f8b9a4d157"] }
-  ],
+  "local": true,
+  "unitCount": 2500,
+  "meanUnitChars": 150,
+  "lengthHist": {
+    "bins": [
+      { "lo": 0, "hi": 9, "n": 312 },
+      { "lo": 10, "hi": 19, "n": 696 },
+      { "lo": 20, "hi": 29, "n": 884 },
+      { "lo": 30, "hi": 39, "n": 488 },
+      { "lo": 40, "hi": 49, "n": 96 },
+      { "lo": 50, "hi": 59, "n": 24 }
+    ],
+    "unit": "words"
+  },
+  "langMix": { "en": 0.968, "es": 0.032, "other": 0 },
   "topTerms": [
-    { "term": "manager", "count": 412, "lift": 3.8 },
-    { "term": "pay", "count": 386, "lift": 4.1 },
-    { "term": "workload", "count": 294, "lift": 5.2 },
-    { "term": "promotion", "count": 233, "lift": 4.4 },
-    { "term": "remote", "count": 207, "lift": 3.9 },
-    { "term": "burnout", "count": 184, "lift": 6.0 },
-    { "term": "on-call", "count": 162, "lift": 5.7 },
-    { "term": "reorg", "count": 151, "lift": 6.3 },
-    { "term": "salary", "count": 149, "lift": 3.6 },
-    { "term": "quota", "count": 118, "lift": 5.1 },
-    { "term": "leadership", "count": 116, "lift": 2.9 },
-    { "term": "growth", "count": 104, "lift": 3.2 },
-    { "term": "office", "count": 97, "lift": 2.7 },
-    { "term": "team", "count": 95, "lift": 1.8 },
-    { "term": "comp", "count": 89, "lift": 3.4 },
-    { "term": "headcount", "count": 71, "lift": 4.8 }
+    { "term": "pay", "count": 386 },
+    { "term": "manager", "count": 312 },
+    { "term": "salary", "count": 249 },
+    { "term": "office", "count": 233 },
+    { "term": "workload", "count": 194 },
+    { "term": "burnout", "count": 184 },
+    { "term": "management", "count": 168 },
+    { "term": "promotion", "count": 153 },
+    { "term": "quota", "count": 118 },
+    { "term": "leadership", "count": 116 },
+    { "term": "growth", "count": 104 },
+    { "term": "team", "count": 95 },
+    { "term": "commute", "count": 91 },
+    { "term": "mandate", "count": 86 },
+    { "term": "remote", "count": 78 },
+    { "term": "reorg", "count": 74 },
+    { "term": "hours", "count": 69 },
+    { "term": "career", "count": 64 },
+    { "term": "equity", "count": 58 },
+    { "term": "hybrid", "count": 49 }
   ],
   "sentimentSketch": {
-    "method": "VADER (bundled lexicon, MIT) — all local",
-    "rows": [
-      { "label": "satisfaction 1", "value": -0.62, "n": 405, "evidence": ["u_d12f4a86c3e09b58", "u_8800c1d2e4a90b77", "u_3e8c5d0f7a92b441"] },
-      { "label": "satisfaction 2", "value": -0.38, "n": 762, "evidence": ["u_2847f1a09c3d55b2", "u_9a4e7b1c2f86d520"] },
-      { "label": "satisfaction 3", "value": -0.07, "n": 633, "evidence": ["u_55e0a9d4b7c2f311", "u_d94a7c1e5b28f063"] },
-      { "label": "satisfaction 4", "value": 0.31, "n": 458, "evidence": ["u_4b9c2e7d80a1f355", "u_92c8b4f6a1e7d503"] },
-      { "label": "satisfaction 5", "value": 0.58, "n": 242, "evidence": ["u_f29b7d3a1c50e684", "u_47a3e9c5d2f1b860"] }
-    ]
+    "lexicon": "VADER",
+    "positive": 0.262,
+    "negative": 0.531,
+    "neutral": 0.207,
+    "meanValence": -0.41
   },
   "metaMarginals": [
-    { "key": "dept", "items": [
-      { "label": "Engineering", "value": 678 }, { "label": "Sales", "value": 562 },
-      { "label": "Operations", "value": 444 }, { "label": "Support", "value": 392 },
-      { "label": "Marketing", "value": 263 }, { "label": "HR", "value": 161 }
+    { "column": "dept", "values": [
+      { "value": "Engineering", "n": 678 }, { "value": "Sales", "n": 562 },
+      { "value": "Operations", "n": 444 }, { "value": "Support", "n": 392 },
+      { "value": "Marketing", "n": 263 }, { "value": "People", "n": 161 }
     ]},
-    { "key": "region", "items": [
-      { "label": "NA", "value": 1693 }, { "label": "EU", "value": 412 },
-      { "label": "APAC", "value": 247 }, { "label": "LATAM", "value": 148 }
+    { "column": "region", "values": [
+      { "value": "NA", "n": 1693 }, { "value": "EMEA", "n": 412 },
+      { "value": "APAC", "n": 247 }, { "value": "LATAM", "n": 148 }
     ]},
-    { "key": "satisfaction", "items": [
-      { "label": "1", "value": 405 }, { "label": "2", "value": 762 }, { "label": "3", "value": 633 },
-      { "label": "4", "value": 458 }, { "label": "5", "value": 242 }
+    { "column": "role_level", "values": [
+      { "value": "IC", "n": 1550 }, { "value": "Lead", "n": 400 },
+      { "value": "Manager", "n": 375 }, { "value": "Director", "n": 175 }
     ]},
-    { "key": "tenure_years", "items": [
-      { "label": "<1", "value": 286 }, { "label": "1–2", "value": 731 }, { "label": "3–5", "value": 928 },
-      { "label": "6–9", "value": 412 }, { "label": "10+", "value": 143 }
+    { "column": "satisfaction", "values": [
+      { "value": "1", "n": 405 }, { "value": "2", "n": 762 }, { "value": "3", "n": 633 },
+      { "value": "4", "n": 458 }, { "value": "5", "n": 242 }
     ]}
   ],
-  "briefEstimate": { "usd": 0.14, "etaMin": 2, "sampleN": 312, "model": "claude-sonnet-4-5" }
+  "briefEstimate": { "usd": 0.086667, "etaMin": 1 },
+  "computedAt": "2026-06-01T09:22:00.000Z"
 }

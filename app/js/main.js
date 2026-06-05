@@ -280,13 +280,43 @@ function initQuestionBar() {
   });
 }
 
+// Live plan instruments carry {constructId, constructName, workerClass,
+// provider, model} — no name/kind. Render the construct's name with
+// workerClass/model chips (old name/kind shapes still tolerated).
+function planInstrumentRow(i) {
+  return el("li", { class: "plansheet__item" },
+    el("span", { class: "plansheet__name" }, i.constructName ?? i.name ?? i.model ?? "instrument"),
+    i.workerClass ? el("span", { class: "chip chip--ghost" }, i.workerClass) : null,
+    i.kind ? el("span", { class: "chip" }, i.kind) : null,
+    i.model ? el("span", { class: "chip", title: i.provider ? `${i.provider}/${i.model}` : i.model }, i.model) : null);
+}
+
+// One readable line out of an analysis spec object ("pay × dept", "by dept",
+// "label ~ satisfaction + tenure") — never "[object Object]".
+function planSpecLine(spec) {
+  if (spec === null || spec === undefined) return "";
+  if (typeof spec === "string") return spec;
+  if (typeof spec !== "object") return String(spec);
+  if (spec.rowKey && spec.colKey) return `${spec.rowKey} × ${spec.colKey}`;
+  if (spec.by) return `by ${spec.by}`;
+  if (Array.isArray(spec.x) && spec.x.length) return `${spec.positive ?? "label"} ~ ${spec.x.join(" + ")}`;
+  if (Array.isArray(spec.instrumentIds)) return spec.instrumentIds.join(" vs ");
+  const parts = Object.entries(spec)
+    .filter(([, v]) => v !== null && v !== undefined && typeof v !== "object")
+    .map(([k, v]) => `${k}: ${v}`);
+  return parts.join(" · ");
+}
+
 function planSheet(project, res, question) {
   const plan = res?.plan ?? {};
   const planId = res?.planId;
   const s = openSheet({ title: "The plan, before the spend", overline: "Question → artifacts", wide: true });
 
+  const analysis = plan.analysis ?? {};
+  const specLine = planSpecLine(analysis.spec);
+
   s.body.append(
-    el("p", { class: "plansheet__q" }, "“", res?.question ?? question, "”"),
+    el("p", { class: "plansheet__q" }, "“", plan.question ?? res?.question ?? question, "”"),
     plan.summary ? el("p", { class: "plansheet__summary" }, plan.summary) : null,
 
     el("h3", { class: "overline screen__section-label" }, "Constructs it will draft"),
@@ -299,11 +329,7 @@ function planSheet(project, res, question) {
 
     el("h3", { class: "overline screen__section-label" }, "Instruments it will compile"),
     el("ul", { class: "plansheet__list", role: "list" },
-      ...(plan.instruments ?? []).map((i) =>
-        el("li", { class: "plansheet__item" },
-          el("span", { class: "plansheet__name" }, i.name),
-          el("span", { class: "chip" }, i.kind),
-          i.workerClass ? el("span", { class: "chip chip--ghost" }, i.workerClass) : null))),
+      ...(plan.instruments ?? []).map((i) => planInstrumentRow(i))),
 
     el("h3", { class: "overline screen__section-label" }, "What it will cost"),
     el("p", { class: "plansheet__est" },
@@ -312,9 +338,11 @@ function planSheet(project, res, question) {
 
     el("h3", { class: "overline screen__section-label" }, "The analysis it produces"),
     el("p", { class: "plansheet__analysis" },
-      el("span", { class: "chip" }, plan.analysis?.kind ?? "analysis"),
-      " ", plan.analysis?.spec ?? "", " ",
-      plan.analysis?.note ? el("span", { class: "faint" }, plan.analysis.note) : null),
+      el("span", { class: "chip" }, analysis.kind ?? "analysis"),
+      specLine ? el("span", { class: "data" }, " ", specLine, " ") : " ",
+      (analysis.annotation ?? analysis.note)
+        ? el("span", { class: "faint" }, analysis.annotation ?? analysis.note)
+        : null),
   );
 
   s.foot.append(

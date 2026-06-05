@@ -47,17 +47,21 @@ export function render(mount, params, query) {
         actions: [el("button", { class: "btn btn--primary", type: "button", onclick: () => preflightSheet(params, project, instruments, query.preflight) }, "Preflight a run")],
       }));
     } else {
+      // live run record: progress under checkpoint {done, total}; cost under
+      // cost {estUSD, actualUSD, inputTokens, outputTokens}
       const list = el("div", { class: "runlist" });
       for (const r of runs) {
-        const pct = r.total ? Math.round(((r.done ?? 0) / r.total) * 100) : 0;
+        const done = r.checkpoint?.done ?? 0;
+        const total = r.checkpoint?.total ?? 0;
+        const pct = total ? Math.round((done / total) * 100) : 0;
         list.append(el("a", { class: "runrow", href: `#/p/${params.slug}/runs/${r.id}` },
           el("span", { class: "runrow__id data" }, r.id),
           el("span", { class: "runrow__inst" }, instrumentName(instruments, r.instrumentId)),
           el("span", { class: `chip runrow__status runrow__status--${r.status}` }, r.status),
           el("span", { class: "runrow__bar", aria: { hidden: "true" } },
             el("span", { class: "runrow__fill", style: { width: pct + "%" } })),
-          el("span", { class: "data runrow__nums" }, `${fmtCount(r.done ?? 0)}/${fmtCount(r.total ?? 0)}`),
-          el("span", { class: "data runrow__cost" }, fmtCost(r.costUSD ?? 0)),
+          el("span", { class: "data runrow__nums" }, `${fmtCount(done)}/${fmtCount(total)}`),
+          el("span", { class: "data runrow__cost" }, fmtCost(r.cost?.actualUSD ?? 0)),
         ));
       }
       mount.append(section("All runs", list));
@@ -106,31 +110,34 @@ async function preflightSheet(params, project, instruments, presetInstrument) {
     startBtn.disabled = true;
     clear(resultHost).append(el("p", { class: "faint", role: "status" }, "estimating…"));
     try {
+      // live: {units, calls, inputTokens, outputTokens, estUSD, etaMin,
+      //        privacyOk, privacyError?, budget: {capUSD, spentUSD, wouldExceed}}
       const pf = await api.runs.preflight(params.slug, { instrumentId, corpusId });
       clear(resultHost);
+      const hasCap = pf.budget && pf.budget.capUSD !== null && pf.budget.capUSD !== undefined;
+      const remaining = hasCap ? Math.max(0, pf.budget.capUSD - (pf.budget.spentUSD ?? 0)) : null;
       const capInput = el("input", {
         class: "input input--num", type: "number", step: "0.5", min: 0,
-        placeholder: pf.budget?.remainingUSD != null ? String(pf.budget.remainingUSD) : "none",
+        placeholder: remaining != null ? String(remaining) : "none",
         "aria-label": "Hard cost cap in USD",
         onchange: (e) => { capUSD = e.target.value === "" ? null : Number(e.target.value); },
       });
       resultHost.append(
         kvList(
           kv("Scope", el("span", { class: "data" },
-            `${fmtCount(pf.units)} units × ${pf.callsPerUnit ?? 1} call${(pf.callsPerUnit ?? 1) === 1 ? "" : "s"} = ${fmtCount(pf.calls)} calls`),
-            pf.unitsNote ? el("span", { class: "faint" }, ` (${pf.unitsNote})`) : null),
-          kv("Tokens", el("span", { class: "data" }, `~${fmtCount(pf.tokens?.input)} in · ~${fmtCount(pf.tokens?.output)} out`)),
-          kv("Estimated cost", el("span", { class: "data preflight__cost" },
-            pf.estRange ? `${fmtCost(pf.estRange[0])} – ${fmtCost(pf.estRange[1])}` : fmtCost(pf.estUSD)),
+            `${fmtCount(pf.units)} units → ${fmtCount(pf.calls)} call${pf.calls === 1 ? "" : "s"}`)),
+          kv("Tokens", el("span", { class: "data" }, `~${fmtCount(pf.inputTokens)} in · ~${fmtCount(pf.outputTokens)} out`)),
+          kv("Estimated cost", el("span", { class: "data preflight__cost" }, fmtCost(pf.estUSD)),
             el("span", { class: "faint" }, " (±15%)")),
           kv("ETA", el("span", { class: "data" }, fmtDuration(pf.etaMin))),
           kv("Privacy", pf.privacyOk
-            ? el("span", { class: "preflight__privacy preflight__privacy--ok" }, "✓ ", pf.privacyNote ?? "allowed under this project's mode")
-            : el("span", { class: "preflight__privacy preflight__privacy--blocked" }, "✕ blocked — ", pf.privacyNote ?? "this backend is not allowed under the project's privacy mode")),
-          kv("Budget", pf.budget
-            ? el("span", { class: "data" }, `${fmtCost(pf.budget.remainingUSD)} remaining of ${fmtCost(pf.budget.capUSD)} cap`)
+            ? el("span", { class: "preflight__privacy preflight__privacy--ok" }, "✓ allowed under this project's mode")
+            : el("span", { class: "preflight__privacy preflight__privacy--blocked" }, "✕ blocked — ", pf.privacyError ?? "this backend is not allowed under the project's privacy mode")),
+          kv("Budget", hasCap
+            ? el("span", { class: "data" },
+                `${fmtCost(remaining)} remaining of ${fmtCost(pf.budget.capUSD)} cap`,
+                pf.budget.wouldExceed ? el("span", { class: "chip chip--signal" }, " would exceed") : null)
             : "no project cap"),
-          kv("Cache", el("span", { class: "faint" }, pf.cacheNote ?? "—")),
           kv("Hard cap for this run", capInput, el("span", { class: "faint" }, " USD — the run aborts cleanly and resumably at the cap")),
         ),
       );
@@ -164,6 +171,10 @@ function renderDetail(mount, params) {
     return { project, run };
   }, ({ project, run }) => {
     const live = run.status === "running" || run.status === "pending" || run.status === "paused";
+    const instrument = (project.instruments ?? []).find((i) => i.id === run.instrumentId);
+    const level = instrument?.level ?? "exploratory";
+    const done0 = run.checkpoint?.done ?? 0;
+    const total0 = run.checkpoint?.total ?? 0;
 
     mount.append(screenHead({
       overline: `Run · ${run.id}`,
@@ -178,13 +189,13 @@ function renderDetail(mount, params) {
     }));
 
     /* -- monitor surface -- */
-    const progFill = el("span", { class: "monitor__fill", style: { width: run.total ? `${((run.done ?? 0) / run.total) * 100}%` : "0%" } });
-    const progText = el("span", { class: "data monitor__progresstext" }, `${fmtCount(run.done ?? 0)} / ${fmtCount(run.total ?? 0)}`);
-    const costEl = el("span", { class: "monitor__cost data" }, fmtCost(run.costUSD ?? 0));
+    const progFill = el("span", { class: "monitor__fill", style: { width: total0 ? `${(done0 / total0) * 100}%` : "0%" } });
+    const progText = el("span", { class: "data monitor__progresstext" }, `${fmtCount(done0)} / ${fmtCount(total0)}`);
+    const costEl = el("span", { class: "monitor__cost data" }, fmtCost(run.cost?.actualUSD ?? 0));
     const escChip = el("button", {
       class: "chip chip--signal monitor__esc", type: "button",
       onclick: () => escHost.scrollIntoView({ behavior: "smooth", block: "start" }),
-    }, "0 escalations");
+    }, `${run.escalation?.count ?? 0} escalations`);
     const warnFeed = el("ul", { class: "monitor__warnings", role: "list", aria: { live: "polite" } });
     const distHost = el("div", { class: "monitor__dist" });
 
@@ -210,29 +221,38 @@ function renderDetail(mount, params) {
 
     let distChart = null;
     const paintDist = (labelDist) => {
+      // labelDist arrives ONLY through monitor ticks (in-memory telemetry);
+      // the persisted run record carries no distribution
       const entries = Object.entries(labelDist ?? {});
       if (!entries.length) return;
       const total = entries.reduce((s, [, v]) => s + v, 0) || 1;
-      const data = entries.map(([label, v]) => ({ label, value: v / total, level: run.level ?? "exploratory" }));
-      if (!distChart) distChart = bar.render(distHost, data, { format: (v) => fmtStat(v), labelWidth: 120, valueWidth: 64 });
-      else distChart.update(data);
+      const data = entries.map(([label, v]) => ({ label, value: v / total, level }));
+      if (!distChart) {
+        clear(distHost);
+        distChart = bar.render(distHost, data, { format: (v) => fmtStat(v), labelWidth: 120, valueWidth: 64 });
+      } else {
+        distChart.update(data);
+      }
     };
-    paintDist(run.labelDist);
+    distHost.append(el("p", { class: "faint" },
+      live ? "accumulates as outputs land…" : "label distributions live in the run's outputs — explore the results for the full read"));
 
+    // live warning entries are {kind, message, unitId?} objects
     const seenWarnings = new Set();
     const pushWarnings = (warnings = []) => {
       for (const w of warnings) {
-        if (seenWarnings.has(w)) continue;
-        seenWarnings.add(w);
+        const text = typeof w === "string" ? w : w?.message ?? JSON.stringify(w);
+        if (seenWarnings.has(text)) continue;
+        seenWarnings.add(text);
         warnFeed.append(el("li", { class: "monitor__warning" },
-          el("span", { class: "chip chip--signal" }, "watch"),
-          el("span", {}, w)));
+          el("span", { class: "chip chip--signal" }, typeof w === "object" && w?.kind ? w.kind : "watch"),
+          el("span", {}, text)));
       }
       if (!warnFeed.children.length) {
         warnFeed.append(el("li", { class: "monitor__warning monitor__warning--none faint" }, "nothing degenerate, nothing drifting"));
       }
     };
-    pushWarnings(run.warnings ?? []);
+    pushWarnings([]);
 
     if (live) {
       monitor?.close?.();
@@ -257,7 +277,9 @@ function renderDetail(mount, params) {
       });
     }
 
-    /* -- escalations -- */
+    /* -- escalations: output LINES with escalated: true. The line keeps the
+       worker's juror hash; a Director override replaces label/rationale in
+       place and marks escalatedBy: "director" (escalate.js provenance). -- */
     const escHost = el("div", {});
     mount.append(section("Escalation queue", escHost));
     api.runs.escalations(params.slug, run.id)
@@ -268,23 +290,21 @@ function renderDetail(mount, params) {
         }
         escChip.textContent = `${escalations.length} escalation${escalations.length === 1 ? "" : "s"}`;
         for (const esc of escalations) {
+          const overridden = esc.escalatedBy === "director";
           escHost.append(el("div", { class: "escrow" },
             el("button", {
               class: "refchip data evidence-door escrow__unit", type: "button",
               dataset: { evidence: esc.unitId },
             }, esc.unitId),
-            el("div", { class: "escrow__pair" },
-              el("div", { class: "escrow__side" },
-                el("p", { class: "escrow__who data" }, esc.juror),
-                el("p", {}, el("span", { class: "chip chip--machine" }, String(esc.label)),
-                  esc.confidence !== undefined ? el("span", { class: "data faint" }, ` conf ${fmtStat(esc.confidence)}`) : null),
-                esc.rationale ? el("p", { class: "escrow__rationale" }, esc.rationale) : null),
-              el("div", { class: "escrow__side escrow__side--director" },
-                el("p", { class: "escrow__who data" }, "Director ✦"),
-                esc.director
-                  ? el("p", {}, el("span", { class: "chip chip--machine" }, String(esc.director.label)))
-                  : el("p", { class: "faint" }, "no override"),
-                esc.director?.rationale ? el("p", { class: "escrow__rationale" }, esc.director.rationale) : null)),
+            el("div", { class: "escrow__side" },
+              el("p", { class: "escrow__who data" },
+                String(esc.juror ?? "").slice(0, 12),
+                overridden
+                  ? el("span", { class: "chip chip--machine" }, "Director override ✦")
+                  : el("span", { class: "chip chip--ghost" }, "worker verdict stands")),
+              el("p", {}, el("span", { class: "chip chip--machine" }, String(esc.label)),
+                esc.confidence !== undefined ? el("span", { class: "data faint" }, ` conf ${fmtStat(esc.confidence)}`) : null),
+              esc.rationale ? el("p", { class: "escrow__rationale" }, esc.rationale) : null),
           ));
         }
       })
@@ -292,9 +312,10 @@ function renderDetail(mount, params) {
 
     /* -- record -- */
     mount.append(section("Record", kvList(
-      kv("Instrument", el("span", { class: "data" }, run.instrumentId ?? "—"), " ", run.level ? ladderC.render({ level: run.level, size: "sm" }) : null),
+      kv("Instrument", el("span", { class: "data" }, run.instrumentId ?? "—"), " ", ladderC.render({ level, size: "sm" })),
       kv("Model", el("span", { class: "data" }, [run.provider, run.model].filter(Boolean).join(" · ") || "—"),
         run.pinned !== undefined ? el("span", { class: "chip chip--ghost" }, run.pinned ? "pinned" : "unpinned — stated in methods") : null),
+      kv("Estimate", el("span", { class: "data" }, fmtCost(run.cost?.estUSD ?? 0)), el("span", { class: "faint" }, " preflight")),
       kv("Started", run.startedAt ? fmtDateTime(run.startedAt) : "—"),
       kv("Finished", run.finishedAt ? fmtDateTime(run.finishedAt) : "—"),
     )));

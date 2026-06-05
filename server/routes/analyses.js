@@ -17,7 +17,7 @@ import { ols, logit } from "../stats/models.js";
 import { cohenKappa } from "../stats/agreement.js";
 import {
   findOr404, requireBody, pdirOf, readCorpusUnits, readGoldset, goldLabelMap, piMap,
-  readFinalOutputs, writeJsonAtomic, labelKey, statValue, round6,
+  readFinalOutputs, writeJsonAtomic, readJsonFile, labelKey, statValue, round6,
   readNdjson, runOutputsFile,
 } from "./_shared.js";
 import path from "node:path";
@@ -77,6 +77,21 @@ async function goldFor(project, constructId) {
   }
   if (labels.size === 0 || pis.size === 0) return null;
   return { goldset: gs, labels, pis };
+}
+
+// The AGREEMENT gold for the subgroup reliability audit: every adjudicated-
+// or-consensus label on a complete human gold set, INCLUDING π-null
+// human-queue rows — plain agreement needs no π, only the DSL estimators do
+// (goldFor above stays the single π-filtered assembly point).
+async function goldAgreementFor(project, constructId) {
+  const meta = (project.goldsets ?? []).find(
+    (g) => g.constructId === constructId && g.tier === "gold" && g.status === "complete",
+  );
+  if (!meta) return null;
+  const gs = await readGoldset(project.slug, meta.id);
+  const labels = goldLabelMap(gs);
+  if (labels.size === 0) return null;
+  return { goldset: gs, labels };
 }
 
 function positiveValueOf(spec, construct) {
@@ -422,10 +437,48 @@ async function computeTriangulation(project, spec) {
   };
 }
 
-function computeSubgroup(rows, gold, spec, construct) {
+// Subgroup reliability audit (design §6.7): machine-vs-gold agreement and
+// error rates by metadata group — a validity tool and bias check. Requires a
+// COMPLETE human gold set (the 400 lives in the POST handler); per group it
+// reports n, the label distribution (dist), goldN, percent agreement, κ
+// (null + note when degenerate), error rate, and flags groups whose
+// agreement sits >0.1 below the overall. DSL-corrected per-group shares
+// still ride where π-bearing gold reaches (the canonical corrected shape
+// reporting/replication read).
+const FLAG_GAP = 0.1;
+
+function machineGoldAgreement(rowsWithGold, goldLabels) {
+  const goldN = rowsWithGold.length;
+  if (goldN === 0) return { goldN: 0, percentAgreement: null, kappa: null, errorRate: null };
+  let agree = 0;
+  const pairRows = [];
+  for (const r of rowsWithGold) {
+    const gl = goldLabels.get(r.unitId);
+    if (labelKey(r.label) === labelKey(gl)) agree++;
+    pairRows.push(
+      { unitId: r.unitId, coder: "machine", value: statValue(r.label) },
+      { unitId: r.unitId, coder: "gold", value: statValue(gl) },
+    );
+  }
+  const out = {
+    goldN,
+    percentAgreement: agree / goldN, // raw — callers round for display
+    errorRate: (goldN - agree) / goldN,
+    kappa: null,
+  };
+  try {
+    out.kappa = cohenKappa(pairRows);
+  } catch (err) {
+    out.kappaNote = err?.message ?? String(err);
+  }
+  return out;
+}
+
+function computeSubgroup(rows, gold, goldAgreement, spec, construct) {
   const by = spec.by;
   if (!by) throw new ConcordError("VALIDATION", "subgroup analysis requires spec.by (a meta key)", {});
   const positive = positiveValueOf(spec, construct);
+  const goldLabels = goldAgreement.labels;
   const groups = new Map();
   const cells = {};
   for (const r of rows) {
@@ -435,6 +488,25 @@ function computeSubgroup(rows, gold, spec, construct) {
     arr.push(r);
     cellPush(cells, g, r.unitId);
   }
+
+  // overall machine-vs-gold reference (raw, unrounded — flags compare on it)
+  const allGoldRows = rows.filter((r) => goldLabels.has(r.unitId));
+  if (allGoldRows.length === 0) {
+    throw new ConcordError(
+      "VALIDATION",
+      "the subgroup reliability audit compares machine labels to gold within each group, but none of this run's units carry a gold label — calibrate first on this corpus, then re-run",
+      { by, goldsetId: goldAgreement.goldset.id },
+    );
+  }
+  const overallRaw = machineGoldAgreement(allGoldRows, goldLabels);
+  const overall = {
+    goldN: overallRaw.goldN,
+    percentAgreement: round6(overallRaw.percentAgreement),
+    kappa: overallRaw.kappa === null ? null : round6(overallRaw.kappa),
+    errorRate: round6(overallRaw.errorRate),
+    ...(overallRaw.kappaNote ? { note: overallRaw.kappaNote } : {}),
+  };
+
   const out = [];
   const cellsOut = []; // canonical corrected cells (report/replication shape)
   for (const [g, groupRows] of [...groups.entries()].sort((a, b) => (a[0] < b[0] ? -1 : 1))) {
@@ -444,6 +516,26 @@ function computeSubgroup(rows, gold, spec, construct) {
       dist[k] = (dist[k] ?? 0) + 1;
     }
     const entry = { group: g, n: groupRows.length, dist };
+
+    // -- agreement audit over the gold units in this group
+    const a = machineGoldAgreement(groupRows.filter((r) => goldLabels.has(r.unitId)), goldLabels);
+    entry.goldN = a.goldN;
+    if (a.goldN === 0) {
+      entry.percentAgreement = null;
+      entry.kappa = null;
+      entry.errorRate = null;
+      entry.flagged = false; // unreadable, not bad — say so instead of flagging
+      entry.note = "no gold-labeled units in this group — the audit cannot read it; extend the gold sample to cover it";
+    } else {
+      entry.percentAgreement = round6(a.percentAgreement);
+      entry.kappa = a.kappa === null ? null : round6(a.kappa);
+      entry.errorRate = round6(a.errorRate);
+      // the flag compares RAW agreements so display rounding never flips it
+      entry.flagged = overallRaw.percentAgreement - a.percentAgreement > FLAG_GAP;
+      if (a.kappaNote) entry.note = a.kappaNote;
+    }
+
+    // -- DSL-corrected share where π-bearing gold reaches the group
     if (gold) {
       const units = dslUnits(groupRows, gold, positive);
       if (hasGoldRows(units)) {
@@ -461,6 +553,7 @@ function computeSubgroup(rows, gold, spec, construct) {
     results: {
       by,
       positive,
+      overall,
       groups: out,
       ...(dslApplied ? {
         estimator: "dslProportion",
@@ -481,6 +574,22 @@ export default [
     method: "GET",
     pattern: "/api/projects/:p/analyses",
     handler: async (req, res, params) => (await loadProject(params.p)).analyses ?? [],
+  },
+  {
+    // The persisted artifact behind a workbench deep link: the full analysis
+    // {id, kind, spec, results, level, evidence, createdAt} as written by
+    // POST (analyses/<id>.json). Absent → 404 (the screen keeps its honest
+    // recompute state for that case).
+    method: "GET",
+    pattern: "/api/projects/:p/analyses/:id",
+    handler: async (req, res, params) => {
+      await loadProject(params.p); // unknown project → 404 before any file read
+      const analysis = await readJsonFile(path.join(pdirOf(params.p), "analyses", `${params.id}.json`));
+      if (!analysis) {
+        throw new ConcordError("NOT_FOUND", `analysis '${params.id}' not found`, { analysisId: params.id });
+      }
+      return analysis;
+    },
   },
   {
     method: "POST",
@@ -523,8 +632,19 @@ export default [
           }
         } else if (kind === "crosstab") computed = computeCrosstab(rows, gold, spec, construct);
         else if (kind === "model") computed = computeModel(rows, gold, spec, construct);
-        else if (kind === "subgroup") computed = computeSubgroup(rows, gold, spec, construct);
-        else throw new ConcordError("VALIDATION", `unknown analysis kind "${kind}"`, { kind });
+        else if (kind === "subgroup") {
+          // the reliability audit is undefined without human gold to compare to
+          const goldAgreement = await goldAgreementFor(project, instrument.constructId);
+          if (!goldAgreement) {
+            throw new ConcordError(
+              "VALIDATION",
+              "the subgroup reliability audit compares machine labels to gold within each group; calibrate first — complete a human gold set for this construct, then re-run the audit",
+              { constructId: instrument.constructId },
+            );
+          }
+          spec.goldsetId = spec.goldsetId ?? goldAgreement.goldset.id;
+          computed = computeSubgroup(rows, gold, goldAgreement, spec, construct);
+        } else throw new ConcordError("VALIDATION", `unknown analysis kind "${kind}"`, { kind });
 
         // the DSL auto-selection rule: corrected only when a correction was
         // actually estimated; otherwise the instrument's level carries over

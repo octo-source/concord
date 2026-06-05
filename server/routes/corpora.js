@@ -7,7 +7,10 @@ import { readFile } from "node:fs/promises";
 import { ConcordError } from "../core/errors.js";
 import { loadProject, updateProject } from "../core/store.js";
 import { detect } from "../ingest/mapping.js";
-import { score as dictScore } from "../instruments/dictionary.js";
+import { score as dictScore, tokenize as dictTokenize } from "../instruments/dictionary.js";
+import { estimateRun } from "../providers/costs.js";
+import { getAdapter } from "../providers/registry.js";
+import { briefSampleTarget } from "../director/brief.js";
 import { findOr404, readCorpusUnits } from "./_shared.js";
 
 // ----------------------------------------------------------- units listing
@@ -29,8 +32,68 @@ function unitFilterFrom(query) {
 
 // -------------------------------------------------------------- instantread
 
-const EN_STOP = new Set(("the a an and or but of to in on at for with from by is are was were be been being it its this that these those i you he she we they them my your our as not no do does did have has had will would can could should about so if then than there here what which who when how all any more most very just also").split(" "));
-const ES_STOP = new Set(("el la los las un una unos unas de del que y o en es son fue por para con sin no se su sus lo al como más pero este esta estos estas yo tú él ella nosotros ellos mi tu nuestro hay muy ya todo nada".split(" ")));
+// Stopwords for the Instant Read's distinctive-terms ranking: English +
+// Spanish function words PLUS the connective/adverbial glue that survey prose
+// (and our demo generator) leans on — "meanwhile", "honestly", "plus", "on
+// top of that" — which raw frequency would otherwise rank above theme words.
+const EN_STOP = new Set((
+  "the a an and or but of to in on at for with from by is are was were be been being it its this that these those " +
+  "i you he she we they them me him her us my your our their as not no nor do does did done have has had having " +
+  "will would can could should shall may might must about so if then than there here what which who whom whose when " +
+  "where why how all any both each few more most other some such only own same too very just also even still yet " +
+  "again further once because while during before after above below beyond between into through over under out off up down " +
+  "against am isn isnt arent wasnt werent dont doesnt didnt wont wouldnt cant couldnt shouldnt im ive youre theyre " +
+  "weve youve id youd hed shed wed theyd ill youll well thats whats lets one two three first second third never " +
+  "always often sometimes usually really actually honestly frankly truly simply basically literally meanwhile plus " +
+  "anyway anyhow besides instead moreover however therefore thus hence otherwise although though despite regarding " +
+  "since until unless whether either neither around across along within without toward towards onto upon per via " +
+  "top made make makes making get gets got getting go goes going went gone come comes coming came say says said " +
+  "saying see sees seen saw look looks looked looking way ways thing things stuff lot lots bit kind sort like liked " +
+  "want wanted wants know knows knew known think thinks thought feel feels felt time times year years month months " +
+  "week weeks day days people person someone anyone everyone nothing something anything everything none much many " +
+  "back end ended start started keep keeps kept put puts let need needs needed asked ask asks new old last next " +
+  "every another able sure right left good bad better best worse worst big small long short high low real own"
+).split(/\s+/));
+const ES_STOP = new Set((
+  "el la los las un una unos unas de del que y o u e en es son fue era eran ser está están estaba estaban estar " +
+  "por para con sin no ni se su sus lo le les al como más menos pero este esta estos estas ese esa esos esas aquel " +
+  "aquella yo tú usted él ella nosotros nosotras ellos ellas mi mis tu tus nuestro nuestra nuestros nuestras hay " +
+  "muy ya todo toda todos todas nada algo alguien nadie cada cual cuales quien quienes cuando donde mientras aunque " +
+  "porque pues entonces también tampoco además luego después antes desde hasta entre sobre bajo contra durante " +
+  "sino siempre nunca jamás casi sólo solo bien mal mucho mucha muchos muchas poco poca pocos pocas otro otra otros " +
+  "otras mismo misma mismos mismas vez veces año años mes meses día días gente persona cosa cosas fui fue eso esto " +
+  "aquí allí ahí así tan tanto tanta tantos tantas qué cómo dónde cuándo me te nos os les uno dos tres haber tener " +
+  "tenía tenían tiene tienen hacer hace hacen hacía hicieron hizo decir dice dicen dijo ir va van iba fueron"
+).split(/\s+/));
+
+// Top distinctive terms: tokenize with the dictionary engine's tokenizer
+// (lowercased, apostrophe-normalized), drop stopwords and tokens shorter
+// than 3 chars or purely numeric, then rank by tf·idf — count × log(N/df),
+// i.e. term frequency damped by document frequency. The damping is what
+// makes this "distinctiveness": corpus-wide glue that survives the stoplist
+// (appearing in most units) gets idf ≈ 0, while theme vocabulary that
+// concentrates in a fraction of units keeps its weight. Top 20 [{term, count}].
+function topDistinctiveTerms(tokensPer, { limit = 20, minLength = 3 } = {}) {
+  const count = new Map(); // term → total occurrences
+  const df = new Map();    // term → number of units containing the term
+  const nUnits = tokensPer.length || 1;
+  for (const toks of tokensPer) {
+    const seen = new Set();
+    for (const t of toks) {
+      if (t.length < minLength || EN_STOP.has(t) || ES_STOP.has(t) || /^\d+$/.test(t)) continue;
+      count.set(t, (count.get(t) ?? 0) + 1);
+      if (!seen.has(t)) {
+        seen.add(t);
+        df.set(t, (df.get(t) ?? 0) + 1);
+      }
+    }
+  }
+  return [...count.entries()]
+    .map(([term, n]) => ({ term, count: n, score: n * Math.log(nUnits / df.get(term)) }))
+    .sort((a, b) => b.score - a.score || b.count - a.count || (a.term < b.term ? -1 : 1))
+    .slice(0, limit)
+    .map(({ term, count: n }) => ({ term, count: n }));
+}
 
 let vaderPayload = null; // built once from the bundled lexicon
 
@@ -100,18 +163,8 @@ async function computeInstantRead(slug, corpusId) {
     Object.entries(langCounts).map(([k, n]) => [k, Math.round((n / units.length) * 1000) / 1000]),
   );
 
-  // top distinctive terms: frequency excluding stopwords of both languages
-  const freq = new Map();
-  for (const toks of tokensPer) {
-    for (const t of toks) {
-      if (t.length < 3 || EN_STOP.has(t) || ES_STOP.has(t)) continue;
-      freq.set(t, (freq.get(t) ?? 0) + 1);
-    }
-  }
-  const topTerms = [...freq.entries()]
-    .sort((a, b) => b[1] - a[1] || (a[0] < b[0] ? -1 : 1))
-    .slice(0, 20)
-    .map(([term, n]) => ({ term, n }));
+  // top distinctive terms — tf·idf over the dictionary tokenizer (see above)
+  const topTerms = topDistinctiveTerms(units.map((u) => dictTokenize(u.text)));
 
   // sentiment sketch via the dictionary engine over the VADER lexicon
   const payload = await getVaderPayload();
@@ -156,6 +209,9 @@ async function computeInstantRead(slug, corpusId) {
   return {
     local: true, // computed entirely on this machine — no model, no network
     unitCount: units.length,
+    // mean unit length in characters — cached so the brief price (which is
+    // NOT cached: it follows the live Director slot) never re-reads units
+    meanUnitChars: Math.round(units.reduce((n, u) => n + (u.text ?? "").length, 0) / units.length),
     lengthHist,
     langMix,
     topTerms,
@@ -163,6 +219,70 @@ async function computeInstantRead(slug, corpusId) {
     metaMarginals,
     computedAt: new Date().toISOString(),
   };
+}
+
+// ----------------------------------------------------- the brief's price tag
+
+// Design §6.1: the level-up affordance always states its price. The Instant
+// Read's one CTA is the Corpus Brief, so the response carries briefEstimate
+// {usd, etaMin} — or null when no Director slot is configured (there is no
+// honest price to quote). Estimated with costs.estimateRun in the brief's
+// actual shape: ONE Director call whose input is the stratified sample
+// (≤500 units, director/brief.js sampling policy) at the corpus's mean unit
+// length plus the prompt overhead, emitting ~3000 output tokens.
+
+const BRIEF_PROMPT_OVERHEAD_CHARS = 2500; // preamble + task framing (prompts.js briefPrompt)
+const BRIEF_PER_UNIT_FRAME_CHARS = 40;    // "unit u_… (meta): " framing per sampled unit
+const BRIEF_OUTPUT_TOKENS = 3000;         // a long structured memo
+const BRIEF_CALL_SECONDS = 60;            // one big call ≈ a minute of wall clock
+
+// Director slot pricing via the adapter catalog, cached per provider/model
+// (same recipe as director/director.js — an unreachable catalog degrades to
+// zero pricing rather than blocking the read).
+const briefPricingCache = new Map();
+
+async function directorSlotPricing(project, slot) {
+  const key = `${slot.provider} ${slot.model}`;
+  if (briefPricingCache.has(key)) return briefPricingCache.get(key);
+  const { adapter } = getAdapter(project, slot.provider); // privacy gates apply
+  let pricing = { inUSDper1M: 0, outUSDper1M: 0 };
+  try {
+    const cat = await adapter.catalog();
+    const entry = cat.find((m) => m.id === slot.model || m.snapshot === slot.model);
+    if (entry?.pricing) pricing = entry.pricing;
+  } catch { /* unreachable catalog → zero pricing (local backends cost $0 anyway) */ }
+  briefPricingCache.set(key, pricing);
+  return pricing;
+}
+
+async function briefEstimateFor(project, { unitCount, meanUnitChars }) {
+  const slot = project?.director;
+  if (!slot || !slot.provider || !slot.model) return null; // no Director → no price
+  let pricing;
+  try {
+    pricing = await directorSlotPricing(project, slot);
+  } catch {
+    return null; // privacy-blocked or unknown provider — the brief cannot run, so no price
+  }
+  const sampleN = Math.min(500, briefSampleTarget(unitCount));
+  const inputChars = sampleN * (meanUnitChars + BRIEF_PER_UNIT_FRAME_CHARS);
+  const e = estimateRun({
+    units: ["x".repeat(Math.max(1, Math.round(inputChars)))], // the whole sample rides ONE call
+    template: "x".repeat(BRIEF_PROMPT_OVERHEAD_CHARS),
+    maxTokens: BRIEF_OUTPUT_TOKENS,
+    pricing,
+    secondsPerCall: BRIEF_CALL_SECONDS,
+    concurrency: 1,
+  });
+  return { usd: e.estUSD, etaMin: Math.max(1, e.etaMinutes) };
+}
+
+// Older cached instant reads predate meanUnitChars — recover it from the
+// corpus once rather than recomputing the whole read.
+async function meanUnitCharsOf(slug, corpusId) {
+  const units = await readCorpusUnits(slug, corpusId);
+  if (units.length === 0) return 0;
+  return Math.round(units.reduce((n, u) => n + (u.text ?? "").length, 0) / units.length);
 }
 
 export default [
@@ -186,13 +306,21 @@ export default [
     handler: async (req, res, params) => {
       const project = await loadProject(params.p);
       const corpus = findOr404(project.corpora, params.c, "corpus");
-      if (corpus.instantread) return corpus.instantread; // cached in corpus meta
-      const result = await computeInstantRead(params.p, params.c);
-      await updateProject(params.p, (p) => {
-        const c = p.corpora.find((x) => x.id === params.c);
-        if (c) c.instantread = result;
-      });
-      return result;
+      let read = corpus.instantread; // cached in corpus meta
+      if (!read) {
+        read = await computeInstantRead(params.p, params.c);
+        await updateProject(params.p, (p) => {
+          const c = p.corpora.find((x) => x.id === params.c);
+          if (c) c.instantread = read;
+        });
+      }
+      // the brief price overlays per request (it follows the CURRENT Director
+      // slot and catalog pricing) — it is never persisted into the cache
+      const meanUnitChars = typeof read.meanUnitChars === "number"
+        ? read.meanUnitChars
+        : await meanUnitCharsOf(params.p, params.c);
+      const briefEstimate = await briefEstimateFor(project, { unitCount: read.unitCount, meanUnitChars });
+      return { ...read, briefEstimate };
     },
   },
 ];

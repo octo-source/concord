@@ -22,8 +22,7 @@
         ],
         "negation": { "enabled": true, "window": 3 },
         "scoring": "percentOfWords"
-      },
-      "sampleUnitIds": ["u_2847f1a09c3d55b2", "u_8800c1d2e4a90b77", "u_91b3c07d2e8f4a16", "u_a8f04c6e3b92d715", "u_16d9a4e7f2c50b38"]
+      }
     },
     {
       "id": "inst_judge_x",
@@ -110,8 +109,9 @@
         "versionHash": "9f2e1d0c8b7a65445566778899aabbcc",
         "modelPinned": true,
         "agreement": {
-          "n": 18, "percent": 0.833, "kappa": 0.79, "alpha": 0.78, "ac1": 0.81,
-          "ci": { "lo": 0.61, "hi": 0.94, "method": "bootstrap, B=2000" },
+          "n": 18,
+          "coders": ["gold", "machine"],
+          "percent": 0.833, "kappa": 0.79, "alpha": 0.78, "ac1": 0.81,
           "perClass": [
             { "label": "pay", "precision": 1.0, "recall": 1.0, "f1": 1.0, "support": 4 },
             { "label": "management", "precision": 0.67, "recall": 0.67, "f1": 0.67, "support": 3 },
@@ -119,9 +119,18 @@
             { "label": "growth", "precision": 1.0, "recall": 0.67, "f1": 0.8, "support": 3 },
             { "label": "remote-policy", "precision": 1.0, "recall": 1.0, "f1": 1.0, "support": 2 },
             { "label": "other", "precision": 0.5, "recall": 1.0, "f1": 0.67, "support": 1 }
+          ],
+          "labels": ["growth", "management", "other", "pay", "remote-policy", "workload-burnout"],
+          "confusion": [
+            [2, 0, 1, 0, 0, 0],
+            [0, 2, 0, 0, 0, 1],
+            [0, 0, 1, 0, 0, 0],
+            [0, 0, 0, 4, 0, 0],
+            [0, 0, 0, 0, 2, 0],
+            [0, 1, 0, 0, 0, 4]
           ]
         },
-        "humanAgreement": { "n": 14, "kappa": 0.72, "alpha": 0.71, "ci": { "lo": 0.48, "hi": 0.89, "method": "bootstrap, B=2000" } }
+        "humanAgreement": { "n": 14, "coders": ["pat", "sam"], "percent": 0.786, "kappa": 0.72, "alpha": 0.71, "ac1": 0.74 }
       }
     },
     {
@@ -148,28 +157,40 @@
   ],
   "previews": {
     "inst_dict": [
-      { "unitId": "u_2847f1a09c3d55b2", "label": "management", "scores": { "pay": 2.6, "management": 5.1, "workload": 2.6, "growth": 0, "remote": 0 }, "hits": [ { "start": 52, "end": 55, "category": "pay", "term": "pay" }, { "start": 104, "end": 111, "category": "management", "term": "manager" }, { "start": 180, "end": 184, "category": "workload", "term": "jobs" } ] },
-      { "unitId": "u_8800c1d2e4a90b77", "label": "workload", "scores": { "pay": 0, "management": 0, "workload": 7.1, "growth": 0, "remote": 0 }, "hits": [ { "start": 13, "end": 21, "category": "workload", "term": "workload" } ] },
-      { "unitId": "u_91b3c07d2e8f4a16", "label": "(no hits — Spanish)", "scores": { "pay": 0, "management": 0, "workload": 0, "growth": 0, "remote": 0 }, "hits": [] },
-      { "unitId": "u_a8f04c6e3b92d715", "label": "remote", "scores": { "pay": 0, "management": 0, "workload": 0, "growth": 0, "remote": 8.8 }, "hits": [ { "start": 4, "end": 10, "category": "remote", "term": "return" }, { "start": 21, "end": 27, "category": "remote", "term": "office" }, { "start": 63, "end": 69, "category": "remote", "term": "remote" }, { "start": 88, "end": 94, "category": "remote", "term": "remote" } ] },
-      { "unitId": "u_16d9a4e7f2c50b38", "label": "growth", "scores": { "pay": 0, "management": 0, "workload": 0, "growth": 6.0, "remote": 0 }, "hits": [ { "start": 30, "end": 42, "category": "growth", "term": "architecture" }, { "start": 75, "end": 81, "category": "growth", "term": "ladder" } ] }
+      { "unitId": "u_2847f1a09c3d55b2", "juror": "d41a9ba3868e91b777f1c2d3e4a5b6c7", "label": "management", "scores": { "pay": 2.6, "management": 5.1, "workload": 2.6, "growth": 0, "remote": 0 }, "hits": [ { "category": "pay", "term": "pay", "start": 52, "end": 55 }, { "category": "management", "term": "manager", "start": 104, "end": 111 } ] },
+      { "unitId": "u_8800c1d2e4a90b77", "juror": "d41a9ba3868e91b777f1c2d3e4a5b6c7", "label": "workload", "scores": { "pay": 0, "management": 0, "workload": 7.1, "growth": 0, "remote": 0 }, "hits": [ { "category": "workload", "term": "workload", "start": 13, "end": 21 } ] },
+      { "unitId": "u_91b3c07d2e8f4a16", "juror": "d41a9ba3868e91b777f1c2d3e4a5b6c7", "label": "none", "scores": { "pay": 0, "management": 0, "workload": 0, "growth": 0, "remote": 0 }, "hits": [] },
+      { "unitId": "u_a8f04c6e3b92d715", "juror": "d41a9ba3868e91b777f1c2d3e4a5b6c7", "label": "remote", "scores": { "pay": 0, "management": 0, "workload": 0, "growth": 0, "remote": 8.8 }, "hits": [ { "category": "remote", "term": "office", "start": 21, "end": 27 }, { "category": "remote", "term": "remote", "start": 63, "end": 69 } ] },
+      { "unitId": "u_16d9a4e7f2c50b38", "juror": "d41a9ba3868e91b777f1c2d3e4a5b6c7", "label": "growth", "scores": { "pay": 0, "management": 0, "workload": 0, "growth": 6.0, "remote": 0 }, "hits": [ { "category": "growth", "term": "ladder", "start": 75, "end": 81 } ] }
     ],
     "judge": [
-      { "unitId": "u_2847f1a09c3d55b2", "label": "management", "confidence": 0.84, "rationale": "Pay is explicitly dismissed (“the pay was fine”); the decisive clause is watching every good manager leave — leadership stewardship." },
-      { "unitId": "u_8800c1d2e4a90b77", "label": "workload-burnout", "confidence": 0.86, "rationale": "Sarcastic minimization (“totally reasonable… build character”) reads for intended meaning: unsustainable hours." },
-      { "unitId": "u_91b3c07d2e8f4a16", "label": "pay", "confidence": 0.91, "rationale": "“El salario nunca alcanzó” states compensation inadequacy directly; the affection for the team is valence, not theme." },
-      { "unitId": "u_a8f04c6e3b92d715", "label": "remote-policy", "confidence": 0.93, "rationale": "“The return-to-office mandate was the end for me” names the decisive grievance in its first sentence." },
-      { "unitId": "u_16d9a4e7f2c50b38", "label": "growth", "confidence": 0.88, "rationale": "No path, no ladder, external hires over internal candidates — blocked advancement is the operative complaint." }
+      { "unitId": "u_2847f1a09c3d55b2", "juror": "3c52e9f1a8b7d604c5d6e7f80901a2b3", "label": "management", "confidence": 0.84, "rationale": "Pay is explicitly dismissed (“the pay was fine”); the decisive clause is watching every good manager leave — leadership stewardship." },
+      { "unitId": "u_8800c1d2e4a90b77", "juror": "3c52e9f1a8b7d604c5d6e7f80901a2b3", "label": "workload-burnout", "confidence": 0.86, "rationale": "Sarcastic minimization (“totally reasonable… build character”) reads for intended meaning: unsustainable hours." },
+      { "unitId": "u_91b3c07d2e8f4a16", "juror": "3c52e9f1a8b7d604c5d6e7f80901a2b3", "label": "pay", "confidence": 0.91, "rationale": "“El salario nunca alcanzó” states compensation inadequacy directly; the affection for the team is valence, not theme." },
+      { "unitId": "u_a8f04c6e3b92d715", "juror": "3c52e9f1a8b7d604c5d6e7f80901a2b3", "label": "remote-policy", "confidence": 0.93, "rationale": "“The return-to-office mandate was the end for me” names the decisive grievance in its first sentence." },
+      { "unitId": "u_16d9a4e7f2c50b38", "juror": "3c52e9f1a8b7d604c5d6e7f80901a2b3", "label": "growth", "confidence": 0.88, "rationale": "No path, no ladder, external hires over internal candidates — blocked advancement is the operative complaint." }
     ]
   },
   "silverTune": {
     "iterations": [
-      { "versionHash": "1b93da241ce95a78a0b1c2d3e4f50617", "agreement": 0.64, "note": "baseline — confuses dismissed mentions with pay; misses sarcasm." },
-      { "versionHash": "2a41c8d7e6f5b394a4b5c6d7e8f90a1b", "agreement": 0.74, "note": "Director added a dismissal rule after reading 14 pay false-positives." },
-      { "versionHash": "3c52e9f1a8b7d604c5d6e7f80901a2b3", "agreement": 0.81, "note": "sarcasm note + 2 worked examples; workload recall +.11." },
-      { "versionHash": "3c52e9f1a8b7d604c5d6e7f80901a2b3", "agreement": 0.815, "note": "Δα = .005 < .01 — plateau, stopping." }
+      { "iteration": 1, "versionHash": "1b93da241ce95a78a0b1c2d3e4f50617", "agreement": 0.64, "kappa": 0.55, "alpha": 0.54, "note": "baseline — confuses dismissed mentions with pay; misses sarcasm.", "costUSD": 0.04 },
+      { "iteration": 2, "versionHash": "2a41c8d7e6f5b394a4b5c6d7e8f90a1b", "agreement": 0.74, "kappa": 0.66, "alpha": 0.65, "note": "Director added a dismissal rule after reading 14 pay false-positives.", "costUSD": 0.05 },
+      { "iteration": 3, "versionHash": "3c52e9f1a8b7d604c5d6e7f80901a2b3", "agreement": 0.81, "kappa": 0.75, "alpha": 0.74, "note": "sarcasm note + 2 worked examples; workload recall +.11.", "costUSD": 0.05 },
+      { "iteration": 4, "versionHash": "3c52e9f1a8b7d604c5d6e7f80901a2b3", "agreement": 0.815, "kappa": 0.76, "alpha": 0.75, "note": "Δα = .005 < .01 — plateau, stopping.", "costUSD": 0.05 }
     ],
-    "final": { "agreement": 0.815, "n": 200, "tier": "silver", "note": "Silver = Director labels; human gold supersedes." }
+    "done": {
+      "instrumentId": "inst_judge_s",
+      "level": "stabilized",
+      "versionHash": "3c52e9f1a8b7d604c5d6e7f80901a2b3",
+      "stability": { "alpha": 0.86, "k": 3, "n": 100, "ranAt": "2026-06-02T10:01:00Z" },
+      "curve": [
+        { "versionHash": "1b93da241ce95a78a0b1c2d3e4f50617", "agreement": 0.64, "kappa": 0.55, "alpha": 0.54, "note": "baseline", "costUSD": 0.04 },
+        { "versionHash": "2a41c8d7e6f5b394a4b5c6d7e8f90a1b", "agreement": 0.74, "kappa": 0.66, "alpha": 0.65, "note": "dismissal rule", "costUSD": 0.05 },
+        { "versionHash": "3c52e9f1a8b7d604c5d6e7f80901a2b3", "agreement": 0.81, "kappa": 0.75, "alpha": 0.74, "note": "sarcasm note", "costUSD": 0.05 },
+        { "versionHash": "3c52e9f1a8b7d604c5d6e7f80901a2b3", "agreement": 0.815, "kappa": 0.76, "alpha": 0.75, "note": "plateau", "costUSD": 0.05 }
+      ],
+      "cost": { "workerUSD": 0.12, "directorUSD": 0.07 }
+    }
   },
-  "stabilityResult": { "alpha": 0.86, "k": 3, "n": 100, "pass": true }
+  "stabilityResult": { "alpha": 0.86, "pass": true }
 }

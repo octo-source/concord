@@ -95,16 +95,26 @@
       "source": "legacy-codebook-2019.docx · p.7"
     }
   ],
-  "inductiveProposals": [
-    {
-      "name": "Counteroffer timing",
-      "type": "binary",
-      "definition": "Hypothesis from inductive pass: whether the respondent mentions a counteroffer arriving too late or not at all — appears in ~4% of sampled units, concentrated in Sales.",
-      "categories": [ { "value": "present", "label": "Present" }, { "value": "absent", "label": "Absent" } ],
-      "criteria": { "include": ["Mentions of counters, retention offers, or ‘two days too late’."], "exclude": [] },
-      "edgeCases": [], "examples": [ { "text": "Signed elsewhere during the hiring freeze panic and the counter came two days too late.", "label": "present", "kind": "positive", "unitId": "u_92c8b4f6a1e7d503" } ],
-      "authoredBy": "director", "humanTouched": false,
-      "source": "inductive pass · n=200 · hypothesis generation, not measurement"
-    }
-  ]
+  "inductiveTaxonomy": {
+    "mode": "inductive-hypothesis",
+    "corpusId": "corp_exit2025",
+    "sampleN": 200,
+    "themes": [
+      {
+        "name": "Counteroffer timing",
+        "definition": "Hypothesis from the inductive pass: the respondent mentions a counteroffer arriving too late or not at all — concentrated in Sales.",
+        "quoteRefs": ["u_92c8b4f6a1e7d503"]
+      },
+      {
+        "name": "Manager absence",
+        "definition": "The decisive grievance is a missing or churned-through manager rather than a bad one.",
+        "quoteRefs": ["u_c6a91e2f7d40b833", "u_7e50b3d9a2c4f181"]
+      }
+    ],
+    "note": "Hypothesis generation, not measurement — themes arrive exploratory and Director-glyphed.",
+    "issues": { "invalidRefs": 0 },
+    "authoredBy": "director",
+    "humanTouched": false,
+    "createdAt": "2026-06-02T12:00:00Z"
+  }
 }

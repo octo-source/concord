@@ -7,7 +7,6 @@ import { el, clear } from "../dom.js";
 import api from "../api.js";
 import * as router from "../router.js";
 import * as toast from "../components/toast.js";
-import * as ladder from "../components/ladder.js";
 import { fmtCount, fmtDate } from "../format.js";
 import { screenHead, emptyState, asyncMount, openSheet, ensureProject } from "./_shared.js";
 
@@ -57,31 +56,29 @@ export function render(mount) {
   }, "Opening the shelf…");
 }
 
+// Live summary (GET /api/projects): {id, name, slug, createdAt, privacyMode,
+// budget, director, counts: {corpora, constructs, instruments, goldsets,
+// runs, analyses, briefs}} — or {slug, corrupt: true} for unreadable bundles.
 function projectCard(p) {
-  const ladderRow = el("div", { class: "projcard__ladder" });
-  const counts = p.ladder ?? {};
-  const levels = ["exploratory", "stabilized", "calibrated", "corrected"];
-  let any = false;
-  for (const level of levels) {
-    const n = counts[level] ?? 0;
-    if (n > 0) {
-      any = true;
-      ladderRow.append(
-        el("span", { class: "projcard__ladderitem" },
-          ladder.render({ level, size: "sm" }),
-          el("span", { class: "data" }, String(n))),
-      );
-    }
+  if (p.corrupt) {
+    return el("div", { class: "projcard projcard--corrupt" },
+      el("h3", { class: "projcard__name" }, p.slug),
+      el("p", { class: "faint" }, "This bundle did not load — its project.json is unreadable."));
   }
-  if (!any) ladderRow.append(el("span", { class: "faint projcard__ladder-empty" }, "nothing measured yet"));
+  const counts = p.counts ?? {};
+  const workRow = el("p", { class: "projcard__ladder data faint" },
+    (counts.instruments || counts.analyses)
+      ? `${fmtCount(counts.constructs ?? 0)} constructs · ${fmtCount(counts.instruments ?? 0)} instruments · ${fmtCount(counts.analyses ?? 0)} analyses`
+      : "nothing measured yet");
 
   return el("a", { class: "projcard", href: `#/p/${encodeURIComponent(p.slug)}` },
     el("h3", { class: "projcard__name" }, p.name),
     el("p", { class: "projcard__meta data" },
-      `${fmtCount(p.corpusCount ?? 0)} ${p.corpusCount === 1 ? "corpus" : "corpora"}`,
-      p.unitCount ? ` · ${fmtCount(p.unitCount)} units` : "",
+      `${fmtCount(counts.corpora ?? 0)} ${counts.corpora === 1 ? "corpus" : "corpora"}`,
+      counts.runs ? ` · ${fmtCount(counts.runs)} runs` : "",
+      counts.goldsets ? ` · ${fmtCount(counts.goldsets)} gold` : "",
     ),
-    ladderRow,
+    workRow,
     el("p", { class: "projcard__foot" },
       el("span", { class: "chip" }, p.privacyMode ?? "open"),
       p.createdAt ? el("span", { class: "faint projcard__date" }, fmtDate(p.createdAt)) : null,

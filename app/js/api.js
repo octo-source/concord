@@ -306,6 +306,8 @@ export const runs = {
 
 export const analyses = {
   create: (p, { kind, spec }) => post(`${P(p)}/analyses`, { kind, spec }),
+  /** The persisted analysis artifact (analyses/<id>.json) — 404 when absent. */
+  get: (p, id) => get_(`${P(p)}/analyses/${encodeURIComponent(id)}`),
 };
 
 export const evidence = {

@@ -13,7 +13,6 @@ import api from "../api.js";
 import * as toast from "../components/toast.js";
 import * as ladderC from "../components/ladder.js";
 import { store } from "../state.js";
-import { fmtDateTime } from "../format.js";
 import { screenHead, section, asyncMount, ensureProject, emptyState, mdBlock, downloadText, openSheet } from "./_shared.js";
 
 export const route = "p/:slug/reports";
@@ -44,7 +43,9 @@ export function render(mount, params) {
         hint: "Methods generate from the ledger — import, calibrate, and analyze first.",
       }));
     } else {
-      const citations = new Map((methods.citations ?? []).map((c) => [c.hash, c.event]));
+      // live citations: [{token: "ledger:<hash8>", hash: <full sha>, type}] —
+      // inline tokens carry the 8-char prefix, so key the lookup by it
+      const citations = new Map((methods.citations ?? []).map((c) => [String(c.hash).slice(0, 8), c]));
       methodsHost.append(
         el("div", { class: "methods__page" },
           mdBlock(methods.markdown ?? "", {
@@ -106,18 +107,18 @@ export function render(mount, params) {
   }, "Assembling exports…");
 }
 
-function citationChip(hash, event) {
+// cite: {token, hash (full chain hash), type} from the live methods route
+function citationChip(hash8, cite) {
   const chip = el("button", {
     class: "citechip data", type: "button",
-    aria: { label: event ? `Ledger ${hash}: ${event.type} by ${event.actor} at ${event.ts}` : `Ledger citation ${hash}` },
+    aria: { label: cite ? `Ledger ${hash8}: ${cite.type}` : `Ledger citation ${hash8}` },
   },
     el("span", { class: "citechip__mark", aria: { hidden: "true" } }, "⎆"),
-    hash,
-    event
+    hash8,
+    cite
       ? el("span", { class: "citechip__pop", role: "tooltip", aria: { hidden: "true" } },
-          el("span", { class: "citechip__type" }, event.type),
-          el("span", { class: "citechip__meta" }, `${event.actor} · ${fmtDateTime(event.ts)}`),
-          event.refs ? el("span", { class: "citechip__refs" }, Object.entries(event.refs).map(([k, v]) => `${k}: ${v}`).join(" · ")) : null)
+          el("span", { class: "citechip__type" }, cite.type),
+          el("span", { class: "citechip__meta" }, String(cite.hash)))
       : null,
   );
   return chip;

@@ -32,17 +32,24 @@ const AGG_RULES = {
   reliabilityWeighted: "Votes weighted by each juror's measured agreement with silver or gold.",
 };
 
-const SAMPLE_UNIT_IDS = ["u_2847f1a09c3d55b2", "u_8800c1d2e4a90b77", "u_91b3c07d2e8f4a16", "u_a8f04c6e3b92d715", "u_16d9a4e7f2c50b38"];
+/* The first few corpus units serve as the live preview sample. */
+async function sampleUnits(slug, project, n = 5) {
+  const corpusId = project?.corpora?.[0]?.id;
+  if (!corpusId) return [];
+  const page = await api.corpora.units(slug, corpusId, { limit: n }).catch(() => null);
+  return page?.units ?? [];
+}
 
 export function render(mount, params) {
   asyncMount(mount, async () => {
     const project = await ensureProject(params.slug);
-    const [instruments, constructs, catalog] = await Promise.all([
+    const [instruments, constructs, catalogRes] = await Promise.all([
       api.instruments.list(params.slug),
       api.constructs.list(params.slug).catch(() => []),
-      api.catalog.models().catch(() => ({})),
+      api.catalog.models().catch(() => ({ providers: {} })),
     ]);
-    return { project, instruments, constructs, catalog };
+    // live catalog envelope: {providers: {name: [models]}, cachedAt}
+    return { project, instruments, constructs, catalog: catalogRes?.providers ?? {} };
   }, ({ instruments, constructs, catalog }) => {
     const selected = params.id ? instruments.find((i) => i.id === params.id) : null;
 
@@ -274,32 +281,31 @@ function dictionaryEditor(main, params, inst, touch, isDirty = () => false) {
     previewTimer = setTimeout(runPreview, 350);
   }
   async function runPreview() {
-    // Saved instruments preview server-side — POST instruments/:i/preview
-    // returns dictionary outputs with hit spans ({category, term, start,
-    // end}). UNSAVED edits preview through the local matcher instead (the
-    // server only knows the saved payload) and say so: "draft preview".
+    // Saved instruments preview server-side — POST instruments/:i/preview →
+    // {outputs, cost, quarantine, missing}; dictionary outputs carry hit
+    // spans ({category, term, start, end}) and per-category scores. UNSAVED
+    // edits preview through the local matcher instead (the server only knows
+    // the saved payload) and say so: "draft preview".
     const draft = !ro && isDirty() === true;
     clear(previewWrap).append(el("p", { class: "faint" }, draft ? "scoring the draft locally…" : "previewing…"));
-    const sampleIds = inst.sampleUnitIds ?? SAMPLE_UNIT_IDS;
     try {
-      const [unitsRes, outputs] = await Promise.all([
-        api.corpora.units(params.slug, currentCorpus(), { limit: 50 }),
-        draft ? Promise.resolve(null) : api.instruments.preview(params.slug, inst.id, { unitIds: sampleIds }).catch(() => null),
-      ]);
-      const units = unitsRes?.units ?? [];
+      const project = window.concord?.store?.get?.("project");
+      const units = await sampleUnits(params.slug, project, 5);
+      const res = draft || units.length === 0
+        ? null
+        : await api.instruments.preview(params.slug, inst.id, { unitIds: units.map((u) => u.id) }).catch(() => null);
+      const outputs = res?.outputs ?? [];
       clear(previewWrap);
       if (draft) {
         previewWrap.append(el("p", { class: "dictpreview__draftnote faint" },
           el("span", { class: "chip chip--ghost" }, "draft preview"),
           " local matcher over unsaved edits — save to preview the server's scoring"));
       }
-      for (const uid of sampleIds) {
-        const unit = units.find((u) => u.id === uid);
-        if (!unit) continue;
-        const out = draft ? null : (Array.isArray(outputs) ? outputs : outputs?.outputs)?.find?.((o) => o.unitId === uid && o.label !== undefined);
+      for (const unit of units) {
+        const out = draft ? null : outputs.find((o) => o.unitId === unit.id && o.label !== undefined);
         const hits = draft ? localHits(unit.text, inst.payload) : out?.hits ?? [];
         previewWrap.append(el("div", { class: "dictpreview__row" },
-          quotecard.render({ unit, highlights: hits, lang: unit.lang, compact: true, evidence: true }),
+          quotecard.render({ unit, highlights: hits, compact: true, evidence: true }),
           out?.scores
             ? el("p", { class: "dictpreview__scores data" },
                 Object.entries(out.scores).filter(([, v]) => v > 0).map(([k, v]) => `${k} ${fmt(v, 1)}%`).join(" · ") || "no hits")
@@ -312,11 +318,6 @@ function dictionaryEditor(main, params, inst, touch, isDirty = () => false) {
     }
   }
   runPreview();
-
-  function currentCorpus() {
-    const project = window.concord?.store?.get?.("project");
-    return project?.corpora?.[0]?.id ?? "corp";
-  }
 }
 
 /* naive local matcher — keeps the preview live even before the server answers */
@@ -649,10 +650,15 @@ function actionRow(main, params, inst) {
           }
         },
         onDone(final) {
+          // live done payload: {instrumentId, level, versionHash, stability,
+          // curve, cost, stoppedBy?}
           silver.disabled = false;
+          const last = final?.curve?.at?.(-1)?.agreement ?? pts[pts.length - 1]?.y;
           out.append(el("p", { class: "screen__hint" },
-            `Plateaued at α = ${fmtStat(final?.agreement ?? pts[pts.length - 1]?.y)} on silver. `,
-            el("span", { class: "faint" }, final?.note ?? "Human gold supersedes silver.")));
+            `Plateaued at α = ${fmtStat(last)} on silver`,
+            final?.stability?.alpha !== undefined ? ` · test–retest α = ${fmtStat(final.stability.alpha)}` : "",
+            final?.level ? el("span", {}, " — ", ladderC.render({ level: final.level, size: "sm", label: true })) : null,
+            " ", el("span", { class: "faint" }, "Human gold supersedes silver.")));
           refreshProject(params.slug).catch(() => {});
         },
         onError(err) {
@@ -669,9 +675,10 @@ function actionRow(main, params, inst) {
       stability.disabled = true;
       clear(out).append(el("p", { class: "faint", role: "status" }, "re-running k = 3 on a 100-unit subsample…"));
       try {
+        // live response: {alpha, pass} (k/n persist onto instrument.stability)
         const res = await api.instruments.stability(params.slug, inst.id);
         clear(out).append(el("p", { class: "screen__hint" },
-          markedValue(`test–retest α = ${fmtStat(res.alpha)} (k = ${res.k}, n = ${res.n})`, res.pass ? "stabilized" : "exploratory"),
+          markedValue(`test–retest α = ${fmtStat(res.alpha)}`, res.pass ? "stabilized" : "exploratory"),
           " ",
           res.pass ? el("span", {}, "— stable with itself. ", el("strong", {}, "◑ earned.")) : el("span", {}, "— below the .80 bar; the instrument wobbles on rereads.")));
         if (res.pass) toast.success("Stability passed — instrument is ◑.", { detail: `α = ${fmtStat(res.alpha)}`, data: true });
@@ -689,10 +696,12 @@ function actionRow(main, params, inst) {
       preview.disabled = true;
       clear(out).append(el("p", { class: "faint", role: "status" }, "previewing on 5 sample units (nothing persists)…"));
       try {
-        const ids = inst.sampleUnitIds ?? SAMPLE_UNIT_IDS;
-        const res = await api.instruments.preview(params.slug, inst.id, { unitIds: ids });
-        // live route → {outputs, cost, quarantine, missing}; fixtures → bare array
-        const outputs = (Array.isArray(res) ? res : res?.outputs ?? []).filter((o) => o.label !== undefined);
+        const project = window.concord?.store?.get?.("project");
+        const units = await sampleUnits(params.slug, project, 5);
+        if (units.length === 0) throw new Error("no corpus units to preview on");
+        // live envelope: {outputs, cost, quarantine, missing}
+        const res = await api.instruments.preview(params.slug, inst.id, { unitIds: units.map((u) => u.id) });
+        const outputs = (res?.outputs ?? []).filter((o) => o.label !== undefined);
         clear(out).append(el("table", { class: "table table--mini" },
           el("caption", { class: "sr-only" }, "Preview outputs"),
           el("thead", {}, el("tr", {},

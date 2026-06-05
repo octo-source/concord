@@ -288,12 +288,18 @@ function examplesTable(k, touch) {
 
 /* ---- flows: draft / import / inductive --------------------------------------------- */
 
+// Live contracts:
+//   POST constructs/inductive → a TAXONOMY artifact {mode:
+//     "inductive-hypothesis", corpusId, sampleN, themes: [{name, definition,
+//     quoteRefs}], note, issues: {invalidRefs}, …} — themes, not constructs.
+//   POST constructs/import (multipart) → {constructs: Construct[], proposed:
+//     true} — full director-authored construct proposals.
+//   POST constructs accepts a full construct body (name + type required).
+
 function draftWithDirector(params) {
   const s = openSheet({ title: "Draft with the Director", overline: "Suggestion mode" });
-  const input = el("textarea", { class: "input textarea", rows: 3, placeholder: "What do you want to measure? e.g. “whether the respondent blames a specific person vs the system”" });
   s.body.append(
-    el("p", { class: "screen__hint" }, "The Director drafts a formal construct — definition, criteria, edge cases, worked examples mined from your corpus. It arrives wearing ", el("span", { class: "dglyph__mark" }, glyph.GLYPH), " and stays a draft until you edit or accept it."),
-    input,
+    el("p", { class: "screen__hint" }, "The Director reads a corpus sample and sketches candidate themes — definition and anchoring quotes each. A theme you accept becomes a draft construct wearing ", el("span", { class: "dglyph__mark" }, glyph.GLYPH), " until you edit or adopt it."),
   );
   s.foot.append(
     el("button", { class: "btn btn--quiet", type: "button", onclick: () => s.close() }, "Cancel"),
@@ -302,9 +308,9 @@ function draftWithDirector(params) {
       onclick: async (e) => {
         e.target.disabled = true;
         try {
-          const proposals = await api.constructs.inductive(params.slug, { corpusId: undefined, n: 1 });
+          const taxonomy = await api.constructs.inductive(params.slug, { n: 60 });
           s.close();
-          proposalsSheet(params, Array.isArray(proposals) ? proposals : [proposals], "Director draft");
+          themesSheet(params, taxonomy, "Director draft");
         } catch (err) {
           e.target.disabled = false;
           toast.error("The Director could not draft.", { detail: String(err.message ?? err) });
@@ -322,8 +328,8 @@ function importCodebook(params) {
       if (!file) return;
       toast.info("Reading the codebook…", { detail: file.name, data: true });
       try {
-        const proposals = await api.constructs.importFile(params.slug, file);
-        proposalsSheet(params, proposals ?? [], `Imported from ${file.name}`);
+        const res = await api.constructs.importFile(params.slug, file);
+        proposalsSheet(params, res?.constructs ?? [], `Imported from ${file.name}`);
       } catch (err) {
         toast.error("Codebook import failed.", { detail: String(err.message ?? err) });
       }
@@ -338,7 +344,7 @@ function inductiveMode(params) {
   const s = openSheet({ title: "Inductive mode", overline: "Hypothesis generation — labeled as such" });
   s.body.append(
     el("p", {}, "The Director reads a sample with no codebook and proposes a taxonomy of what it finds. Inductive output is ", el("strong", {}, "hypothesis generation, not measurement"), " — every proposal arrives exploratory and Director-glyphed, and the methods text will say where it came from."),
-    el("p", { class: "screen__hint faint" }, "Sample: 200 units, stratified by length."),
+    el("p", { class: "screen__hint faint" }, "Sample: 200 units."),
   );
   s.foot.append(
     el("button", { class: "btn btn--quiet", type: "button", onclick: () => s.close() }, "Cancel"),
@@ -347,9 +353,9 @@ function inductiveMode(params) {
       onclick: async (e) => {
         e.target.disabled = true;
         try {
-          const proposals = await api.constructs.inductive(params.slug, { n: 200 });
+          const taxonomy = await api.constructs.inductive(params.slug, { n: 200 });
           s.close();
-          proposalsSheet(params, proposals ?? [], "Inductive proposals");
+          themesSheet(params, taxonomy, "Inductive proposals");
         } catch (err) {
           e.target.disabled = false;
           toast.error("Inductive pass failed.", { detail: String(err.message ?? err) });
@@ -359,22 +365,48 @@ function inductiveMode(params) {
   );
 }
 
-function proposalsSheet(params, proposals, titleLine) {
+/* Inductive taxonomy → review sheet. Accepting a theme materializes a binary
+   draft construct (present/absent) seeded from the theme's definition. */
+function themesSheet(params, taxonomy, titleLine) {
+  const themes = taxonomy?.themes ?? [];
+  const proposals = themes.map((t) => ({
+    name: t.name,
+    type: "binary",
+    definition: t.definition ?? "",
+    criteria: { include: [], exclude: [] },
+    edgeCases: [],
+    examples: [],
+    categories: [{ value: "present", label: "Present" }, { value: "absent", label: "Absent" }],
+    quoteRefs: t.quoteRefs ?? [],
+  }));
+  proposalsSheet(params, proposals, titleLine, {
+    note: taxonomy?.note,
+    sampleN: taxonomy?.sampleN,
+  });
+}
+
+function proposalsSheet(params, proposals, titleLine, { note, sampleN } = {}) {
   const s = openSheet({ title: titleLine, overline: "Review proposals", wide: true });
+  if (sampleN) {
+    s.body.append(el("p", { class: "faint screen__hint" },
+      `Read from a ${sampleN}-unit sample. `, note ?? ""));
+  }
   if (!proposals.length) {
     s.body.append(el("p", { class: "faint" }, "No proposals came back."));
   }
   for (const prop of proposals) {
+    const { quoteRefs, ...constructBody } = prop;
     const row = el("div", { class: "proposal" },
       el("div", { class: "proposal__text" },
         el("h3", { class: "proposal__name" }, prop.name, glyph.render({ authoredBy: "director", humanTouched: false })),
         el("p", { class: "proposal__def" }, prop.definition),
         el("p", { class: "proposal__meta" },
           el("span", { class: "chip" }, prop.type),
-          prop.source ? el("span", { class: "chip chip--ghost" }, prop.source) : null,
-          ...(prop.categories ?? []).map((c) => el("span", { class: "chip" }, c.label ?? c.value))),
+          ...(prop.categories ?? []).map((c) => el("span", { class: "chip" }, c.label ?? String(c.value))),
+          ...(quoteRefs ?? []).slice(0, 4).map((id) =>
+            el("button", { class: "refchip data evidence-door", type: "button", dataset: { evidence: id } }, String(id).slice(0, 8) + "…"))),
         prop.examples?.length
-          ? quotecard.render({ unit: { id: prop.examples[0].unitId, text: prop.examples[0].text }, compact: true })
+          ? quotecard.render({ unit: { id: prop.examples[0].unitId ?? "example", text: prop.examples[0].text }, compact: true })
           : null),
       el("div", { class: "proposal__actions" },
         el("button", {
@@ -382,7 +414,7 @@ function proposalsSheet(params, proposals, titleLine) {
           onclick: async (e) => {
             e.target.disabled = true;
             try {
-              const created = await api.constructs.create(params.slug, { ...prop, authoredBy: "director", humanTouched: false });
+              const created = await api.constructs.create(params.slug, { ...constructBody, authoredBy: "director", humanTouched: false });
               toast.success(`Accepted “${created.name}”.`, { detail: "it keeps the Director's glyph until you edit it" });
               row.classList.add("proposal--accepted");
               e.target.textContent = "Accepted";

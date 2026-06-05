@@ -1,118 +1,231 @@
 {
   "u_2847f1a09c3d55b2": {
-    "level": "calibrated",
     "dictionaryHits": [
-      { "start": 52, "end": 55, "category": "pay", "term": "pay" },
-      { "start": 104, "end": 111, "category": "management", "term": "manager" },
-      { "start": 176, "end": 184, "category": "workload", "term": "two jobs" }
+      {
+        "instrumentId": "inst_dict",
+        "name": "work-themes · dictionary",
+        "versionHash": "d41a9ba3868e91b777f1c2d3e4a5b6c7",
+        "hits": [
+          { "category": "pay", "term": "pay", "start": 52, "end": 55 },
+          { "category": "management", "term": "manager", "start": 104, "end": 111 }
+        ]
+      }
     ],
     "outputs": [
-      { "juror": "claude-haiku·9f2e", "label": "management", "confidence": 0.84, "rationale": "The pivotal clause is “watching every good manager leave while the broken processes stayed” — an evaluation of leadership stewardship. Pay is explicitly discounted (“the pay was fine”)." },
-      { "juror": "gpt-mini·2c81", "label": "workload-burnout", "confidence": 0.61, "rationale": "“Doing two jobs and interviewing for a third” describes unsustainable load at exit. The manager mention reads as context for the workload, not the complaint itself.", "escalated": true },
-      { "juror": "qwen-7b·loc4", "label": "growth", "confidence": 0.42, "rationale": "Staying “three years longer than I should have” implies stalled progression." },
-      { "juror": "aggregate", "label": "management", "confidence": 0.77, "rationale": "Majority unavailable (3-way split); Director escalation favored the management reading per the dismissal rule." }
+      {
+        "runId": "run_panel_full",
+        "instrumentId": "inst_panel",
+        "status": "complete",
+        "model": "claude-haiku-4-5+gpt-5-mini+qwen2.5:7b-instruct",
+        "outputs": [
+          { "juror": "claude-haiku·9f2e", "label": "management", "confidence": 0.84, "rationale": "The pivotal clause is “watching every good manager leave while the broken processes stayed” — an evaluation of leadership stewardship. Pay is explicitly discounted (“the pay was fine”)." },
+          { "juror": "gpt-mini·2c81", "label": "workload-burnout", "confidence": 0.61, "rationale": "“Doing two jobs and interviewing for a third” describes unsustainable load at exit. The manager mention reads as context for the workload, not the complaint itself." },
+          { "juror": "qwen-7b·loc4", "label": "growth", "confidence": 0.42, "rationale": "Staying “three years longer than I should have” implies stalled progression." },
+          { "juror": "aggregate", "label": "management", "confidence": 0.77, "rationale": "Three-way split escalated; the Director's independent read favored the management reading per the dismissal rule.", "escalated": true, "escalatedBy": "director", "entropy": 1 }
+        ]
+      }
     ],
-    "goldLabels": { "pat": "management", "sam": "workload-burnout", "adjudicated": "management" },
-    "sourcePos": { "doc": "techcorp-exit-survey.csv", "row": 2847, "span": [0, 213] }
+    "goldLabels": [
+      { "goldsetId": "g_theme1", "tier": "gold", "status": "adjudicating", "coders": { "pat": "management", "sam": "workload-burnout" }, "adjudicated": "management" }
+    ],
+    "sourcePos": { "doc": "techcorp-exit-survey.csv", "row": 2847 }
   },
   "u_91b3c07d2e8f4a16": {
-    "level": "calibrated",
-    "lang": "es",
-    "dictionaryHits": [],
-    "outputs": [
-      { "juror": "claude-haiku·9f2e", "label": "pay", "confidence": 0.91, "rationale": "“El salario nunca alcanzó” states compensation inadequacy directly; the affection for the team is valence, not theme." },
-      { "juror": "gpt-mini·2c81", "label": "pay", "confidence": 0.85, "rationale": "Salary insufficiency is named first and framed as decisive; management unresponsiveness is secondary." },
-      { "juror": "qwen-7b·loc4", "label": "pay", "confidence": 0.78, "rationale": "Direct pay complaint in Spanish." }
+    "dictionaryHits": [
+      { "instrumentId": "inst_dict", "name": "work-themes · dictionary", "versionHash": "d41a9ba3868e91b777f1c2d3e4a5b6c7", "hits": [] }
     ],
-    "goldLabels": { "pat": "pay", "sam": "pay" },
-    "sourcePos": { "doc": "techcorp-exit-survey.csv", "row": 1093, "span": [0, 102] }
+    "outputs": [
+      {
+        "runId": "run_panel_full",
+        "instrumentId": "inst_panel",
+        "status": "complete",
+        "model": "claude-haiku-4-5+gpt-5-mini+qwen2.5:7b-instruct",
+        "outputs": [
+          { "juror": "claude-haiku·9f2e", "label": "pay", "confidence": 0.91, "rationale": "“El salario nunca alcanzó” states compensation inadequacy directly; the affection for the team is valence, not theme." },
+          { "juror": "gpt-mini·2c81", "label": "pay", "confidence": 0.85, "rationale": "Salary insufficiency is named first and framed as decisive; management unresponsiveness is secondary." },
+          { "juror": "qwen-7b·loc4", "label": "pay", "confidence": 0.78, "rationale": "Direct pay complaint in Spanish." },
+          { "juror": "aggregate", "label": "pay", "confidence": 0.85 }
+        ]
+      }
+    ],
+    "goldLabels": [
+      { "goldsetId": "g_theme1", "tier": "gold", "status": "adjudicating", "coders": { "pat": "pay", "sam": "pay" }, "adjudicated": null }
+    ],
+    "sourcePos": { "doc": "techcorp-exit-survey.csv", "row": 1093 }
   },
   "u_55e0a9d4b7c2f311": {
-    "level": "calibrated",
-    "anonymized": true,
-    "dictionaryHits": [ { "start": 32, "end": 41, "category": "growth", "term": "promotion" } ],
-    "outputs": [
-      { "juror": "claude-haiku·9f2e", "label": "growth", "confidence": 0.88, "rationale": "Stalled advancement (“promised a promotion … both times”) is the operative grievance; the named director is the vehicle, not the theme." }
+    "dictionaryHits": [
+      { "instrumentId": "inst_dict", "name": "work-themes · dictionary", "versionHash": "d41a9ba3868e91b777f1c2d3e4a5b6c7", "hits": [ { "category": "growth", "term": "promotion", "start": 32, "end": 41 } ] }
     ],
-    "goldLabels": { "pat": "growth", "sam": "growth" },
-    "sourcePos": { "doc": "techcorp-exit-survey.csv", "row": 412, "span": [0, 112] }
+    "outputs": [
+      {
+        "runId": "run_panel_full",
+        "instrumentId": "inst_panel",
+        "status": "complete",
+        "model": "claude-haiku-4-5+gpt-5-mini+qwen2.5:7b-instruct",
+        "outputs": [
+          { "juror": "claude-haiku·9f2e", "label": "growth", "confidence": 0.88, "rationale": "Stalled advancement (“promised a promotion … both times”) is the operative grievance; the named director is the vehicle, not the theme." },
+          { "juror": "aggregate", "label": "growth", "confidence": 0.88 }
+        ]
+      }
+    ],
+    "goldLabels": [
+      { "goldsetId": "g_theme1", "tier": "gold", "status": "adjudicating", "coders": { "pat": "growth", "sam": "growth" }, "adjudicated": null }
+    ],
+    "sourcePos": { "doc": "techcorp-exit-survey.csv", "row": 412 }
   },
   "u_8800c1d2e4a90b77": {
-    "level": "calibrated",
-    "dictionaryHits": [ { "start": 13, "end": 21, "category": "workload", "term": "workload" } ],
-    "outputs": [
-      { "juror": "dictionary·work", "label": "workload 7.1%", "rationale": null },
-      { "juror": "claude-haiku·9f2e", "label": "workload-burnout", "confidence": 0.66, "rationale": "Sarcasm inverts the surface reading: “totally reasonable” + “eighty-hour weeks” signals burnout, not satisfaction.", "escalated": true },
-      { "juror": "gpt-mini·2c81", "label": "other", "confidence": 0.41, "rationale": "Surface reading is positive about workload; low confidence because the tone may be ironic.", "repaired": true },
-      { "juror": "aggregate", "label": "workload-burnout", "confidence": 0.7, "rationale": "Director escalation: sarcastic minimization reads for intended meaning." }
+    "dictionaryHits": [
+      { "instrumentId": "inst_dict", "name": "work-themes · dictionary", "versionHash": "d41a9ba3868e91b777f1c2d3e4a5b6c7", "hits": [ { "category": "workload", "term": "workload", "start": 13, "end": 21 } ] }
     ],
-    "goldLabels": { "pat": "workload-burnout", "sam": "workload-burnout" },
-    "sourcePos": { "doc": "techcorp-exit-survey.csv", "row": 1881, "span": [0, 88] }
+    "outputs": [
+      {
+        "runId": "run_panel_full",
+        "instrumentId": "inst_panel",
+        "status": "complete",
+        "model": "claude-haiku-4-5+gpt-5-mini+qwen2.5:7b-instruct",
+        "outputs": [
+          { "juror": "claude-haiku·9f2e", "label": "workload-burnout", "confidence": 0.66, "rationale": "Sarcasm inverts the surface reading: “totally reasonable” + “eighty-hour weeks” signals burnout, not satisfaction." },
+          { "juror": "gpt-mini·2c81", "label": "other", "confidence": 0.41, "rationale": "Surface reading is positive about workload; low confidence because the tone may be ironic." },
+          { "juror": "aggregate", "label": "workload-burnout", "confidence": 0.7, "rationale": "Sarcasm: sarcastic minimization reads for intended meaning. — Independent read under the same codebook.", "escalated": true, "escalatedBy": "director" }
+        ]
+      }
+    ],
+    "goldLabels": [
+      { "goldsetId": "g_theme1", "tier": "gold", "status": "adjudicating", "coders": { "pat": "workload-burnout", "sam": "workload-burnout" }, "adjudicated": null }
+    ],
+    "sourcePos": { "doc": "techcorp-exit-survey.csv", "row": 1881 }
   },
   "u_03d7e8a1f4b2c690": {
-    "level": "calibrated",
     "dictionaryHits": [
-      { "start": 0, "end": 11, "category": "pay", "term": "base salary" },
-      { "start": 40, "end": 46, "category": "pay", "term": "market" }
+      { "instrumentId": "inst_dict", "name": "work-themes · dictionary", "versionHash": "d41a9ba3868e91b777f1c2d3e4a5b6c7", "hits": [ { "category": "pay", "term": "salary", "start": 5, "end": 11 } ] }
     ],
     "outputs": [
-      { "juror": "claude-haiku·9f2e", "label": "pay", "confidence": 0.95, "rationale": "Quantified under-market salary plus failed comp cycles — pay is decisive and explicit." }
+      {
+        "runId": "run_panel_full",
+        "instrumentId": "inst_panel",
+        "status": "complete",
+        "model": "claude-haiku-4-5+gpt-5-mini+qwen2.5:7b-instruct",
+        "outputs": [
+          { "juror": "claude-haiku·9f2e", "label": "pay", "confidence": 0.95, "rationale": "Quantified under-market salary plus failed comp cycles — pay is decisive and explicit." },
+          { "juror": "aggregate", "label": "pay", "confidence": 0.95 }
+        ]
+      }
     ],
-    "goldLabels": { "pat": "pay", "sam": "pay" },
-    "sourcePos": { "doc": "techcorp-exit-survey.csv", "row": 233, "span": [0, 156] }
+    "goldLabels": [
+      { "goldsetId": "g_theme1", "tier": "gold", "status": "adjudicating", "coders": { "pat": "pay", "sam": "pay" }, "adjudicated": null }
+    ],
+    "sourcePos": { "doc": "techcorp-exit-survey.csv", "row": 233 }
   },
   "u_b05c8f2a6d31e947": {
-    "level": "calibrated",
     "dictionaryHits": [
-      { "start": 0, "end": 7, "category": "workload", "term": "support" },
-      { "start": 34, "end": 44, "category": "management", "term": "management" }
+      { "instrumentId": "inst_dict", "name": "work-themes · dictionary", "versionHash": "d41a9ba3868e91b777f1c2d3e4a5b6c7", "hits": [ { "category": "management", "term": "management", "start": 34, "end": 44 } ] }
     ],
     "outputs": [
-      { "juror": "claude-haiku·9f2e", "label": "workload-burnout", "confidence": 0.71, "rationale": "“Queue doubled, headcount didn't” is a load complaint; “doing more with less” is the mechanism." },
-      { "juror": "gpt-mini·2c81", "label": "management", "confidence": 0.66, "rationale": "The blame lands on management's framing and decisions, quoted with contempt." },
-      { "juror": "qwen-7b·loc4", "label": "workload-burnout", "confidence": 0.69, "rationale": "Workload doubling is the operative fact." }
+      {
+        "runId": "run_panel_full",
+        "instrumentId": "inst_panel",
+        "status": "complete",
+        "model": "claude-haiku-4-5+gpt-5-mini+qwen2.5:7b-instruct",
+        "outputs": [
+          { "juror": "claude-haiku·9f2e", "label": "workload-burnout", "confidence": 0.71, "rationale": "“Queue doubled, headcount didn't” is a load complaint; “doing more with less” is the mechanism." },
+          { "juror": "gpt-mini·2c81", "label": "management", "confidence": 0.66, "rationale": "The blame lands on management's framing and decisions, quoted with contempt." },
+          { "juror": "qwen-7b·loc4", "label": "workload-burnout", "confidence": 0.69, "rationale": "Workload doubling is the operative fact." },
+          { "juror": "aggregate", "label": "workload-burnout", "confidence": 0.7, "entropy": 0.64 }
+        ]
+      }
     ],
-    "goldLabels": { "pat": "workload-burnout", "sam": "management" },
-    "sourcePos": { "doc": "techcorp-exit-survey.csv", "row": 1923, "span": [0, 131] }
+    "goldLabels": [
+      { "goldsetId": "g_theme1", "tier": "gold", "status": "adjudicating", "coders": { "pat": "workload-burnout", "sam": "management" }, "adjudicated": null }
+    ],
+    "sourcePos": { "doc": "techcorp-exit-survey.csv", "row": 1923 }
   },
   "u_92c8b4f6a1e7d503": {
-    "level": "calibrated",
-    "dictionaryHits": [],
-    "outputs": [
-      { "juror": "claude-haiku·9f2e", "label": "other", "confidence": 0.55, "rationale": "Quit-regret with a process complaint; no decisive grievance against the org's conditions." },
-      { "juror": "gpt-mini·2c81", "label": "pay", "confidence": 0.52, "rationale": "Counteroffer timing is a compensation-process failure.", "escalated": true }
+    "dictionaryHits": [
+      { "instrumentId": "inst_dict", "name": "work-themes · dictionary", "versionHash": "d41a9ba3868e91b777f1c2d3e4a5b6c7", "hits": [] }
     ],
-    "goldLabels": { "pat": "other", "sam": "pay" },
-    "sourcePos": { "doc": "techcorp-exit-survey.csv", "row": 1066, "span": [0, 170] }
+    "outputs": [
+      {
+        "runId": "run_panel_full",
+        "instrumentId": "inst_panel",
+        "status": "complete",
+        "model": "claude-haiku-4-5+gpt-5-mini+qwen2.5:7b-instruct",
+        "outputs": [
+          { "juror": "claude-haiku·9f2e", "label": "other", "confidence": 0.55, "rationale": "Quit-regret with a process complaint; no decisive grievance against the org's conditions." },
+          { "juror": "gpt-mini·2c81", "label": "pay", "confidence": 0.52, "rationale": "Counteroffer timing is a compensation-process failure." },
+          { "juror": "qwen-7b·loc4", "label": "other", "confidence": 0.47, "rationale": "Expresses regret about leaving; no clear theme." },
+          { "juror": "aggregate", "label": "other", "confidence": 0.62, "rationale": "The respondent regrets leaving and faults timing, not pay level. — Independent read under the same codebook.", "escalated": true, "escalatedBy": "director", "entropy": 0.92 }
+        ]
+      }
+    ],
+    "goldLabels": [
+      { "goldsetId": "g_theme1", "tier": "gold", "status": "adjudicating", "coders": { "pat": "other", "sam": "pay" }, "adjudicated": null }
+    ],
+    "sourcePos": { "doc": "techcorp-exit-survey.csv", "row": 1066 }
   },
   "u_30e6c2f8b9a4d157": {
-    "level": "exploratory",
-    "lang": "es",
-    "dictionaryHits": [ { "start": 34, "end": 41, "category": "remote", "term": "oficina" } ],
-    "outputs": [
-      { "juror": "claude-haiku·9f2e", "label": "remote-policy", "confidence": 0.58, "rationale": "Direct RTO-policy grievance, in Spanish; confidence reduced by language mix.", "escalated": true }
+    "dictionaryHits": [
+      { "instrumentId": "inst_dict", "name": "work-themes · dictionary", "versionHash": "d41a9ba3868e91b777f1c2d3e4a5b6c7", "hits": [] }
     ],
-    "goldLabels": {},
-    "sourcePos": { "doc": "techcorp-exit-survey.csv", "row": 2104, "span": [0, 143] }
+    "outputs": [
+      {
+        "runId": "run_panel_full",
+        "instrumentId": "inst_panel",
+        "status": "complete",
+        "model": "claude-haiku-4-5+gpt-5-mini+qwen2.5:7b-instruct",
+        "outputs": [
+          { "juror": "claude-haiku·9f2e", "label": "remote-policy", "confidence": 0.58, "rationale": "Direct RTO-policy grievance, in Spanish; confidence reduced by language mix.", "escalated": true },
+          { "juror": "aggregate", "label": "remote-policy", "confidence": 0.58, "escalated": true }
+        ]
+      }
+    ],
+    "goldLabels": [],
+    "sourcePos": { "doc": "techcorp-exit-survey.csv", "row": 2104 }
   },
   "u_d94a7c1e5b28f063": {
-    "level": "exploratory",
-    "dictionaryHits": [ { "start": 53, "end": 57, "category": "workload", "term": "pace" } ],
-    "outputs": [
-      { "juror": "claude-haiku·9f2e", "label": "workload-burnout", "confidence": 0.82, "rationale": "“The pace was not survivable… the second one wins” settles it." },
-      { "juror": "qwen-7b·loc4", "label": "growth", "confidence": 0.44, "rationale": "Mentions best work of career, possibly growth orientation." }
+    "dictionaryHits": [
+      { "instrumentId": "inst_dict", "name": "work-themes · dictionary", "versionHash": "d41a9ba3868e91b777f1c2d3e4a5b6c7", "hits": [ { "category": "workload", "term": "pace", "start": 53, "end": 57 } ] }
     ],
-    "goldLabels": { "pat": "workload-burnout" },
-    "sourcePos": { "doc": "techcorp-exit-survey.csv", "row": 543, "span": [0, 117] }
+    "outputs": [
+      {
+        "runId": "run_panel_full",
+        "instrumentId": "inst_panel",
+        "status": "complete",
+        "model": "claude-haiku-4-5+gpt-5-mini+qwen2.5:7b-instruct",
+        "outputs": [
+          { "juror": "claude-haiku·9f2e", "label": "workload-burnout", "confidence": 0.82, "rationale": "“The pace was not survivable… the second one wins” settles it." },
+          { "juror": "gpt-mini·2c81", "label": "workload-burnout", "confidence": 0.77, "rationale": "Pace framed as decisive over work quality." },
+          { "juror": "qwen-7b·loc4", "label": "growth", "confidence": 0.44, "rationale": "Mentions best work of career, possibly growth orientation." },
+          { "juror": "aggregate", "label": "workload-burnout", "confidence": 0.55, "escalated": true, "entropy": 0.64 }
+        ]
+      }
+    ],
+    "goldLabels": [
+      { "goldsetId": "g_theme1", "tier": "gold", "status": "adjudicating", "coders": { "pat": "workload-burnout" }, "adjudicated": null }
+    ],
+    "sourcePos": { "doc": "techcorp-exit-survey.csv", "row": 543 }
   },
   "u_5d2b9e8f1a73c460": {
-    "level": "exploratory",
-    "dictionaryHits": [ { "start": 12, "end": 28, "category": "growth", "term": "development plan" } ],
-    "outputs": [
-      { "juror": "claude-haiku·9f2e", "label": "growth", "confidence": 0.78, "rationale": "A development plan asked for three times and never delivered is blocked growth." },
-      { "juror": "qwen-7b·loc4", "label": "management", "confidence": 0.51, "rationale": "The manager eating through the careers chat is a manager-quality failure." }
+    "dictionaryHits": [
+      { "instrumentId": "inst_dict", "name": "work-themes · dictionary", "versionHash": "d41a9ba3868e91b777f1c2d3e4a5b6c7", "hits": [ { "category": "growth", "term": "develop*", "start": 12, "end": 28 } ] }
     ],
-    "goldLabels": { "pat": "growth" },
-    "sourcePos": { "doc": "techcorp-exit-survey.csv", "row": 1577, "span": [0, 167] }
+    "outputs": [
+      {
+        "runId": "run_panel_full",
+        "instrumentId": "inst_panel",
+        "status": "complete",
+        "model": "claude-haiku-4-5+gpt-5-mini+qwen2.5:7b-instruct",
+        "outputs": [
+          { "juror": "claude-haiku·9f2e", "label": "growth", "confidence": 0.78, "rationale": "A development plan asked for three times and never delivered is blocked growth." },
+          { "juror": "gpt-mini·2c81", "label": "growth", "confidence": 0.7, "rationale": "Career-development neglect is the complaint." },
+          { "juror": "qwen-7b·loc4", "label": "management", "confidence": 0.51, "rationale": "The manager eating through the careers chat is a manager-quality failure." },
+          { "juror": "aggregate", "label": "growth", "confidence": 0.74, "entropy": 0.64 }
+        ]
+      }
+    ],
+    "goldLabels": [
+      { "goldsetId": "g_theme1", "tier": "gold", "status": "adjudicating", "coders": { "pat": "growth" }, "adjudicated": null }
+    ],
+    "sourcePos": { "doc": "techcorp-exit-survey.csv", "row": 1577 }
   }
 }

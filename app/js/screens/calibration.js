@@ -15,7 +15,6 @@ import * as toast from "../components/toast.js";
 import * as confusion from "../components/confusion.js";
 import * as quotecard from "../components/quotecard.js";
 import * as ladderC from "../components/ladder.js";
-import * as line from "../components/charts/line.js";
 import { fmtStat, fmtCount, fmtClock } from "../format.js";
 import { screenHead, section, asyncMount, ensureProject, emptyState, openSheet, setFullbleed, markedValue } from "./_shared.js";
 
@@ -25,6 +24,25 @@ export const title = "Calibration Studio";
 const PANES = ["sample", "code", "test", "adjudicate"];
 
 let sprintCleanup = null;
+
+/* The live goldset artifact carries no disagreement list — the queue is
+   DERIVED: units where ≥2 coders labeled and split, resolved when an
+   adjudicated label exists. {unitId, labels: {coderId: label}, resolved} */
+export function disagreementsOf(goldset) {
+  const coders = (goldset.coders ?? []).filter((c) => c.labels && Object.keys(c.labels).length > 0);
+  const out = [];
+  for (const s of goldset.sample ?? []) {
+    const labels = {};
+    for (const c of coders) {
+      if (c.labels[s.unitId] !== undefined) labels[c.coderId] = c.labels[s.unitId];
+    }
+    const values = Object.values(labels).map((v) => JSON.stringify(v));
+    if (values.length >= 2 && new Set(values).size > 1) {
+      out.push({ unitId: s.unitId, labels, resolved: goldset.adjudicated?.[s.unitId] ?? null });
+    }
+  }
+  return out;
+}
 
 export function render(mount, params, query) {
   const state = { pane: query.pane ?? null };
@@ -42,9 +60,10 @@ export function render(mount, params, query) {
         : goldset.status === "adjudicating" ? "adjudicate"
         : "test";
     }
+    const disagreements = disagreementsOf(goldset);
 
     mount.append(screenHead({
-      overline: `Calibration studio · ${goldset.name ?? goldset.id}`,
+      overline: `Calibration studio · ${goldset.id}`,
       title: construct ? `Gold for “${construct.name}”` : "Gold standard",
       lede: "Human judgment is the standard machines are measured against — never the other way around.",
       actions: [coderLauncherBtn(params, goldset)],
@@ -63,14 +82,14 @@ export function render(mount, params, query) {
       if (state.pane === "sample") samplePane(paneHost, params, goldset, construct);
       else if (state.pane === "code") codePane(paneHost, params, goldset, construct);
       else if (state.pane === "test") testPane(paneHost, params, goldset);
-      else adjudicatePane(paneHost, params, goldset, construct);
+      else adjudicatePane(paneHost, params, goldset, construct, disagreements);
     };
 
     const PANE_LABELS = { sample: "Sample", code: "Code", test: "Test", adjudicate: "Adjudicate" };
     for (const pane of PANES) {
       const open = (pane === "sample") || goldset.sample?.length;
-      const openCount = pane === "adjudicate" && goldset.disagreements
-        ? goldset.disagreements.filter((d) => !d.resolved).length
+      const openCount = pane === "adjudicate" && disagreements.length
+        ? disagreements.filter((d) => !d.resolved).length
         : null;
       tabs.append(el("button", {
         class: "panetab", role: "tab", type: "button",
@@ -155,8 +174,9 @@ function samplePane(host, params, goldset, construct) {
       onclick: async (e) => {
         e.target.disabled = true;
         try {
-          const sample = await api.goldsets.sample(params.slug, goldset.id, { design, n, strata: design === "stratified" ? { by: strata } : undefined });
-          toast.success(`Sampled ${fmtCount(sample.length ?? n)} units with π stored.`, { detail: `${design}${design === "stratified" ? ` by ${strata}` : ""}`, data: true });
+          // live response: {goldsetId, design, n, sample: [{unitId, pi}]}
+          const res = await api.goldsets.sample(params.slug, goldset.id, { design, n, strata: design === "stratified" ? { by: strata } : undefined });
+          toast.success(`Sampled ${fmtCount(res.n ?? n)} units with π stored.`, { detail: `${res.design ?? design}${design === "stratified" ? ` by ${strata}` : ""}`, data: true });
           window.dispatchEvent(new HashChangeEvent("hashchange"));
         } catch (err) {
           e.target.disabled = false;
@@ -404,6 +424,13 @@ function kbd(k) {
 
 /* ================= Test ================================================================ */
 
+// Live report (GET goldsets/:g/agreement):
+//   humanAgreement: {n, coders, percent, kappa, alpha, ac1, confusion?, labels?}
+//   perInstrument:  [{instrumentId, name, kind, level, versionHash,
+//                     agreement: {n, coders, percent, kappa, alpha, ac1,
+//                     perClass, confusion?, labels?}} | {…, error: {code,
+//                     message}}]
+//   goldLabeled:    count of adjudicated-or-consensus gold units
 function testPane(host, params, goldset) {
   const wrap = el("div", {});
   host.append(wrap);
@@ -420,19 +447,25 @@ function testPane(host, params, goldset) {
         el("p", { class: "humanbanner__stat" },
           el("span", { class: "humanbanner__big data" }, `κ = ${fmtStat(h.kappa)}`),
           el("span", { class: "humanbanner__big data" }, `α = ${fmtStat(h.alpha)}`),
-          h.ci ? el("span", { class: "data faint" }, `95% CI [${fmtStat(h.ci.lo)}, ${fmtStat(h.ci.hi)}] · n = ${h.n}`) : null),
-        benchmarkBand(h.alpha, h.ci),
-        el("p", { class: "humanbanner__note faint" }, h.note ?? "Low human agreement is a construct problem before it is anyone's instrument problem.")));
+          el("span", { class: "data faint" }, `${fmtStat(h.percent)} raw agree · n = ${h.n ?? "—"} · ${(h.coders ?? []).join(" + ")}`)),
+        benchmarkBand(h.alpha),
+        el("p", { class: "humanbanner__note faint" }, "Low human agreement is a construct problem before it is anyone's instrument problem.")));
 
       /* -- per-instrument columns -- */
       const cols = el("div", { class: "testcols" });
       for (const inst of report.perInstrument ?? []) {
+        if (inst.error) {
+          cols.append(el("section", { class: "testcol" },
+            el("h3", { class: "testcol__name" }, inst.name, " ", ladderC.render({ level: inst.level, size: "sm" })),
+            el("p", { class: "faint" }, "Could not test against gold: ", el("span", { class: "data" }, inst.error.message ?? inst.error.code))));
+          continue;
+        }
+        const a = inst.agreement ?? {};
         const col = el("section", { class: "testcol" },
           el("h3", { class: "testcol__name" }, inst.name, " ", ladderC.render({ level: inst.level, size: "sm" })),
           el("p", { class: "testcol__stats data" },
-            `κ ${fmtStat(inst.kappa)} · α ${fmtStat(inst.alpha)} · AC1 ${fmtStat(inst.ac1)} · ${fmtStat(inst.percent)} agree`,
-            inst.ci ? el("span", { class: "faint" }, ` · CI [${fmtStat(inst.ci.lo)}, ${fmtStat(inst.ci.hi)}]`) : null),
-          inst.perClass?.length
+            `κ ${fmtStat(a.kappa)} · α ${fmtStat(a.alpha)} · AC1 ${fmtStat(a.ac1)} · ${fmtStat(a.percent)} agree`),
+          a.perClass?.length
             ? el("table", { class: "table table--mini" },
                 el("caption", { class: "sr-only" }, `${inst.name} per-class metrics`),
                 el("thead", {}, el("tr", {},
@@ -441,46 +474,26 @@ function testPane(host, params, goldset) {
                   el("th", { scope: "col", class: "table__num data" }, "R"),
                   el("th", { scope: "col", class: "table__num data" }, "F1"))),
                 el("tbody", {},
-                  ...inst.perClass.map((r) => el("tr", {},
+                  ...a.perClass.map((r) => el("tr", {},
                     el("td", {}, r.label),
                     el("td", { class: "table__num data" }, fmtStat(r.precision)),
                     el("td", { class: "table__num data" }, fmtStat(r.recall)),
                     el("td", { class: "table__num data" }, fmtStat(r.f1))))))
             : null,
-          inst.confusion
+          a.confusion
             ? confusion.render({
-                labels: report.labels ?? [],
-                matrix: inst.confusion,
-                evidence: inst.confusionEvidence ?? null,
-                caption: `${inst.name} vs adjudicated gold (n = ${inst.n})`,
+                labels: a.labels ?? [],
+                matrix: a.confusion,
+                caption: `${inst.name} vs adjudicated gold (n = ${a.n})`,
               })
             : null,
         );
         cols.append(col);
       }
-      wrap.append(section("Instruments against gold", cols));
-
-      /* -- iteration log + McNemar -- */
-      if (report.iterationLog?.length) {
-        const sparkWrap = el("div", { class: "iterspark" });
-        line.render(sparkWrap, [{
-          label: "κ vs gold", emphasis: true,
-          points: report.iterationLog.map((it, i) => ({ x: i + 1, y: it.kappa })),
-        }], { caption: "Instrument iterations against gold", formatX: (x) => report.iterationLog[x - 1]?.version ?? `v${x}`, formatY: (v) => fmtStat(v), dots: true, height: 140 });
-        wrap.append(section("Iteration log",
-          sparkWrap,
-          el("ol", { class: "iterlist", role: "list" },
-            ...report.iterationLog.map((it) =>
-              el("li", { class: "iterlist__row" },
-                el("span", { class: "data iterlist__n" }, it.version),
-                el("span", { class: "data iterlist__a" }, `κ ${fmtStat(it.kappa)}`),
-                el("span", { class: "iterlist__note faint" }, it.note ?? "")))),
-          report.mcnemar
-            ? el("p", { class: "annotation annotation--still" },
-                el("span", { class: "chip chip--ghost" }, "McNemar"),
-                " ", report.mcnemar.note ?? `b=${report.mcnemar.b}, c=${report.mcnemar.c}, p=${report.mcnemar.pExact}`)
-            : null));
-      }
+      wrap.append(section("Instruments against gold", cols,
+        report.goldLabeled !== undefined
+          ? el("p", { class: "faint screen__hint data" }, `${fmtCount(report.goldLabeled)} gold units (adjudicated or consensus) backed this comparison`)
+          : null));
     })
     .catch((err) => {
       clear(wrap).append(emptyState({
@@ -509,11 +522,11 @@ function benchmarkBand(alpha, ci) {
 
 /* ================= Adjudicate ========================================================== */
 
-function adjudicatePane(host, params, goldset, construct) {
-  const open = (goldset.disagreements ?? []).filter((d) => !d.resolved);
-  const resolved = (goldset.disagreements ?? []).filter((d) => d.resolved);
+function adjudicatePane(host, params, goldset, construct, disagreements = []) {
+  const open = disagreements.filter((d) => !d.resolved);
+  const resolved = disagreements.filter((d) => d.resolved);
 
-  if (!goldset.disagreements?.length) {
+  if (!disagreements.length) {
     host.append(emptyState({
       title: "No disagreements.",
       body: "When two coders split on a unit, it queues here for the final human word.",
@@ -529,19 +542,20 @@ function adjudicatePane(host, params, goldset, construct) {
     const quoteHost = el("div", { class: "adjrow__quote" });
     api.evidence.get(params.slug, d.unitId)
       .then((dossier) => {
-        quoteHost.append(quotecard.render({ unit: dossier.unit, lang: dossier.lang, compact: true, evidence: true }));
+        quoteHost.append(quotecard.render({ unit: dossier.unit, compact: true, evidence: true }));
       })
       .catch(() => quoteHost.append(el("p", { class: "data faint" }, d.unitId)));
 
     const finalInput = el("input", { class: "input input--inline", placeholder: "or enter a label…", "aria-label": "Final label" });
     const decide = async (label) => {
       try {
+        // live response: {status, adjudicated: <count>}
         const res = await api.goldsets.adjudicate(params.slug, goldset.id, { unitId: d.unitId, label });
         d.resolved = label;
         row.classList.add("adjrow--resolved");
         row.querySelector(".adjrow__final")?.replaceChildren(
           el("span", { class: "chip chip--gold" }, `final: ${label}`));
-        toast.success("Adjudicated.", { detail: `${d.unitId} → ${label}${res?.open === 0 ? " · queue clear" : ""}`, data: true });
+        toast.success("Adjudicated.", { detail: `${d.unitId} → ${label}${res?.status === "complete" ? " · gold set complete" : ""}`, data: true });
       } catch (err) {
         toast.error("Adjudication failed.", { detail: String(err.message ?? err) });
       }

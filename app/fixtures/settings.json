@@ -1,13 +1,8 @@
 {
-  "providers": {
-    "anthropic": { "configured": true, "keyMasked": "sk-ant-…f24a", "reachable": true, "family": "claude" },
-    "openai": { "configured": true, "keyMasked": "sk-proj-…91xb", "reachable": true, "family": "gpt" },
-    "openrouter": { "configured": false, "keyMasked": null, "reachable": false, "family": "many" },
-    "ollama": { "configured": true, "keyMasked": null, "local": true, "reachable": true, "baseUrl": "http://localhost:11434", "family": "local" },
-    "mock": { "configured": true, "keyMasked": null, "local": true, "reachable": true, "family": "mock", "note": "deterministic, $0 — powers the keyless demo and tests" }
+  "keys": {
+    "anthropic": { "configured": true, "apiKey": "sk-…f24a" },
+    "openai": { "configured": true, "apiKey": "sk-…91xb" },
+    "ollama": { "configured": true, "baseUrl": "http://localhost:11434" }
   },
-  "director": { "provider": "anthropic", "model": "claude-sonnet-4-5", "snapshot": "claude-sonnet-4-5-20250929", "systemSuffix": "" },
-  "defaults": { "temperature": 0, "maxTokens": 400, "checkpointEvery": 25 },
-  "port": 7341,
-  "version": "1.0.0"
+  "port": 7341
 }

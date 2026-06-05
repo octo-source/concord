@@ -34,16 +34,14 @@ export function render(mount, params) {
     if (!data?.byEntropy?.length) {
       mount.append(emptyState({
         title: "The panel agreed.",
-        body: "No units cleared the entropy threshold. Either the corpus is easy or the jurors are too alike — check the family chips on the panel.",
+        body: data?.note ?? "No units cleared the entropy threshold. Either the corpus is easy or the jurors are too alike — check the family chips on the panel.",
       }));
       return;
     }
 
-    /* -- juror×juror matrix -- */
-    // live route: jurorMatrix = {jurors, matrix}; fixtures: top-level jurors
-    // + a bare matrix — read both
-    const jurors = data.jurorMatrix?.jurors ?? data.jurors ?? [];
-    const matrix = Array.isArray(data.jurorMatrix) ? data.jurorMatrix : data.jurorMatrix?.matrix ?? [];
+    /* -- juror×juror matrix: jurorMatrix = {jurors, matrix} -- */
+    const jurors = data.jurorMatrix?.jurors ?? [];
+    const matrix = data.jurorMatrix?.matrix ?? [];
     const matrixCell = el("div", { class: "jurmatrix" });
     heat.render(matrixCell, {
       rows: jurors,
@@ -55,11 +53,10 @@ export function render(mount, params) {
     });
     mount.append(section("Juror × juror agreement", matrixCell));
 
-    // live route: item.labels = {juror → label}; fixtures: [{juror, label,
-    // confidence?, rationale?}] — normalize to the array form
-    const readsOf = (item) => (Array.isArray(item.labels)
-      ? item.labels
-      : Object.entries(item.labels ?? {}).map(([juror, label]) => ({ juror, label })));
+    // live: item.labels = {juror → label} (per-juror confidence/rationale
+    // live in the evidence dossier, one click away)
+    const readsOf = (item) =>
+      Object.entries(item.labels ?? {}).map(([juror, label]) => ({ juror, label }));
 
     /* -- entropy-ranked list + facing rationales -- */
     const listEl = el("div", { class: "split disagreement-split" });
@@ -95,30 +92,35 @@ export function render(mount, params) {
       clear(detail);
       const labels = readsOf(item);
 
+      // the facing columns enrich from the evidence dossier: this run's
+      // per-juror lines carry confidence + rationale (the disagreement route
+      // itself returns only the label map)
       const quoteHost = el("div", {});
+      const facing = el("div", { class: "facing facing--n", style: { "--cols": String(Math.min(labels.length, 3)) } });
+      const judgeCol = (l, line) =>
+        el("div", { class: "dossier__judge" },
+          el("div", { class: "dossier__judge-head" },
+            el("span", { class: "chip chip--machine" }, String(l.label)),
+            el("span", { class: "dossier__judge-name data" }, String(l.juror).slice(0, 12)),
+            line?.confidence !== undefined
+              ? el("span", { class: "dossier__judge-conf data" }, "conf ", fmtStat(line.confidence),
+                  el("span", { class: "confbar", aria: { hidden: "true" }, style: { "--conf": `${Math.round(line.confidence * 100)}%` } }))
+              : null),
+          line?.rationale ? el("p", { class: "dossier__rationale" }, line.rationale) : null);
+      facing.append(...labels.map((l) => judgeCol(l, null)));
+
       api.evidence.get(params.slug, item.unitId)
-        .then((dossier) => quoteHost.append(quotecard.render({ unit: dossier.unit, lang: dossier.lang, evidence: true })))
+        .then((dossier) => {
+          quoteHost.append(quotecard.render({ unit: dossier.unit, evidence: true }));
+          const runOutputs = (dossier.outputs ?? []).find((o) => o.runId === params.rid)?.outputs ?? [];
+          facing.replaceChildren(...labels.map((l) =>
+            judgeCol(l, runOutputs.find((o) => o.juror === l.juror))));
+        })
         .catch(() => quoteHost.append(el("p", { class: "data faint" }, item.unitId)));
 
       detail.append(
         quoteHost,
-        item.humanContext
-          ? el("p", { class: "humancontext" },
-              el("span", { class: `chip ${item.humanContext.includes("instrument") ? "chip--machine" : "chip--signal"}` },
-                item.humanContext.includes("instrument") ? "instrument problem" : "construct ambiguity"),
-              " ", item.humanContext)
-          : null,
-        el("div", { class: "facing facing--n", style: { "--cols": String(Math.min(labels.length, 3)) } },
-          ...labels.map((l) =>
-            el("div", { class: "dossier__judge" },
-              el("div", { class: "dossier__judge-head" },
-                el("span", { class: "chip chip--machine" }, l.label),
-                el("span", { class: "dossier__judge-name data" }, l.juror),
-                l.confidence !== undefined
-                  ? el("span", { class: "dossier__judge-conf data" }, "conf ", fmtStat(l.confidence),
-                      el("span", { class: "confbar", aria: { hidden: "true" }, style: { "--conf": `${Math.round(l.confidence * 100)}%` } }))
-                  : null),
-              l.rationale ? el("p", { class: "dossier__rationale" }, l.rationale) : null))),
+        facing,
         el("div", { class: "dispositions" },
           el("button", {
             class: "btn", type: "button",

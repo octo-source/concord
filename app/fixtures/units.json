@@ -12,8 +12,7 @@
       "id": "u_91b3c07d2e8f4a16",
       "text": "El salario nunca alcanzó y la gerencia jamás escuchaba; aun así, voy a extrañar muchísimo a mi equipo.",
       "meta": { "dept": "Sales", "tenure_years": 3, "role_level": "IC2", "region": "LATAM", "exit_date": "2025-08-02", "satisfaction": 2 },
-      "pos": { "doc": "techcorp-exit-survey.csv", "row": 1093 },
-      "lang": "es"
+      "pos": { "doc": "techcorp-exit-survey.csv", "row": 1093 }
     },
     {
       "id": "u_55e0a9d4b7c2f311",

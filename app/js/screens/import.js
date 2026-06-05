@@ -2,8 +2,16 @@
 // drag-anywhere overlay (main.js) routes dropped files here; the screen also
 // offers its own quiet drop target and a file picker. Parsing yields a sheet:
 // detected columns as editable role chips with confidence, a 20-row preview,
-// issues as gentle annotations (never blockers), a unitization choice with the
-// Director's advised default, a junk-queue summary, and ONE confirm button.
+// issues as gentle annotations (never blockers), a unitization choice, and
+// ONE confirm button.
+//
+// Live contract:
+//   POST import          → {importId, mapping: {columns: [{name, role,
+//                           confidence, stats}]} | null, preview: [...rows],
+//                           issues: [...]}
+//   POST import/confirm  → {importId, mapping: {textColumn}, unitization:
+//                           {scheme}} → {corpusId, unitCount, junkQueue:
+//                           {counts: {na, dup, bot, …}, flagged}}
 
 import { el, clear } from "../dom.js";
 import { store } from "../state.js";
@@ -11,7 +19,6 @@ import api from "../api.js";
 import * as router from "../router.js";
 import * as toast from "../components/toast.js";
 import * as table from "../components/table.js";
-import * as glyph from "../components/glyph.js";
 import { fmtCount, fmtPct } from "../format.js";
 import { screenHead, section, emptyState, loadingView, errorView, ensureProject, refreshProject } from "./_shared.js";
 
@@ -78,7 +85,7 @@ async function beginUpload(mount, params, file) {
   );
   try {
     const proposal = await api.imports.upload(params.slug, file);
-    renderSheet(mount, params, proposal);
+    renderSheet(mount, params, proposal, file);
   } catch (err) {
     clear(mount).append(
       screenHead({ overline: "Import", title: "The file did not parse." }),
@@ -87,30 +94,33 @@ async function beginUpload(mount, params, file) {
   }
 }
 
-function renderSheet(mount, params, proposal) {
+function renderSheet(mount, params, proposal, file) {
   clear(mount);
-  const columns = (proposal.columns ?? []).map((c) => ({ ...c }));
-  let unitization = proposal.unitization?.advised ?? "response";
+  // live: column roles ride under mapping.columns (null for column-less docs)
+  const columns = (proposal.mapping?.columns ?? []).map((c) => ({ ...c }));
+  const tabular = columns.length > 0;
+  // tabular rows unitize as response|sentence; document/transcript sources
+  // confirm with the server's format default (omit the scheme)
+  let unitization = tabular ? "response" : null;
 
   mount.append(screenHead({
     overline: "Import · review the mapping",
-    title: proposal.fileName ?? "Mapping",
-    lede: `${fmtCount(proposal.rows)} rows parsed locally. Adjust any column's role; nothing below blocks the import.`,
+    title: file?.name ?? "Mapping",
+    lede: `Parsed locally — ${fmtCount((proposal.preview ?? []).length)} preview rows below. Adjust any column's role; nothing here blocks the import.`,
   }));
 
   /* -- column role chips -- */
-  const colList = el("div", { class: "colchips" },
-    ...columns.map((col) => columnChip(col)),
-  );
-  mount.append(section("Detected columns", colList));
+  if (tabular) {
+    const colList = el("div", { class: "colchips" },
+      ...columns.map((col) => columnChip(col)),
+    );
+    mount.append(section("Detected columns", colList));
+  }
 
   /* -- 20-row preview -- */
-  const previewCols = columns.map((c) => ({
-    key: c.name,
-    label: c.name,
-    sortable: false,
-    numeric: c.role === "numeric",
-  }));
+  const previewCols = tabular
+    ? columns.map((c) => ({ key: c.name, label: c.name, sortable: false, numeric: c.role === "numeric" }))
+    : Object.keys(proposal.preview?.[0] ?? {}).map((k) => ({ key: k, label: k, sortable: false }));
   mount.append(section("Preview · first 20 rows",
     table.render({
       caption: "Import preview",
@@ -127,44 +137,35 @@ function renderSheet(mount, params, proposal) {
       el("ul", { class: "issuelist", role: "list" },
         ...proposal.issues.map((issue) =>
           el("li", { class: "issue" },
-            el("span", { class: "chip chip--signal issue__kind" }, `${issue.kind} · ${fmtCount(issue.count)}`),
-            el("span", { class: "issue__note" }, issue.note),
+            el("span", { class: "chip chip--signal issue__kind" },
+              `${issue.kind ?? "issue"}${issue.count !== undefined ? ` · ${fmtCount(issue.count)}` : ""}`),
+            el("span", { class: "issue__note" }, issue.note ?? issue.message ?? ""),
           ))),
     ));
   }
 
-  /* -- unitization -- */
-  const unitOptions = proposal.unitization?.options ?? [];
-  mount.append(section("Unit of analysis",
-    el("p", { class: "screen__hint" },
-      proposal.unitization?.advisedBy === "director" ? glyph.render({ authoredBy: "director", humanTouched: false }) : null,
-      " ", proposal.unitization?.note ?? "Choose what one measured unit is."),
-    el("div", { class: "choicelist choicelist--row", role: "radiogroup", aria: { label: "Unitization scheme" } },
-      ...unitOptions.map((opt) =>
-        el("label", { class: `choice choice--card${opt.estUnits === null ? " choice--disabled" : ""}` },
-          el("input", {
-            type: "radio", name: "unitization", value: opt.scheme,
-            checked: opt.scheme === unitization,
-            disabled: opt.estUnits === null,
-            onchange: () => { unitization = opt.scheme; },
-          }),
-          el("span", { class: "choice__text" },
-            el("span", { class: "choice__label" },
-              opt.label,
-              opt.scheme === (proposal.unitization?.advised) ? el("span", { class: "chip chip--ghost choice__advised" }, "advised") : null),
-            el("span", { class: "choice__hint" }, opt.hint),
-            opt.estUnits !== null ? el("span", { class: "choice__est data" }, `${fmtCount(opt.estUnits)} units`) : null),
-        ))),
-  ));
-
-  /* -- junk queue summary -- */
-  if (proposal.junkQueue) {
-    mount.append(section("Junk queue",
-      el("p", { class: "screen__hint" },
-        el("span", { class: "data" }, fmtCount(proposal.junkQueue.count)),
-        " rows look like placeholders (",
-        el("span", { class: "data" }, (proposal.junkQueue.examples ?? []).slice(0, 3).join(" · ")),
-        "). They import flagged and sit out of analyses until you restore them."),
+  /* -- unitization (tabular sources choose; documents take the format default) -- */
+  if (tabular) {
+    const options = [
+      { scheme: "response", label: "Response", hint: "one unit per row — the natural unit for survey open-ends" },
+      { scheme: "sentence", label: "Sentence", hint: "splits each row on sentence bounds — finer grain, more units" },
+    ];
+    mount.append(section("Unit of analysis",
+      el("p", { class: "screen__hint" }, "Choose what one measured unit is. Junk and duplicates are scanned at confirm and import flagged, never dropped."),
+      el("div", { class: "choicelist choicelist--row", role: "radiogroup", aria: { label: "Unitization scheme" } },
+        ...options.map((opt) =>
+          el("label", { class: "choice choice--card" },
+            el("input", {
+              type: "radio", name: "unitization", value: opt.scheme,
+              checked: opt.scheme === unitization,
+              onchange: () => { unitization = opt.scheme; },
+            }),
+            el("span", { class: "choice__text" },
+              el("span", { class: "choice__label" },
+                opt.label,
+                opt.scheme === "response" ? el("span", { class: "chip chip--ghost choice__advised" }, "advised") : null),
+              el("span", { class: "choice__hint" }, opt.hint)),
+          ))),
     ));
   }
 
@@ -177,11 +178,18 @@ function renderSheet(mount, params, proposal) {
       const progress = progressRule("Unitizing…");
       bar.replaceChildren(progress.el);
       try {
-        const mapping = Object.fromEntries(columns.map((c) => [c.name, c.role]));
-        const result = await api.imports.confirm(params.slug, { mapping, unitization });
+        // live confirm wants the text column by name + the scheme
+        const textColumn = columns.find((c) => c.role === "text")?.name;
+        const result = await api.imports.confirm(params.slug, {
+          importId: proposal.importId,
+          mapping: textColumn ? { textColumn } : {},
+          unitization: unitization ? { scheme: unitization } : {},
+        });
         progress.finish();
+        const junkCounts = result.junkQueue?.counts ?? {};
+        const junkTotal = Object.values(junkCounts).reduce((s, n) => s + n, 0);
         toast.success(`Corpus imported — ${fmtCount(result.unitCount)} units.`, {
-          detail: `${fmtCount(result.junkQueue ?? 0)} junk-queued · ${unitization} unitization`, data: true,
+          detail: `${fmtCount(junkTotal)} junk-queued${unitization ? ` · ${unitization} unitization` : ""}`, data: true,
         });
         await refreshProject(params.slug).catch(() => {});
         router.navigate(`p/${params.slug}/corpus/${result.corpusId}/instant`);

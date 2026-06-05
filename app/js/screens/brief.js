@@ -13,8 +13,8 @@ import * as toast from "../components/toast.js";
 import * as quotecard from "../components/quotecard.js";
 import * as glyph from "../components/glyph.js";
 import * as ladder from "../components/ladder.js";
-import { fmtCount, fmtDate, fmtPct } from "../format.js";
-import { section, emptyState, errorView, ensureProject, estimateChips, setReading, backLink, mdInline } from "./_shared.js";
+import { fmtCount, fmtDate } from "../format.js";
+import { section, emptyState, errorView, ensureProject, setReading, backLink, mdInline } from "./_shared.js";
 
 export const route = "p/:slug/brief/:bid";
 export const title = "Corpus Brief";
@@ -84,9 +84,11 @@ function startStream(column, params, query, project) {
 
 /* ---- stored ------------------------------------------------------------------- */
 
+// Live artifact (GET briefs/:bid): {id, corpusId, createdAt, authoredBy,
+// humanTouched, unitOfAnalysis, paragraphs: [{md, refs}], themes: [{name,
+// definition, quoteRefs}], redFlags: [{kind, detail, refs}],
+// suggestedQuestions, sample: {n, design, …}, issues: {invalidRefs}}.
 async function renderStored(column, params, project) {
-  // The persisted artifact: GET /api/projects/:p/briefs/:bid (fixtures serve
-  // the same shape). 404 → the shelf is empty; other failures → error view.
   let brief = null;
   try {
     brief = await api.brief.get(params.slug, params.bid);
@@ -106,31 +108,34 @@ async function renderStored(column, params, project) {
   }
 
   column.append(briefHead({
-    title: brief.title ?? "Corpus Brief",
+    title: "Corpus Brief",
     byline: null,
     humanTouched: brief.humanTouched,
-    sampleN: brief.sampleN ?? brief.sample?.n,
-    sampleDesign: brief.sampleDesign ?? brief.sample?.design,
+    sampleN: brief.sample?.n,
+    sampleDesign: brief.sample?.design,
     date: brief.createdAt,
-    model: brief.model,
-    costUSD: brief.costUSD,
   }));
+
+  if (brief.unitOfAnalysis) {
+    column.append(el("p", { class: "brief__unitline faint" },
+      el("span", { class: "overline" }, "unit of analysis"), " ", brief.unitOfAnalysis));
+  }
 
   const body = el("div", { class: "brief__body" });
   (brief.paragraphs ?? []).forEach((para, i) => body.append(paragraphEl(para, i + 1, { instant: false })));
   column.append(body);
 
-  /* -- themes -- */
+  /* -- themes: [{name, definition, quoteRefs}] -- */
   if (brief.themes?.length) {
     const themeList = el("ul", { class: "themelist", role: "list" },
       ...brief.themes.map((t) => {
-        const refs = t.refs ?? t.quoteRefs ?? [];
+        const refs = t.quoteRefs ?? [];
         return el("li", { class: "theme" },
           el("div", { class: "theme__head" },
-            el("span", { class: "theme__name" }, t.label ?? t.name),
+            el("span", { class: "theme__name" }, t.name),
             el("span", { class: "theme__share data" },
-              t.share !== undefined && t.share !== null ? fmtPct(t.share, 0) : "—",
-              " ", ladder.render({ level: "exploratory", size: "sm" }))),
+              ladder.render({ level: "exploratory", size: "sm" }))),
+          t.definition ? el("p", { class: "theme__def faint" }, t.definition) : null,
           refs.length
             ? el("p", { class: "theme__refs" },
                 "anchors: ",
@@ -139,49 +144,44 @@ async function renderStored(column, params, project) {
         );
       }),
     );
-    const est = brief.exploreEstimate ?? {};
     column.append(section("Candidate themes",
       themeList,
       el("div", { class: "ctacard ctacard--inline" },
         el("div", { class: "ctacard__text" },
           el("h3", { class: "ctacard__title" }, "Explore these themes"),
-          el("p", { class: "ctacard__line" }, est.note ?? "Compile instruments from these themes and run them across the corpus."),
-          el("p", { class: "ctacard__est" }, estimateChips({ units: est.units, calls: est.calls, usd: est.usd, etaMin: est.etaMin }))),
+          el("p", { class: "ctacard__line" }, "Accept themes as constructs, compile instruments, and preflight a run — every step states its price before it spends.")),
         el("button", {
           class: "btn btn--primary", type: "button",
-          onclick: async (e) => {
-            e.target.disabled = true;
-            try {
-              // compile = version the tuned judge via the Director, then hand off to preflight
-              await api.instruments.compile(params.slug, "inst_judge_s").catch(() => {});
-              toast.success("Instruments compiled from the brief's themes.", { detail: "review them under Instruments — then preflight the run" });
-              router.navigate(`p/${params.slug}/runs?preflight=inst_judge_s`);
-            } catch (err) {
-              e.target.disabled = false;
-              toast.error("Compilation failed.", { detail: String(err.message ?? err) });
-            }
-          },
-        }, "Compile & preflight")),
+          onclick: () => router.navigate(`p/${params.slug}/constructs`),
+        }, "Open the codebook")),
     ));
   }
 
-  /* -- red flags -- */
+  /* -- red flags: [{kind, detail, refs}] -- */
   if (brief.redFlags?.length) {
     column.append(section("Red flags, honestly stated",
       el("ul", { class: "flaglist", role: "list" },
         ...brief.redFlags.map((f) =>
           el("li", { class: "flag" },
             el("span", { class: "chip chip--signal" }, f.kind),
-            el("span", { class: "flag__note" }, f.note ?? f.detail, " ",
+            el("span", { class: "flag__note" }, f.detail, " ",
               ...(f.refs ?? []).map((id) => refChip(id))),
           ))),
     ));
+  }
+
+  /* -- suggested questions feed the Question Bar -- */
+  if (brief.suggestedQuestions?.length) {
+    column.append(section("Questions worth asking",
+      el("ul", { class: "qsuggest", role: "list" },
+        ...brief.suggestedQuestions.map((q) => el("li", { class: "qsuggest__item" }, "“", q, "”"))),
+      el("p", { class: "faint screen__hint" }, "Type one into the Question Bar (", el("kbd", {}, "/"), ") — it compiles to a visible plan before anything spends.")));
   }
 }
 
 /* ---- pieces ------------------------------------------------------------------------ */
 
-function briefHead({ title: t, byline, humanTouched = false, sampleN, sampleDesign, date, model, costUSD }) {
+function briefHead({ title: t, byline, humanTouched = false, sampleN, sampleDesign, date }) {
   return el("header", { class: "brief__head" },
     el("p", { class: "overline" }, "Corpus brief"),
     el("h1", { class: "brief__title" }, t),
@@ -191,8 +191,6 @@ function briefHead({ title: t, byline, humanTouched = false, sampleN, sampleDesi
         glyph.render({ authoredBy: "director", humanTouched })),
       date ? el("span", { class: "data faint" }, " · ", fmtDate(date)) : null,
       sampleN ? el("span", { class: "data faint" }, ` · ${fmtCount(sampleN)}-unit sample${sampleDesign ? ` (${sampleDesign})` : ""}`) : null,
-      model ? el("span", { class: "data faint" }, ` · ${model}`) : null,
-      costUSD !== undefined && costUSD !== null ? el("span", { class: "data faint" }, ` · $${costUSD.toFixed(2)}`) : null,
       byline ? el("span", { class: "faint" }, " ", byline) : null,
     ),
   );

@@ -26,12 +26,12 @@ export function render(mount, params) {
   const projectScoped = Boolean(params.slug);
   asyncMount(mount, async () => {
     const project = projectScoped ? await ensureProject(params.slug) : null;
-    const [settings, catalog, health] = await Promise.all([
-      api.settings.get().catch(() => null),
-      api.catalog.models().catch(() => ({})),
-      api.health().catch(() => null),
+    const [settings, catalogRes, health] = await Promise.all([
+      api.settings.get().catch(() => null),          // live: {keys, port}
+      api.catalog.models().catch(() => ({ providers: {} })), // live: {providers, cachedAt}
+      api.health().catch(() => null),                // live: {ok, version, providers: {name: bool}}
     ]);
-    return { project, settings, catalog, health };
+    return { project, settings, catalog: catalogRes?.providers ?? {}, health };
   }, ({ project, settings, catalog, health }) => {
     mount.append(screenHead({
       overline: projectScoped ? `Settings · ${project?.name ?? params.slug}` : "Settings",
@@ -47,10 +47,15 @@ export function render(mount, params) {
       return;
     }
 
-    /* ---- provider cards ---- */
+    /* ---- provider cards: names from health (the canonical list), key
+       state from settings.keys ({configured, apiKey: masked, baseUrl?}) ---- */
+    const providerNames = [...new Set([
+      ...Object.keys(health?.providers ?? {}),
+      ...Object.keys(settings.keys ?? {}),
+    ])];
     const provGrid = el("div", { class: "provgrid" });
-    for (const [name, prov] of Object.entries(settings.providers ?? {})) {
-      provGrid.append(providerCard(name, prov, health?.providers?.[name]));
+    for (const name of providerNames) {
+      provGrid.append(providerCard(name, settings.keys?.[name] ?? {}, health?.providers?.[name]));
     }
     mount.append(section("Providers", provGrid));
 
@@ -76,49 +81,53 @@ export function render(mount, params) {
               el("td", { class: "table__num data" }, String(m.pricing?.outUSDper1M ?? 0)),
               el("td", { class: "data settings__snapshot" }, m.snapshot ?? "—"))))))));
 
-    /* ---- Director slot ---- */
-    const director = { ...(settings.director ?? {}) };
-    const dirModels = (prov) => (catalog?.[prov] ?? []).map((m) => m.id);
-    const dirModelSel = el("select", { class: "input input--inline", "aria-label": "Director model" });
-    const fillDirModels = () => {
-      clear(dirModelSel);
-      for (const id of dirModels(director.provider)) {
-        dirModelSel.append(el("option", { value: id, selected: id === director.model }, id));
-      }
-    };
-    fillDirModels();
-    dirModelSel.addEventListener("change", () => { director.model = dirModelSel.value; });
+    /* ---- Director slot — a PROJECT field, saved via PUT /api/settings
+       {project: {slug, director}} (no global Director exists) ---- */
+    if (projectScoped && project) {
+      const director = { ...(project.director ?? {}) };
+      const dirModels = (prov) => (catalog?.[prov] ?? []).map((m) => m.id);
+      const dirModelSel = el("select", { class: "input input--inline", "aria-label": "Director model" });
+      const fillDirModels = () => {
+        clear(dirModelSel);
+        for (const id of dirModels(director.provider)) {
+          dirModelSel.append(el("option", { value: id, selected: id === director.model }, id));
+        }
+      };
+      fillDirModels();
+      dirModelSel.addEventListener("change", () => { director.model = dirModelSel.value; });
 
-    mount.append(section("The Director's slot",
-      el("p", { class: "screen__hint faint" },
-        "The Director drafts, compiles, tunes, escalates — and is metered like any other model. In strict mode it must be local."),
-      el("div", { class: "controlrow" },
-        el("label", { class: "controlrow__item" },
-          el("span", { class: "overline" }, "provider"),
-          el("select", {
-            class: "input input--inline", "aria-label": "Director provider",
-            onchange: (e) => { director.provider = e.target.value; fillDirModels(); director.model = dirModelSel.value; },
-          }, ...Object.keys(catalog ?? {}).map((p) => el("option", { value: p, selected: p === director.provider }, p)))),
-        el("label", { class: "controlrow__item" }, el("span", { class: "overline" }, "model"), dirModelSel),
-        el("button", {
-          class: "btn", type: "button",
-          onclick: async (e) => {
-            e.target.disabled = true;
-            try {
-              await api.settings.update({ director });
-              toast.success("Director updated.", { detail: `${director.provider} · ${director.model}`, data: true });
-            } catch (err) {
-              toast.error("Could not update the Director.", { detail: String(err.message ?? err) });
-            }
-            e.target.disabled = false;
-          },
-        }, "Save")),
-      el("label", { class: "field" },
-        el("span", { class: "field__label overline" }, "system suffix — appended to every Director prompt"),
-        el("textarea", {
-          class: "input textarea", rows: 2, "aria-label": "Director system suffix",
-          oninput: (e) => { director.systemSuffix = e.target.value; },
-        }, director.systemSuffix ?? ""))));
+      mount.append(section("The Director's slot",
+        el("p", { class: "screen__hint faint" },
+          "The Director drafts, compiles, tunes, escalates — and is metered like any other model. In strict mode it must be local."),
+        el("div", { class: "controlrow" },
+          el("label", { class: "controlrow__item" },
+            el("span", { class: "overline" }, "provider"),
+            el("select", {
+              class: "input input--inline", "aria-label": "Director provider",
+              onchange: (e) => { director.provider = e.target.value; fillDirModels(); director.model = dirModelSel.value; },
+            }, ...Object.keys(catalog ?? {}).map((p) => el("option", { value: p, selected: p === director.provider }, p)))),
+          el("label", { class: "controlrow__item" }, el("span", { class: "overline" }, "model"), dirModelSel),
+          el("button", {
+            class: "btn", type: "button",
+            onclick: async (e) => {
+              e.target.disabled = true;
+              try {
+                if (!director.model) director.model = dirModelSel.value;
+                await api.settings.update({ project: { slug: params.slug, director } });
+                toast.success("Director updated.", { detail: `${director.provider} · ${director.model}`, data: true });
+              } catch (err) {
+                toast.error("Could not update the Director.", { detail: String(err.message ?? err) });
+              }
+              e.target.disabled = false;
+            },
+          }, "Save")),
+        el("label", { class: "field" },
+          el("span", { class: "field__label overline" }, "system suffix — appended to every Director prompt"),
+          el("textarea", {
+            class: "input textarea", rows: 2, "aria-label": "Director system suffix",
+            oninput: (e) => { director.systemSuffix = e.target.value; },
+          }, director.systemSuffix ?? ""))));
+    }
 
     /* ---- project-scoped: privacy + budget ---- */
     if (projectScoped && project) {
@@ -160,11 +169,17 @@ export function render(mount, params) {
 
 /* ================= pieces ================================================================ */
 
-function providerCard(name, prov, reachable) {
+// Live key entry (GET /api/settings → keys[name]): {configured, apiKey:
+// <masked>, baseUrl?}. Reachability is the health probe's boolean. Keys save
+// via PUT /api/settings {keys: {name: <key>}} → response keys[name].apiKey.
+const LOCAL_PROVIDERS = new Set(["ollama", "mock"]);
+
+function providerCard(name, entry, reachable) {
+  const local = LOCAL_PROVIDERS.has(name);
   const dot = el("span", {
-    class: `status-dot ${reachable === true || prov.reachable ? "status-dot--ok" : reachable === false ? "status-dot--down" : ""}`,
+    class: `status-dot ${reachable === true ? "status-dot--ok" : reachable === false ? "status-dot--down" : ""}`,
     role: "img",
-    aria: { label: `${name} ${reachable === true || prov.reachable ? "reachable" : "not reachable"}` },
+    aria: { label: `${name} ${reachable === true ? "reachable" : "not reachable"}` },
   });
   const keyHost = el("div", { class: "provcard__key" });
 
@@ -185,8 +200,8 @@ function providerCard(name, prov, reachable) {
           if (!input.value.trim()) { input.focus(); return; }
           e.target.disabled = true;
           try {
-            const updated = await api.settings.update({ providers: { [name]: { key: input.value.trim() } } });
-            const masked = updated?.providers?.[name]?.keyMasked ?? maskKey(input.value.trim());
+            const updated = await api.settings.update({ keys: { [name]: input.value.trim() } });
+            const masked = updated?.keys?.[name]?.apiKey ?? maskKey(input.value.trim());
             toast.success(`${name} key saved.`, { detail: "stored in config/keys.json — outside every bundle", data: false });
             paintMasked(masked);
           } catch (err) {
@@ -198,20 +213,19 @@ function providerCard(name, prov, reachable) {
     input.focus();
   };
 
-  if (prov.local) {
-    keyHost.append(el("span", { class: "faint" }, prov.baseUrl ?? "local — no key needed"));
+  if (local) {
+    keyHost.append(el("span", { class: "faint" }, entry.baseUrl ?? "local — no key needed"));
   } else {
-    paintMasked(prov.keyMasked);
+    paintMasked(entry.configured ? entry.apiKey ?? "•••• saved" : null);
   }
 
   return el("div", { class: "provcard" },
     el("div", { class: "provcard__head" },
       dot,
       el("h3", { class: "provcard__name" }, name),
-      el("span", { class: "chip" }, prov.family ?? ""),
-      prov.local ? el("span", { class: "chip chip--ghost" }, "local") : null),
+      local ? el("span", { class: "chip chip--ghost" }, "local") : null),
     keyHost,
-    prov.note ? el("p", { class: "faint provcard__note" }, prov.note) : null,
+    name === "mock" ? el("p", { class: "faint provcard__note" }, "deterministic, $0 — powers the keyless demo and tests") : null,
   );
 }
 

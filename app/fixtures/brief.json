@@ -4,14 +4,10 @@
   "createdAt": "2026-06-01T09:32:00Z",
   "authoredBy": "director",
   "humanTouched": false,
-  "sampleN": 312,
-  "sampleDesign": "stratified by length tercile × dept",
-  "costUSD": 0.13,
-  "model": "claude-sonnet-4-5 (claude-sonnet-4-5-20250929)",
-  "title": "What 2,500 people said on the way out",
+  "unitOfAnalysis": "One exit-survey response per row (one respondent each).",
   "paragraphs": [
     {
-      "md": "This corpus is 2,500 exit-survey open-ends from a single employer, written between January and December 2025. The voice is unusually candid for HR data — respondents are already gone, and it shows. Most answers are short and pointed (median 19 words), but a quarter run past 50 words and read as carefully composed parting statements. About 3% are written in Spanish, concentrated in LATAM-region Sales and Support; 61 rows are placeholder junk and 24 are duplicates, both already queued out of analysis.",
+      "md": "This corpus is 2,500 exit-survey open-ends from a single employer, written between January and December 2025. The voice is unusually candid for HR data — respondents are already gone, and it shows. Most answers are short and pointed (median 19 words), but a quarter run past 50 words and read as carefully composed parting statements. About 3% are written in Spanish, concentrated in LATAM-region Sales and Support; junk placeholders and duplicates are already queued out of analysis.",
       "refs": ["u_2847f1a09c3d55b2", "u_91b3c07d2e8f4a16", "u_84d5f1b7e0c3a926"]
     },
     {
@@ -29,25 +25,30 @@
     {
       "md": "**Two quieter themes are worth instruments of their own.** Blocked growth — promised promotions, external hires over internal candidates, development plans that never materialize — appears at moderate frequency but with high intensity. Remote-policy anger is newer, dated to the return-to-office mandate, and is the only theme with a sharp regional skew: LATAM respondents note the mandate assumed an office that does not exist in their country.",
       "refs": ["u_55e0a9d4b7c2f311", "u_16d9a4e7f2c50b38", "u_a8f04c6e3b92d715", "u_30e6c2f8b9a4d157"]
-    },
-    {
-      "md": "**Red flags, honestly stated.** First, sarcasm and mixed-valence answers (\"the work was the best of my career; the pace was not survivable\") will defeat naive sentiment scoring — treat the VADER sketch as a sketch. Second, the duplicate and bot-like rows suggest some survey-channel noise. Third, 18 responses name individuals and should stay pseudonymized in anything that leaves this room. None of this blocks measurement; all of it belongs in the methods section.",
-      "refs": ["u_d94a7c1e5b28f063", "u_8800c1d2e4a90b77", "u_58b0c7f3e6a14d92", "u_55e0a9d4b7c2f311"]
     }
   ],
   "themes": [
-    { "name": "pay", "label": "Pay & compensation", "share": 0.28, "refs": ["u_03d7e8a1f4b2c690", "u_d12f4a86c3e09b58", "u_3e8c5d0f7a92b441"] },
-    { "name": "workload-burnout", "label": "Workload & burnout", "share": 0.25, "refs": ["u_1f8d3c5b9e72a044", "u_9a4e7b1c2f86d520", "u_b3c1f5d8a07e2964"] },
-    { "name": "management", "label": "Management churn", "share": 0.22, "refs": ["u_c6a91e2f7d40b833", "u_7e50b3d9a2c4f181", "u_0b6f9a2d8c45e317"] },
-    { "name": "growth", "label": "Blocked growth", "share": 0.18, "refs": ["u_55e0a9d4b7c2f311", "u_16d9a4e7f2c50b38", "u_e73a1d49c8b5f026"] },
-    { "name": "remote-policy", "label": "Remote policy", "share": 0.12, "refs": ["u_a8f04c6e3b92d715", "u_6c1e5a9d4f28b073", "u_30e6c2f8b9a4d157"] },
-    { "name": "quit-regret", "label": "Quit regret", "share": 0.06, "refs": ["u_92c8b4f6a1e7d503"] }
+    { "name": "Pay & compensation", "definition": "The response treats pay, salary, equity, or comp process as a decisive grievance.", "quoteRefs": ["u_03d7e8a1f4b2c690", "u_d12f4a86c3e09b58", "u_3e8c5d0f7a92b441"] },
+    { "name": "Workload & burnout", "definition": "The response describes unsustainable workload, hours, on-call, or exhaustion as decisive.", "quoteRefs": ["u_1f8d3c5b9e72a044", "u_9a4e7b1c2f86d520", "u_b3c1f5d8a07e2964"] },
+    { "name": "Management churn", "definition": "The response faults manager quality, reorgs, or leadership absence.", "quoteRefs": ["u_c6a91e2f7d40b833", "u_7e50b3d9a2c4f181", "u_0b6f9a2d8c45e317"] },
+    { "name": "Blocked growth", "definition": "The response cites missing promotion, development, or career path.", "quoteRefs": ["u_55e0a9d4b7c2f311", "u_16d9a4e7f2c50b38", "u_e73a1d49c8b5f026"] },
+    { "name": "Remote policy", "definition": "The response objects to the RTO mandate or lost location flexibility.", "quoteRefs": ["u_a8f04c6e3b92d715", "u_6c1e5a9d4f28b073", "u_30e6c2f8b9a4d157"] }
   ],
   "redFlags": [
-    { "kind": "sarcasm", "note": "Sarcasm and mixed valence are common in low-satisfaction rows; sentiment lexicons will misread them.", "refs": ["u_8800c1d2e4a90b77", "u_d94a7c1e5b28f063"] },
-    { "kind": "duplicates", "note": "24 exact duplicates suggest a survey-channel echo; they are flagged, not dropped.", "refs": ["u_4b9c2e7d80a1f355", "u_58b0c7f3e6a14d92"] },
-    { "kind": "pii", "note": "18 responses name individuals; pseudonymization is reversible and vaulted outside the bundle.", "refs": ["u_55e0a9d4b7c2f311"] }
+    { "kind": "sarcasm", "detail": "Sarcasm and mixed valence are common in low-satisfaction rows; sentiment lexicons will misread them.", "refs": ["u_8800c1d2e4a90b77", "u_d94a7c1e5b28f063"] },
+    { "kind": "duplicates", "detail": "24 exact duplicates suggest a survey-channel echo; they are flagged, not dropped.", "refs": ["u_4b9c2e7d80a1f355", "u_58b0c7f3e6a14d92"] },
+    { "kind": "pii", "detail": "Some responses name individuals; pseudonymization is reversible and vaulted outside the bundle.", "refs": ["u_55e0a9d4b7c2f311"] }
   ],
-  "suggestedUnit": "response",
-  "exploreEstimate": { "usd": 1.9, "etaMin": 12, "units": 2500, "calls": 2500, "note": "compile 6 theme instruments, run the tuned judge across the corpus" }
+  "suggestedQuestions": [
+    "Which departments complain most about pay?",
+    "Do people who complain about pay also mention quitting?"
+  ],
+  "sample": {
+    "n": 312,
+    "design": "length-terciles × meta cells",
+    "strataColumn": "dept",
+    "strata": 18,
+    "unitIds": ["u_2847f1a09c3d55b2", "u_91b3c07d2e8f4a16", "u_55e0a9d4b7c2f311", "u_8800c1d2e4a90b77", "u_03d7e8a1f4b2c690"]
+  },
+  "issues": { "invalidRefs": 0 }
 }
