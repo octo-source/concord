@@ -1,0 +1,100 @@
+/* ============================================================================
+   Concord — print
+   Publication grade: black ink on white, serif body for verbatims, hairline
+   rules survive, charts stay vector, data twins print open. Methods pages and
+   report canvases are the primary print surfaces.
+   ========================================================================= */
+
+@media print {
+
+  @page {
+    margin: 22mm 20mm;
+  }
+
+  :root, [data-theme="dark"] {
+    /* print is always the paper theme, in true black for ink economy of tone */
+    --ground: #FFFFFF;
+    --paper-raised: #FFFFFF;
+    --paper-recessed: #FFFFFF;
+    --ink: #000000;
+    --ink-muted: #222222;
+    --ink-faint: #444444;
+    --ink-ghost: #777777;
+    --accent: #000000;
+    --accent-hover: #000000;
+    --gold: #8A6508;
+    --gold-text: #5e4505;
+    --machine: #1d3557;
+    --machine-text: #1d3557;
+    --signal: #8c3a00;
+    --signal-text: #8c3a00;
+    --rule-color: #00000033;
+    --rule-color-strong: #00000066;
+    --shadow-lift: none;
+  }
+
+  html, body {
+    background: #fff !important;
+    color: #000;
+    font-size: 11pt;
+  }
+
+  /* chrome handled structurally in base.css; belt and braces here */
+  .app-topbar, .app-rail, .app-inspector, .toast-shelf, .skip-link,
+  .theme-toggle, .qbar { display: none !important; }
+
+  .work-page { max-width: none; padding: 0; }
+
+  h1, h2, h3 {
+    break-after: avoid;
+    page-break-after: avoid;
+  }
+  p, .quote { orphans: 3; widows: 3; }
+
+  a { color: #000; text-decoration: none; }
+  /* external citation URLs print themselves */
+  a[href^="http"]::after {
+    content: " (" attr(href) ")";
+    font-size: 0.85em;
+    color: #444;
+  }
+
+  .quote { break-inside: avoid; page-break-inside: avoid; }
+  .quote::before { color: #999; }
+
+  /* tables: repeat headers, avoid splitting rows */
+  .tablewrap { max-height: none; overflow: visible; border-color: #00000066; }
+  .table thead { display: table-header-group; }
+  .table tbody tr { break-inside: avoid; page-break-inside: avoid; }
+  .table thead th { position: static; }
+
+  /* charts: vector, with their data twins opened beneath */
+  .chart { break-inside: avoid; page-break-inside: avoid; }
+  .chart__data { display: block; }
+  .chart__data summary { display: none; }
+  .chart__data table { display: table; }
+  .chart__svg text { fill: #000; }
+  .chart__tick, .chart__axislabel { fill: #444; }
+
+  .confusion-wrap { break-inside: avoid; page-break-inside: avoid; }
+  .confusion__cell { border: 0.5pt solid #888; }
+
+  /* evidence doors are interactive affordances — neutralize on paper */
+  [data-evidence] { cursor: default; }
+  .table__evidence { border-bottom: none; }
+
+  /* ladder marks and watermarks must survive in monochrome */
+  .ladder__mark { color: #000 !important; }
+  .ladder__pop, .dglyph__pop { display: none; }
+
+  /* exploratory watermark hook: screens add .print-watermark to ◌ exports */
+  .print-watermark::after {
+    content: "◌ EXPLORATORY — uncalibrated";
+    display: block;
+    margin-top: 4pt;
+    font-family: var(--font-mono);
+    font-size: 8pt;
+    letter-spacing: 0.12em;
+    color: #666;
+  }
+}

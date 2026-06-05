@@ -1,0 +1,238 @@
+/* ============================================================================
+   Concord — base
+   Reset, typographic defaults, the three-zone shell grid, focus and print
+   plumbing. Components live in components.css; tokens in tokens.css.
+   ========================================================================= */
+
+/* ---- reset ---------------------------------------------------------------- */
+
+*, *::before, *::after { box-sizing: border-box; }
+
+* { margin: 0; }
+
+html {
+  height: 100%;
+  -webkit-text-size-adjust: 100%;
+  text-size-adjust: 100%;
+}
+
+body {
+  height: 100%;
+  background: var(--ground);
+  color: var(--ink);
+  font-family: var(--font-sans);
+  font-size: var(--fs-body);
+  line-height: var(--lh-body);
+  font-synthesis-weight: none;
+  -webkit-font-smoothing: antialiased;
+  text-rendering: optimizeLegibility;
+}
+
+img, svg, canvas { display: block; max-width: 100%; }
+
+input, button, textarea, select {
+  font: inherit;
+  color: inherit;
+}
+
+button {
+  background: none;
+  border: none;
+  padding: 0;
+  cursor: pointer;
+}
+
+p, h1, h2, h3, h4, h5, h6 { overflow-wrap: break-word; }
+
+ul[role="list"], ol[role="list"], .plain-list {
+  list-style: none;
+  padding: 0;
+}
+
+/* ---- typography ----------------------------------------------------------- */
+
+h1, h2, h3, h4 {
+  font-family: var(--font-serif);
+  font-optical-sizing: auto;
+  font-weight: 600;
+  line-height: var(--lh-tight);
+  letter-spacing: -0.01em;
+}
+
+h1 { font-size: var(--fs-display); font-weight: 900; }
+h2 { font-size: var(--fs-title); }
+h3 { font-size: var(--fs-section); }
+h4 { font-size: var(--fs-body); }
+
+a {
+  color: var(--accent);
+  text-decoration: underline;
+  text-decoration-thickness: 1px;
+  text-underline-offset: 0.15em;
+  text-decoration-color: color-mix(in oklab, var(--accent) 45%, transparent);
+  transition: color var(--t-fast) var(--ease), text-decoration-color var(--t-fast) var(--ease);
+}
+a:hover { color: var(--accent-hover); text-decoration-color: currentColor; }
+
+code, kbd, samp, pre {
+  font-family: var(--font-mono);
+  font-size: 0.9em;
+}
+
+kbd {
+  display: inline-block;
+  padding: 0 0.4em;
+  border: var(--rule);
+  border-bottom-width: 2px;
+  border-radius: var(--r-sm);
+  background: var(--paper-raised);
+  font-size: var(--fs-micro);
+  line-height: 1.6;
+  color: var(--ink-muted);
+}
+
+::selection { background: var(--accent-wash); color: var(--ink); }
+
+/* the section voice: letterspaced caps label, Plex Sans 600 */
+.overline {
+  font-family: var(--font-sans);
+  font-size: var(--fs-micro);
+  font-weight: 600;
+  letter-spacing: var(--track-caps);
+  text-transform: uppercase;
+  color: var(--ink-faint);
+}
+
+.muted { color: var(--ink-muted); }
+.faint { color: var(--ink-faint); }
+
+/* quiet thin scrollbars — the page, not chrome */
+* {
+  scrollbar-width: thin;
+  scrollbar-color: var(--rule-color-strong) transparent;
+}
+*::-webkit-scrollbar { width: 8px; height: 8px; }
+*::-webkit-scrollbar-thumb {
+  background: var(--rule-color-strong);
+  border-radius: var(--r-pill);
+}
+*::-webkit-scrollbar-track { background: transparent; }
+
+/* ---- focus ---------------------------------------------------------------- */
+
+:focus { outline: none; }
+:focus-visible {
+  outline: var(--focus-ring);
+  outline-offset: var(--focus-offset);
+  border-radius: var(--r-sm);
+}
+
+/* skip link — first tab stop */
+.skip-link {
+  position: absolute;
+  left: var(--s4);
+  top: -3rem;
+  z-index: calc(var(--z-topbar) + 1);
+  padding: var(--s2) var(--s3);
+  background: var(--paper-raised);
+  border: var(--rule);
+  border-radius: var(--r-md);
+  color: var(--accent);
+  transition: top var(--t-fast) var(--ease);
+}
+.skip-link:focus { top: var(--s2); }
+
+/* screen-reader-only (chart table twins, live regions) */
+.sr-only {
+  position: absolute !important;
+  width: 1px; height: 1px;
+  padding: 0; margin: -1px;
+  overflow: hidden;
+  clip-path: inset(50%);
+  white-space: nowrap;
+  border: 0;
+}
+
+/* ---- the three-zone shell -------------------------------------------------
+   topbar across the top; under it: rail 260 / workspace fluid / inspector 360.
+   The inspector column animates 0 → 360px (200ms slide); panel content keeps
+   a fixed width so type does not reflow during the slide. ------------------ */
+
+.app {
+  height: 100vh;
+  display: grid;
+  grid-template-rows: var(--topbar-h) minmax(0, 1fr);
+  grid-template-columns: var(--rail-w) minmax(0, 1fr) 0px;
+  grid-template-areas:
+    "topbar topbar topbar"
+    "rail   work   inspector";
+  transition: grid-template-columns var(--t-med) var(--ease);
+}
+
+.app[data-inspector="open"] {
+  grid-template-columns: var(--rail-w) minmax(0, 1fr) var(--inspector-w);
+}
+
+/* full-bleed reading/coding: the chrome recedes, the text owns the page */
+.app[data-fullbleed] {
+  grid-template-columns: 0px minmax(0, 1fr) 0px;
+}
+.app[data-fullbleed] .app-rail,
+.app[data-fullbleed] .app-inspector { visibility: hidden; }
+
+.app-topbar {
+  grid-area: topbar;
+  z-index: var(--z-topbar);
+  display: flex;
+  align-items: center;
+  gap: var(--s4);
+  padding: 0 var(--s4);
+  border-bottom: var(--rule);
+  background: var(--ground);
+}
+
+.app-rail {
+  grid-area: rail;
+  z-index: var(--z-rail);
+  overflow-y: auto;
+  overflow-x: hidden;
+  border-right: var(--rule);
+  background: var(--ground);
+  display: flex;
+  flex-direction: column;
+}
+
+.app-work {
+  grid-area: work;
+  overflow-y: auto;
+  min-width: 0;
+  /* center column reads like a page: content sets its own measure */
+  scroll-padding-top: var(--s5);
+}
+
+.app-inspector {
+  grid-area: inspector;
+  z-index: var(--z-inspector);
+  overflow: hidden;
+  border-left: var(--rule);
+  background: var(--paper-raised);
+}
+
+/* workspace inner measure for screen content */
+.work-page {
+  max-width: 64rem;
+  margin: 0 auto;
+  padding: var(--s6) var(--s6) var(--s8);
+}
+
+.work-page--reading { max-width: 42rem; } /* full-bleed Brief column */
+
+/* ---- print hooks -----------------------------------------------------------
+   print.css carries the publication styles; here only the structural switch:
+   chrome vanishes, the work column becomes the page. ----------------------- */
+
+@media print {
+  .app { display: block; height: auto; }
+  .app-topbar, .app-rail, .app-inspector, .toast-shelf, .skip-link { display: none !important; }
+  .app-work { overflow: visible; }
+}

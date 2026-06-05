@@ -1,0 +1,274 @@
+/* ============================================================================
+   Concord — design tokens
+   ----------------------------------------------------------------------------
+   The reading room: paper and ink, one accent, typography does the talking.
+
+   Two themes share one set of semantic names. The ENCODINGS are fixed across
+   the whole product and never repurposed:
+
+     --gold     warm gold      = human / gold-standard            (#B8860B family)
+     --machine  ink blue       = machine-produced labels/numbers  (#2B4C7E family)
+     --signal   signal orange  = disagreement / uncertainty       (#C75000 family)
+
+     corrected estimates   = SOLID fills (◉)
+     uncorrected / naive   = HOLLOW or HATCHED fills (--hatch, or in SVG the
+                             chart-local <pattern> convention: a 6×6 user-space
+                             pattern of 45° hairlines stroked in currentColor —
+                             see app/js/components/charts/bar.js, hatchPattern()).
+
+   Evidence-ladder marks (rendered wherever a number is):
+     ◌ exploratory   ◑ stabilized   ● calibrated   ◉ corrected
+
+   Contrast (WCAG, computed against ground):
+     light: ink 16.6 · muted 6.98 · faint 4.91 · accent 5.54 · machine 8.06
+            gold-text 4.98 · signal-text 5.67   (gold mark 3.05 ≥3:1 marks-only)
+     dark:  ink 13.0 · muted 7.11 · faint 5.04 · accent 5.95 · machine 6.79
+            gold 7.27 · signal 6.30
+   ========================================================================= */
+
+/* ---- vendored faces (tools/fetch-fonts.js) ------------------------------ */
+
+@font-face {
+  font-family: "Fraunces";
+  src: url("../fonts/fraunces-400.woff2") format("woff2");
+  font-weight: 400; font-style: normal; font-display: swap;
+}
+@font-face {
+  font-family: "Fraunces";
+  src: url("../fonts/fraunces-400-italic.woff2") format("woff2");
+  font-weight: 400; font-style: italic; font-display: swap;
+}
+@font-face {
+  font-family: "Fraunces";
+  src: url("../fonts/fraunces-600.woff2") format("woff2");
+  font-weight: 600; font-style: normal; font-display: swap;
+}
+@font-face {
+  font-family: "Fraunces";
+  src: url("../fonts/fraunces-900.woff2") format("woff2");
+  font-weight: 900; font-style: normal; font-display: swap;
+}
+@font-face {
+  font-family: "IBM Plex Sans";
+  src: url("../fonts/ibm-plex-sans-400.woff2") format("woff2");
+  font-weight: 400; font-style: normal; font-display: swap;
+}
+@font-face {
+  font-family: "IBM Plex Sans";
+  src: url("../fonts/ibm-plex-sans-400-italic.woff2") format("woff2");
+  font-weight: 400; font-style: italic; font-display: swap;
+}
+@font-face {
+  font-family: "IBM Plex Sans";
+  src: url("../fonts/ibm-plex-sans-500.woff2") format("woff2");
+  font-weight: 500; font-style: normal; font-display: swap;
+}
+@font-face {
+  font-family: "IBM Plex Sans";
+  src: url("../fonts/ibm-plex-sans-600.woff2") format("woff2");
+  font-weight: 600; font-style: normal; font-display: swap;
+}
+@font-face {
+  font-family: "IBM Plex Mono";
+  src: url("../fonts/ibm-plex-mono-400.woff2") format("woff2");
+  font-weight: 400; font-style: normal; font-display: swap;
+}
+@font-face {
+  font-family: "IBM Plex Mono";
+  src: url("../fonts/ibm-plex-mono-500.woff2") format("woff2");
+  font-weight: 500; font-style: normal; font-display: swap;
+}
+
+/* ---- light: paper -------------------------------------------------------- */
+
+:root {
+  color-scheme: light;
+
+  /* ground */
+  --ground:         #FAF7F2;   /* the page */
+  --paper-raised:   #FFFEFA;   /* cards, sheets that sit on the page */
+  --paper-recessed: #F2EDE4;   /* wells, code/prompt beds, input grounds */
+  --ground-veil:    rgba(250, 247, 242, 0.86); /* scrims over the page */
+
+  /* ink */
+  --ink:        #1A1815;       /* primary text          16.6:1 */
+  --ink-muted:  #5B544B;       /* secondary text         6.98:1 */
+  --ink-faint:  #736B61;       /* captions, hints        4.91:1 */
+  --ink-ghost:  #A39A8D;       /* decorative only — never running text */
+
+  /* one accent: deep teal */
+  --accent:        #1F6F6B;    /* 5.54:1 — link/text safe */
+  --accent-hover:  #185955;
+  --accent-active: #134743;
+  --accent-ink:    #FAF7F2;    /* text on accent fills */
+  --accent-wash:   rgba(31, 111, 107, 0.09);
+
+  /* semantic constants — FIXED ENCODINGS */
+  --gold:        #B8860B;      /* human / gold-standard — marks & fills (3.05 ≥ 3:1) */
+  --gold-text:   #8A6508;      /* gold for small text (4.98:1) */
+  --gold-wash:   rgba(184, 134, 11, 0.10);
+  --machine:     #2B4C7E;      /* machine output (8.06:1, text-safe) */
+  --machine-text:#2B4C7E;
+  --machine-wash:rgba(43, 76, 126, 0.08);
+  --signal:      #C75000;      /* disagreement / uncertainty — marks & fills (4.29) */
+  --signal-text: #A84300;      /* signal for small text (5.67:1) */
+  --signal-wash: rgba(199, 80, 0, 0.09);
+
+  /* hatch = "uncorrected" for HTML surfaces (SVG charts build their own
+     <pattern> in currentColor — see tokens header) */
+  --hatch: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='6' height='6'%3E%3Cpath d='M-1.5 7.5 7.5-1.5M-1.5 1.5 1.5-1.5M4.5 7.5 7.5 4.5' stroke='%232B4C7E' stroke-width='1' opacity='0.5'/%3E%3C/svg%3E");
+
+  /* content-category hues — dictionary highlights, multi-category chips.
+     NOT semantic constants; deliberately distant from gold/machine/signal. */
+  --cat-0: #1F6F6B;   /* teal   (the accent)  */
+  --cat-1: #7E4E78;   /* plum                 */
+  --cat-2: #5F7038;   /* moss                 */
+  --cat-3: #96572F;   /* copper               */
+  --cat-4: #5B4E9E;   /* indigo               */
+  --cat-5: #4E7D8A;   /* slate-cyan           */
+
+  /* rules — hairlines, never heavier than data */
+  --rule-color:        color-mix(in oklab, var(--ink) 14%, transparent);
+  --rule-color-strong: color-mix(in oklab, var(--ink) 32%, transparent);
+  --rule:        1px solid var(--rule-color);
+  --rule-strong: 1px solid var(--rule-color-strong);
+
+  /* type */
+  --font-serif: "Fraunces", "Iowan Old Style", "Palatino Linotype", Georgia, serif;
+  --font-sans:  "IBM Plex Sans", "Segoe UI", system-ui, -apple-system, sans-serif;
+  --font-mono:  "IBM Plex Mono", "Cascadia Mono", Consolas, "SF Mono", monospace;
+
+  --fs-display: 2.125rem;  /* 34 — Fraunces 900, the Brief, big headings */
+  --fs-title:   1.5rem;    /* 24 — Fraunces 600, screen titles */
+  --fs-section: 1.125rem;  /* 18 — Fraunces 600, section voice */
+  --fs-body:    0.9375rem; /* 15 — Plex Sans */
+  --fs-caption: 0.8125rem; /* 13 — Plex Sans, secondary */
+  --fs-data:    0.8125rem; /* 13 — Plex Mono, values/labels/costs */
+  --fs-micro:   0.6875rem; /* 11 — Plex Mono, axis ticks, chips */
+  --fs-quote:   1.0625rem; /* 17 — Fraunces 400, verbatims */
+
+  --lh-tight: 1.25;
+  --lh-body:  1.55;
+  --lh-quote: 1.6;
+
+  --track-caps: 0.08em;    /* letterspaced small caps / section labels */
+
+  /* spacing — 4px base */
+  --s1: 0.25rem;  /*  4 */
+  --s2: 0.5rem;   /*  8 */
+  --s3: 0.75rem;  /* 12 */
+  --s4: 1rem;     /* 16 */
+  --s5: 1.5rem;   /* 24 */
+  --s6: 2rem;     /* 32 */
+  --s7: 3rem;     /* 48 */
+  --s8: 4rem;     /* 64 */
+
+  /* radii — minimal; paper has corners, not pebbles */
+  --r-sm: 2px;
+  --r-md: 4px;
+  --r-pill: 999px;
+
+  /* shadows — paper sits flat; only floating layers get a breath of depth */
+  --shadow-lift: 0 1px 2px rgba(26, 24, 21, 0.05), 0 12px 32px -20px rgba(26, 24, 21, 0.28);
+  --shadow-hairline: 0 0 0 1px var(--rule-color);
+
+  /* motion — typesetting, not theater */
+  --t-fast: 150ms;
+  --t-med:  200ms;
+  --t-slow: 250ms;
+  --ease:      cubic-bezier(0.3, 0, 0.2, 1);
+  --ease-exit: cubic-bezier(0.4, 0, 1, 1);
+
+  /* focus — visible, deliberate, not the UA default */
+  --focus-ring: 2px solid var(--accent);
+  --focus-offset: 2px;
+
+  /* layout */
+  --rail-w:      260px;
+  --inspector-w: 360px;
+  --topbar-h:    3.5rem;
+
+  /* layers */
+  --z-rail: 10;
+  --z-inspector: 20;
+  --z-topbar: 30;
+  --z-toast: 40;
+  --z-popover: 50;
+}
+
+/* ---- dark: the late-night corpus ----------------------------------------
+   Not inverted paper — a deep warm gray ground with softened ink, the same
+   accent family lifted just enough to keep AA. ------------------------------ */
+
+[data-theme="dark"] {
+  color-scheme: dark;
+
+  --ground:         #211D17;
+  --paper-raised:   #2A251E;
+  --paper-recessed: #1A1712;
+  --ground-veil:    rgba(33, 29, 23, 0.86);
+
+  --ink:        #E8E2D6;       /* 13.0:1 — softened, never pure white */
+  --ink-muted:  #B0A899;       /*  7.11:1 */
+  --ink-faint:  #948C7E;       /*  5.04:1 */
+  --ink-ghost:  #6B6457;
+
+  --accent:        #4FA8A2;    /* 5.95:1 */
+  --accent-hover:  #66BAB4;
+  --accent-active: #3E908A;
+  --accent-ink:    #16201F;
+  --accent-wash:   rgba(79, 168, 162, 0.13);
+
+  --gold:        #D2A437;      /* 7.27:1 — text-safe in the dark room */
+  --gold-text:   #D2A437;
+  --gold-wash:   rgba(210, 164, 55, 0.13);
+  --machine:     #84A7D9;      /* 6.79:1 */
+  --machine-text:#84A7D9;
+  --machine-wash:rgba(132, 167, 217, 0.13);
+  --signal:      #E8854C;      /* 6.30:1 */
+  --signal-text: #E8854C;
+  --signal-wash: rgba(232, 133, 76, 0.13);
+
+  --hatch: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='6' height='6'%3E%3Cpath d='M-1.5 7.5 7.5-1.5M-1.5 1.5 1.5-1.5M4.5 7.5 7.5 4.5' stroke='%2384A7D9' stroke-width='1' opacity='0.55'/%3E%3C/svg%3E");
+
+  --cat-0: #4FA8A2;
+  --cat-1: #B07CA9;
+  --cat-2: #93A964;
+  --cat-3: #C08A55;
+  --cat-4: #9B8FD4;
+  --cat-5: #7FAEBC;
+
+  --rule-color:        color-mix(in oklab, var(--ink) 16%, transparent);
+  --rule-color-strong: color-mix(in oklab, var(--ink) 36%, transparent);
+
+  --shadow-lift: 0 1px 2px rgba(0, 0, 0, 0.3), 0 14px 36px -18px rgba(0, 0, 0, 0.65);
+}
+
+/* ---- utilities owned by the token layer ---------------------------------- */
+
+/* every numeral that sits in a column wears tabular figures */
+.tabular-nums,
+.data {
+  font-variant-numeric: tabular-nums lining-nums;
+  font-feature-settings: "tnum" 1, "lnum" 1;
+}
+
+.data {
+  font-family: var(--font-mono);
+  font-size: var(--fs-data);
+}
+
+/* motion respects the reader */
+@media (prefers-reduced-motion: reduce) {
+  :root {
+    --t-fast: 1ms;
+    --t-med:  1ms;
+    --t-slow: 1ms;
+  }
+  *, *::before, *::after {
+    animation-duration: 1ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 1ms !important;
+    scroll-behavior: auto !important;
+  }
+}

@@ -66,6 +66,11 @@ export function createProject(input = {}) {
       provider: reqString(director.provider, "director.provider"),
       model: reqString(director.model, "director.model"),
       snapshot: director.snapshot ?? null,
+      // Optional researcher customization appended to every Director system
+      // prompt (also the test seam for MockModel handler markers).
+      ...(typeof director.systemSuffix === "string" && director.systemSuffix !== ""
+        ? { systemSuffix: director.systemSuffix }
+        : {}),
     };
   }
   return {
@@ -82,6 +87,8 @@ export function createProject(input = {}) {
     goldsets: input.goldsets ?? [],
     analyses: input.analyses ?? [],
     briefs: input.briefs ?? [],
+    plans: input.plans ?? [], // Question Bar plan artifacts
+    runs: input.runs ?? [],
   };
 }
 
