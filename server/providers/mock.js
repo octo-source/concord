@@ -1,8 +1,10 @@
 // MockModel: fully deterministic provider that lets the whole product run
-// keyless (demo, CI, e2e). Seeded by sha256(model + last user message), so the
-// same request always yields the byte-identical response. Emulates a judge of
-// configurable accuracy against an injectable oracle, and exposes a handler
-// hook so later workstreams can script Director behavior. Always $0.
+// keyless (demo, CI, e2e). Seeded by sha256(model + last user message +
+// (req.seed ?? "")), so the same request always yields the byte-identical
+// response while distinct req.seed values decorrelate it (keyless stability
+// checks must not be vacuously α=1.0). Emulates a judge of configurable
+// accuracy against an injectable oracle, and exposes a handler hook so later
+// workstreams can script Director behavior. Always $0.
 import { Adapter } from "./base.js";
 import { sha256 } from "../core/ids.js";
 import { mulberry32 } from "../core/rng.js";
@@ -94,7 +96,9 @@ export class MockAdapter extends Adapter {
 
   async complete(req) {
     const lastUser = [...req.messages].reverse().find((m) => m.role === "user")?.content ?? "";
-    const seed = parseInt(sha256(req.model + lastUser).slice(0, 8), 16);
+    // req.seed participates so seed-variation runs see real variance; absent
+    // seed concatenates "" and keeps the historical byte-identical stream.
+    const seed = parseInt(sha256(req.model + lastUser + (req.seed ?? "")).slice(0, 8), 16);
     const rand = mulberry32(seed);
     await sleep(5 + Math.floor(rand() * 16)); // 5–20ms, seeded
 
@@ -117,7 +121,9 @@ export class MockAdapter extends Adapter {
     const outTarget = req.maxTokens ?? 256;
     const usage = {
       inputTokens: Math.max(1, Math.round((inChars / 3.6) * (0.95 + rand() * 0.1))),
-      outputTokens: Math.max(1, Math.round(outTarget * (0.85 + rand() * 0.3))),
+      // Clamped to the maxTokens-derived target so metered actuals can never
+      // exceed what the cost estimator assumed.
+      outputTokens: Math.max(1, Math.min(outTarget, Math.round(outTarget * (0.85 + rand() * 0.3)))),
     };
     return { text, json, usage, finishReason: "stop", raw: { mock: true, seed }, servedBy: "mock" };
   }

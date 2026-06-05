@@ -1,7 +1,7 @@
 // Anthropic Messages API adapter. Structured output via forced tool use:
 // the schema becomes the lone "emit" tool and tool_choice pins it.
 import { ConcordError } from "../core/errors.js";
-import { Adapter, httpJSON } from "./base.js";
+import { Adapter, httpJSON, malformedResponse } from "./base.js";
 
 const API_VERSION = "2023-06-01";
 
@@ -43,7 +43,9 @@ export class AnthropicAdapter extends Adapter {
       headers: { "x-api-key": this.apiKey, "anthropic-version": API_VERSION },
       body,
     });
-    const blocks = raw.content ?? [];
+    // A 200 with an empty/HTML/shapeless body must not TypeError downstream.
+    if (!raw || !Array.isArray(raw.content)) throw malformedResponse("anthropic", raw);
+    const blocks = raw.content;
     const tool = blocks.find((b) => b.type === "tool_use");
     const text = blocks.filter((b) => b.type === "text").map((b) => b.text).join("");
     return {

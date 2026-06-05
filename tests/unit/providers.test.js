@@ -9,7 +9,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 
 import {
-  Adapter, Pool, completeWithRepair, parseRetryAfter, validateSchema,
+  Adapter, Pool, completeWithRepair, parseRetryAfter, validateSchema, httpJSON,
 } from "../../server/providers/base.js";
 import { AnthropicAdapter } from "../../server/providers/anthropic.js";
 import { OpenAIAdapter } from "../../server/providers/openai.js";
@@ -56,6 +56,20 @@ function startServer(handler) {
 async function withServer(handler, fn) {
   const srv = await startServer(handler);
   try { return await fn(srv); } finally { await srv.close(); }
+}
+
+// Raw server for body-phase fault injection: onRequest gets (req, res)
+// directly so tests can write partial bodies, stall, or destroy sockets.
+function rawServer(onRequest) {
+  const server = http.createServer(onRequest);
+  return new Promise((resolve) => {
+    server.listen(0, "127.0.0.1", () => {
+      resolve({
+        url: `http://127.0.0.1:${server.address().port}`,
+        close: () => { server.closeAllConnections(); return new Promise((r) => server.close(r)); },
+      });
+    });
+  });
 }
 
 const judgeSchema = {
@@ -199,6 +213,104 @@ describe("Pool", () => {
     assert.equal(parseRetryAfter("soon"), null);
     assert.equal(parseRetryAfter(null), null);
   });
+
+  it("clamps Retry-After to 120s for both numeric and date forms", () => {
+    assert.equal(parseRetryAfter("600"), 120_000);
+    assert.equal(parseRetryAfter(new Date(Date.now() + 1_000_000).toUTCString()), 120_000);
+    assert.equal(parseRetryAfter("30"), 30_000); // under the cap: untouched
+  });
+});
+
+// ------------------------------------------------- httpJSON body-phase faults
+
+describe("httpJSON body-phase failures", () => {
+  it("times out a stalled body within ~2× timeoutMs as PROVIDER_UNREACHABLE", async () => {
+    const srv = await rawServer((req, res) => {
+      res.writeHead(200, { "content-type": "application/json" });
+      res.write('{"stalled":'); // headers + partial body, then silence forever
+    });
+    try {
+      const t0 = Date.now();
+      const p = httpJSON("POST", `${srv.url}/v1/x`, { body: {}, timeoutMs: 150 });
+      p.catch(() => {}); // any post-race rejection stays handled
+      const raced = await Promise.race([
+        p.then(() => "resolved", (err) => err),
+        new Promise((r) => setTimeout(() => r("pending"), 1500)),
+      ]);
+      assert.notEqual(raced, "pending",
+        "httpJSON still pending 1.5s after a 150ms timeout: body read is not covered by the abort timer");
+      assert.notEqual(raced, "resolved");
+      assert.equal(raced.code, "PROVIDER_UNREACHABLE");
+      assert.equal(typeof raced.details.kind, "string");
+      assert.ok(String(raced.details.url).includes("/v1/x"));
+      const elapsed = Date.now() - t0;
+      assert.ok(elapsed <= 600, `rejected after ${elapsed}ms; expected ≲2× timeoutMs (150ms)`);
+    } finally {
+      await srv.close();
+    }
+  });
+
+  it("wraps a connection dropped mid-body as PROVIDER_UNREACHABLE with kind, not a raw TypeError", async () => {
+    const srv = await rawServer((req, res) => {
+      res.writeHead(200, { "content-type": "application/json" });
+      res.write('{"half":');
+      setTimeout(() => res.destroy(), 30); // sever after headers+partial body are out
+    });
+    try {
+      await assert.rejects(
+        httpJSON("POST", `${srv.url}/v1/x`, { body: {} }),
+        (err) => {
+          assert.equal(err.name, "ConcordError", `escaped the taxonomy as ${err.name}: ${err.message}`);
+          assert.equal(err.code, "PROVIDER_UNREACHABLE");
+          assert.equal(typeof err.details.kind, "string");
+          assert.ok(err.cause instanceof Error, "original error preserved as cause");
+          return true;
+        },
+      );
+    } finally {
+      await srv.close();
+    }
+  });
+});
+
+// ------------------------------------------------- retry policy / slot hygiene
+
+describe("Pool retry policy and slot hygiene", () => {
+  it("retries PROVIDER_UNREACHABLE on the smaller budget: exactly 3 attempts, then rethrows it", async () => {
+    // A dead port can't count attempts, so: accept each connection, count it,
+    // and destroy the socket immediately → every attempt is unreachable.
+    let accepts = 0;
+    const server = http.createServer(() => {});
+    server.on("connection", (sock) => { accepts++; sock.destroy(); });
+    await new Promise((r) => server.listen(0, "127.0.0.1", r));
+    const url = `http://127.0.0.1:${server.address().port}`;
+    try {
+      const adapter = new OllamaAdapter({ baseUrl: url });
+      const pool = new Pool({ concurrency: 1, baseDelayMs: 5 });
+      await assert.rejects(
+        pool.run(() => adapter.complete({ model: "m", messages: [{ role: "user", content: "x" }], temperature: 0, maxTokens: 8 })),
+        (err) => err.code === "PROVIDER_UNREACHABLE",
+      );
+      assert.equal(accepts, 3, `expected exactly 3 connection attempts, saw ${accepts}`);
+    } finally {
+      await new Promise((r) => server.close(r));
+    }
+  });
+
+  it("slot-leak regression: full capacity remains after N>concurrency throwing fns", async () => {
+    const pool = new Pool({ concurrency: 2, baseDelayMs: 1 });
+    const burst = await Promise.allSettled(
+      Array.from({ length: 6 }, () => pool.run(async () => { throw new Error("boom"); })),
+    );
+    assert.ok(burst.every((r) => r.status === "rejected"));
+    let active = 0, peak = 0;
+    await Promise.all(Array.from({ length: 5 }, () => pool.run(async () => {
+      active++; peak = Math.max(peak, active);
+      await new Promise((r) => setTimeout(r, 15));
+      active--;
+    })));
+    assert.equal(peak, 2, `peak concurrency ${peak}; pool capacity damaged or exceeded`);
+  });
 });
 
 // ---------------------------------------------------------------- Anthropic
@@ -320,6 +432,63 @@ describe("OpenAIAdapter", () => {
         assert.deepEqual(res.json, { rationale: "says pay", label: "pay", confidence: 0.8 });
         assert.deepEqual(res.usage, { inputTokens: 80, outputTokens: 20 });
         assert.equal(res.finishReason, "stop");
+      },
+    );
+  });
+
+  it("fast-fails PROVIDER_REFUSAL on message.refusal without entering the repair loop", async () => {
+    await withServer(
+      () => ({
+        body: {
+          id: "chatcmpl-r", object: "chat.completion", model: "gpt-5.2",
+          choices: [{ index: 0, message: { role: "assistant", content: null, refusal: "I can't help with that." }, finish_reason: "stop" }],
+          usage: { prompt_tokens: 5, completion_tokens: 1 },
+        },
+      }),
+      async (srv) => {
+        const adapter = new OpenAIAdapter({ apiKey: "k", baseUrl: srv.url });
+        await assert.rejects(
+          completeWithRepair(adapter, { model: "m", messages: [{ role: "user", content: "x" }], schema: judgeSchema, temperature: 0, maxTokens: 64 }),
+          (err) => err.code === "PROVIDER_REFUSAL" && /refus/i.test(err.message),
+        );
+        assert.equal(srv.calls.length, 1, "refusal must not trigger repair re-prompts");
+      },
+    );
+  });
+
+  it("fast-fails TRUNCATED when finish_reason=length and a schema was requested", async () => {
+    await withServer(
+      () => ({
+        body: {
+          id: "chatcmpl-t", object: "chat.completion", model: "gpt-5.2",
+          choices: [{ index: 0, message: { role: "assistant", content: '{"rationale":"r","label":"pa' }, finish_reason: "length" }],
+          usage: { prompt_tokens: 5, completion_tokens: 64 },
+        },
+      }),
+      async (srv) => {
+        const adapter = new OpenAIAdapter({ apiKey: "k", baseUrl: srv.url });
+        await assert.rejects(
+          completeWithRepair(adapter, { model: "m", messages: [{ role: "user", content: "x" }], schema: judgeSchema, temperature: 0, maxTokens: 64 }),
+          (err) => err.code === "TRUNCATED" && /maxTokens/.test(err.message),
+        );
+        assert.equal(srv.calls.length, 1, "truncation must not trigger repair re-prompts");
+      },
+    );
+  });
+
+  it("finish_reason=length without a schema is not an error (plain text may be capped on purpose)", async () => {
+    await withServer(
+      () => ({
+        body: {
+          id: "chatcmpl-l", choices: [{ index: 0, message: { role: "assistant", content: "partial tex" }, finish_reason: "length" }],
+          usage: { prompt_tokens: 5, completion_tokens: 16 },
+        },
+      }),
+      async (srv) => {
+        const adapter = new OpenAIAdapter({ apiKey: "k", baseUrl: srv.url });
+        const res = await adapter.complete({ model: "m", messages: [{ role: "user", content: "x" }], temperature: 0, maxTokens: 16 });
+        assert.equal(res.text, "partial tex");
+        assert.equal(res.finishReason, "length");
       },
     );
   });
@@ -471,6 +640,100 @@ describe("OllamaAdapter", () => {
   });
 });
 
+// ---------------------------------------------------------------- malformed 200s
+
+describe("malformed 200 responses", () => {
+  const req = { model: "m", messages: [{ role: "user", content: "x" }], temperature: 0, maxTokens: 16 };
+
+  it("anthropic: 200 with empty body → PROVIDER_HTTP malformed, not TypeError", async () => {
+    await withServer(
+      () => ({ body: "" }),
+      async (srv) => {
+        const adapter = new AnthropicAdapter({ apiKey: "k", baseUrl: srv.url });
+        await assert.rejects(adapter.complete(req), (err) => {
+          assert.equal(err.name, "ConcordError", `escaped as ${err.name}: ${err.message}`);
+          assert.equal(err.code, "PROVIDER_HTTP");
+          assert.match(err.message, /malformed response from anthropic/);
+          assert.equal(typeof err.details.body, "string");
+          return true;
+        });
+      },
+    );
+  });
+
+  it("openai: 200 with empty body → PROVIDER_HTTP malformed, not TypeError", async () => {
+    await withServer(
+      () => ({ body: "" }),
+      async (srv) => {
+        const adapter = new OpenAIAdapter({ apiKey: "k", baseUrl: srv.url });
+        await assert.rejects(adapter.complete(req), (err) => {
+          assert.equal(err.name, "ConcordError", `escaped as ${err.name}: ${err.message}`);
+          assert.equal(err.code, "PROVIDER_HTTP");
+          assert.match(err.message, /malformed response from openai/);
+          return true;
+        });
+      },
+    );
+  });
+
+  it("ollama: 200 with empty body → PROVIDER_HTTP malformed, not TypeError", async () => {
+    await withServer(
+      () => ({ body: "" }),
+      async (srv) => {
+        const adapter = new OllamaAdapter({ baseUrl: srv.url });
+        await assert.rejects(adapter.complete(req), (err) => {
+          assert.equal(err.name, "ConcordError", `escaped as ${err.name}: ${err.message}`);
+          assert.equal(err.code, "PROVIDER_HTTP");
+          assert.match(err.message, /malformed response from ollama/);
+          return true;
+        });
+      },
+    );
+  });
+
+  it("openai: 200 with HTML body (proxy splash) → PROVIDER_HTTP with a body snippet", async () => {
+    await withServer(
+      () => ({ body: "<html><body>gateway maintenance</body></html>" }),
+      async (srv) => {
+        const adapter = new OpenAIAdapter({ apiKey: "k", baseUrl: srv.url });
+        await assert.rejects(adapter.complete(req), (err) => {
+          assert.equal(err.code, "PROVIDER_HTTP");
+          assert.match(err.message, /malformed/);
+          assert.ok(String(err.details.body).includes("gateway maintenance"));
+          return true;
+        });
+      },
+    );
+  });
+
+  it("valid envelopes with absent usage/finish fields → zeros and 'stop', no throw", async () => {
+    await withServer(
+      () => ({ body: { content: [{ type: "text", text: "hi" }] } }),
+      async (srv) => {
+        const res = await new AnthropicAdapter({ apiKey: "k", baseUrl: srv.url }).complete(req);
+        assert.deepEqual(res.usage, { inputTokens: 0, outputTokens: 0 });
+        assert.equal(res.finishReason, "stop");
+      },
+    );
+    await withServer(
+      () => ({ body: { choices: [{ index: 0, message: { role: "assistant", content: "hi" } }] } }),
+      async (srv) => {
+        const res = await new OpenAIAdapter({ apiKey: "k", baseUrl: srv.url }).complete(req);
+        assert.deepEqual(res.usage, { inputTokens: 0, outputTokens: 0 });
+        assert.equal(res.finishReason, "stop");
+      },
+    );
+    await withServer(
+      () => ({ body: { message: { role: "assistant", content: "hi" } } }),
+      async (srv) => {
+        const res = await new OllamaAdapter({ baseUrl: srv.url }).complete(req);
+        assert.deepEqual(res.usage, { inputTokens: 0, outputTokens: 0 });
+        assert.equal(res.finishReason, "stop");
+      },
+    );
+  });
+});
+
 // ---------------------------------------------------------------- schema repair
 
 describe("completeWithRepair", () => {
@@ -529,6 +792,21 @@ describe("completeWithRepair", () => {
     });
     assert.equal(res.repairs, 0);
     assert.deepEqual(validateSchema(res.json, judgeSchema), []);
+  });
+
+  it("validateSchema treats type-omitted schemas with properties as objects (Director-generated)", () => {
+    const noType = {
+      properties: {
+        label: { type: "string", enum: ["a", "b"] },
+        n: { type: "integer" },
+      },
+      required: ["label"],
+      additionalProperties: false,
+    };
+    assert.deepEqual(validateSchema({ label: "a", n: 2 }, noType), []);
+    assert.ok(validateSchema({}, noType).length > 0, "missing required key must be flagged");
+    assert.ok(validateSchema({ label: "a", extra: 1 }, noType).length > 0, "extra key must be flagged");
+    assert.ok(validateSchema("not an object", noType).length > 0, "non-object must be flagged");
   });
 
   it("validateSchema catches type, enum, required, range, extra keys", () => {
@@ -648,6 +926,61 @@ describe("registry privacy gates", () => {
   });
 });
 
+// ---------------------------------------------------------------- registry cache
+
+describe("registry adapter cache", () => {
+  const noKeys = join(tmpdir(), "concord-definitely-missing", "keys.json");
+  const open = { privacyMode: "open" };
+
+  it("memoizes instances: mock oracle state survives across getAdapter calls; clearAdapterCache forces a new one", () => {
+    registry.clearAdapterCache();
+    const first = getAdapter(open, "mock", { keysPath: noKeys }).adapter;
+    first.setOracle(() => "pay");
+    const second = getAdapter(open, "mock", { keysPath: noKeys }).adapter;
+    assert.equal(second, first, "expected the same memoized instance (oracle state must survive)");
+    assert.equal(typeof second.oracle, "function");
+    registry.clearAdapterCache();
+    const third = getAdapter(open, "mock", { keysPath: noKeys }).adapter;
+    assert.notEqual(third, first, "clearAdapterCache must force a new instance");
+    assert.equal(third.oracle, null);
+  });
+
+  it("privacy gates run on EVERY call: strict blocked even when the adapter is already cached", () => {
+    registry.clearAdapterCache();
+    const cached = getAdapter(open, "anthropic", { keysPath: noKeys }).adapter;
+    assert.ok(cached instanceof AnthropicAdapter, "open project constructs (and caches) the adapter");
+    assert.throws(
+      () => getAdapter({ privacyMode: "strict" }, "anthropic", { keysPath: noKeys }),
+      { code: "PRIVACY_BLOCKED" },
+      "a strict project must be blocked even though the adapter is already cached",
+    );
+    assert.throws(
+      () => getAdapter({ privacyMode: "no-training" }, "openrouter", { keysPath: noKeys }),
+      { code: "PRIVACY_BLOCKED" },
+    );
+  });
+
+  it("cache key includes keysPath and resolved baseUrl: a baseUrl change busts the cache", () => {
+    const dir = mkdtempSync(join(tmpdir(), "concord-cache-"));
+    try {
+      const keysPath = join(dir, "keys.json");
+      writeFileSync(keysPath, JSON.stringify({ ollama: { baseUrl: "http://127.0.0.1:1111" } }));
+      registry.clearAdapterCache();
+      const a = getAdapter(open, "ollama", { keysPath }).adapter;
+      assert.equal(getAdapter(open, "ollama", { keysPath }).adapter, a);
+      writeFileSync(keysPath, JSON.stringify({ ollama: { baseUrl: "http://127.0.0.1:2222" } }));
+      const b = getAdapter(open, "ollama", { keysPath }).adapter;
+      assert.notEqual(b, a, "baseUrl change must produce a fresh instance");
+      assert.equal(b.baseUrl, "http://127.0.0.1:2222");
+      // different keysPath → different instance even for the same provider
+      const c = getAdapter(open, "ollama", { keysPath: noKeys }).adapter;
+      assert.notEqual(c, b);
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+});
+
 // ---------------------------------------------------------------- MockAdapter
 
 const THEMES = ["pay", "management", "workload", "growth"];
@@ -685,6 +1018,27 @@ describe("MockAdapter", () => {
     assert.equal(JSON.stringify(r1), JSON.stringify(r3));
     const other = await new MockAdapter().complete(judgeReq("Completely different unit about workload."));
     assert.notEqual(JSON.stringify(r1), JSON.stringify(other));
+  });
+
+  it("req.seed perturbs output (stability checks must not be vacuous); same seed reproduces byte-identically", async () => {
+    const req = judgeReq("The pay is terrible and management ignores us.");
+    const a1 = await new MockAdapter().complete({ ...req, seed: 1 });
+    const a2 = await new MockAdapter().complete({ ...req, seed: 1 });
+    const b = await new MockAdapter().complete({ ...req, seed: 2 });
+    assert.equal(JSON.stringify(a1), JSON.stringify(a2), "same seed must reproduce byte-identically");
+    assert.notEqual(JSON.stringify(a1.json), JSON.stringify(b.json), "different seeds must decorrelate outputs");
+    // both seeds still emit schema-valid judgments
+    assert.deepEqual(validateSchema(a1.json, themeSchema), []);
+    assert.deepEqual(validateSchema(b.json, themeSchema), []);
+  });
+
+  it("outputTokens never exceed the maxTokens-derived target", async () => {
+    const units = plantedUnits(60);
+    const outs = await Promise.all(units.map((u) => new MockAdapter().complete(judgeReq(u.text))));
+    for (const r of outs) {
+      assert.ok(r.usage.outputTokens <= 120, `outputTokens ${r.usage.outputTokens} > maxTokens 120`);
+      assert.ok(r.usage.outputTokens >= 1);
+    }
   });
 
   it("emits schema-valid JSON with confidence in [0.55, 0.99] and a rationale quoting the unit", async () => {

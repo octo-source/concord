@@ -29,52 +29,101 @@ export class Adapter {
 
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 
+// Retry-After is clamped to 120s: a server asking for longer is effectively
+// down, and an unbounded server-directed sleep would silently wedge an
+// overnight run on a single response header.
+const RETRY_AFTER_CAP_MS = 120_000;
+
 export function parseRetryAfter(value) {
   if (!value) return null;
   const secs = Number(value);
-  if (Number.isFinite(secs)) return Math.max(0, secs * 1000);
+  if (Number.isFinite(secs)) return Math.min(Math.max(0, secs * 1000), RETRY_AFTER_CAP_MS);
   const at = Date.parse(value);
-  return Number.isNaN(at) ? null : Math.max(0, at - Date.now());
+  return Number.isNaN(at) ? null : Math.min(Math.max(0, at - Date.now()), RETRY_AFTER_CAP_MS);
 }
 
 // Shared fetch wrapper. Non-2xx → ConcordError("PROVIDER_HTTP") carrying
 // {status, body, retryAfterMs} so the Pool can decide retryability.
+// Network-level failures → ConcordError("PROVIDER_UNREACHABLE") with
+// {url, kind} (kind = AbortError for timeouts, TypeError for connection
+// faults) and the original error as cause.
+//
+// The abort timer must outlive the headers phase: fetch resolves at headers,
+// but a stalled or severed body would otherwise wedge a Pool slot until the
+// socket dies (~minutes) and body-read failures would escape the taxonomy as
+// raw TypeErrors. So the timer is cleared in a finally around the WHOLE
+// request + body read.
 export async function httpJSON(method, url, { headers = {}, body, timeoutMs = 120_000 } = {}) {
   const ctrl = new AbortController();
   const timer = setTimeout(() => ctrl.abort(), timeoutMs);
-  let res;
   try {
-    res = await fetch(url, {
-      method,
-      headers: body !== undefined ? { "content-type": "application/json", ...headers } : headers,
-      body: body !== undefined ? JSON.stringify(body) : undefined,
-      signal: ctrl.signal,
-    });
-  } catch (err) {
-    throw new ConcordError("PROVIDER_UNREACHABLE", `request to ${url} failed: ${err?.message ?? err}`, { url });
+    let res;
+    try {
+      res = await fetch(url, {
+        method,
+        headers: body !== undefined ? { "content-type": "application/json", ...headers } : headers,
+        body: body !== undefined ? JSON.stringify(body) : undefined,
+        signal: ctrl.signal,
+      });
+    } catch (err) {
+      throw new ConcordError("PROVIDER_UNREACHABLE", `request to ${url} failed: ${err?.message ?? err}`, { url, kind: err?.name }, { cause: err });
+    }
+    let text;
+    try {
+      text = await res.text();
+    } catch (err) {
+      throw new ConcordError("PROVIDER_UNREACHABLE", `reading response body from ${url} failed: ${err?.message ?? err}`, { url, kind: err?.name }, { cause: err });
+    }
+    let data;
+    try { data = text ? JSON.parse(text) : null; } catch { data = text; }
+    if (!res.ok) {
+      throw new ConcordError("PROVIDER_HTTP", `${method} ${url} → HTTP ${res.status}`, {
+        status: res.status,
+        body: data,
+        retryAfterMs: parseRetryAfter(res.headers.get("retry-after")),
+      });
+    }
+    return data;
   } finally {
     clearTimeout(timer);
   }
-  const text = await res.text();
-  let data;
-  try { data = text ? JSON.parse(text) : null; } catch { data = text; }
-  if (!res.ok) {
-    throw new ConcordError("PROVIDER_HTTP", `${method} ${url} → HTTP ${res.status}`, {
-      status: res.status,
-      body: data,
-      retryAfterMs: parseRetryAfter(res.headers.get("retry-after")),
-    });
-  }
-  return data;
 }
 
-const isRetryable = (err) => {
+// A 2xx whose body lacks the provider's expected envelope (empty body, HTML
+// from a proxy, ...) is a provider fault, not a Concord bug: adapters surface
+// it as PROVIDER_HTTP with a body snippet instead of letting property reads
+// throw raw TypeErrors.
+export function malformedResponse(provider, raw) {
+  let snippet;
+  try { snippet = typeof raw === "string" ? raw : JSON.stringify(raw); } catch { snippet = String(raw); }
+  snippet = String(snippet ?? raw).slice(0, 200);
+  return new ConcordError("PROVIDER_HTTP", `malformed response from ${provider}: expected envelope missing`, { provider, body: snippet });
+}
+
+// Retry policy (controller decision):
+//   - 429 / 5xx → retryable, full budget (maxAttempts, default 6): rate
+//     limits and transient server faults are expected during long runs and
+//     the server is telling us to come back.
+//   - PROVIDER_UNREACHABLE → retryable on a SMALLER budget (3 attempts):
+//     judge calls are idempotent and transient network blips are the most
+//     common overnight failure, so giving up after one try strands runs —
+//     but a host that is truly down should fail fast rather than burn the
+//     full 6-attempt backoff ladder. Timeouts vs connection failures stay
+//     distinguishable downstream via details.kind.
+//   - everything else (4xx, CONFIG_MISSING, SCHEMA_INVALID, ...) → not
+//     retryable: retrying a deterministic failure only adds latency.
+const UNREACHABLE_MAX_ATTEMPTS = 3;
+
+const retryClass = (err) => {
   const status = err?.details?.status;
-  return status === 429 || (typeof status === "number" && status >= 500);
+  if (status === 429 || (typeof status === "number" && status >= 500)) return "http";
+  if (err?.code === "PROVIDER_UNREACHABLE") return "unreachable";
+  return null;
 };
 
 // Per-provider execution pool: bounded concurrency, requests-per-window
-// pacing, exponential backoff with jitter on 429/5xx, max 6 attempts.
+// pacing, exponential backoff with jitter. Budgets per retryClass above:
+// max 6 attempts for 429/5xx, max 3 for PROVIDER_UNREACHABLE.
 export class Pool {
   constructor({ concurrency = 4, rpm = 0, baseDelayMs = 250, maxAttempts = 6, windowMs = 60_000 } = {}) {
     this.concurrency = Math.max(1, concurrency);
@@ -98,29 +147,39 @@ export class Pool {
 
   async #withRetry(fn) {
     let lastErr = null;
-    for (let attempt = 1; attempt <= this.maxAttempts; attempt++) {
+    for (let attempt = 1; ; attempt++) {
       if (attempt > 1) await sleep(this.#delayBefore(attempt, lastErr));
       await this.#rpmGate();
       try {
         return await fn();
       } catch (err) {
-        if (!isRetryable(err)) throw err;
+        const cls = retryClass(err);
+        if (!cls) throw err;
         lastErr = err;
+        const budget = cls === "unreachable" ? Math.min(UNREACHABLE_MAX_ATTEMPTS, this.maxAttempts) : this.maxAttempts;
+        if (attempt >= budget) {
+          // Unreachable keeps its identity (callers branch on the code and
+          // details.kind); HTTP exhaustion keeps the historical shape.
+          if (cls === "unreachable") throw err;
+          throw new ConcordError(
+            "RATE_LIMITED_EXHAUSTED",
+            `gave up after ${attempt} attempts (last: HTTP ${err?.details?.status})`,
+            { attempts: attempt, lastStatus: err?.details?.status, lastMessage: err?.message },
+          );
+        }
       }
     }
-    throw new ConcordError(
-      "RATE_LIMITED_EXHAUSTED",
-      `gave up after ${this.maxAttempts} attempts (last: HTTP ${lastErr?.details?.status})`,
-      { attempts: this.maxAttempts, lastStatus: lastErr?.details?.status, lastMessage: lastErr?.message },
-    );
   }
 
   // Backoff doubles per retry; ≤25% jitter keeps successive delays strictly
-  // increasing. A server Retry-After is honored as a floor.
+  // increasing. A server Retry-After is honored as a floor, but capped at
+  // RETRY_AFTER_CAP_MS (parseRetryAfter already clamps; this re-clamp guards
+  // hand-constructed errors).
   #delayBefore(attempt, err) {
     const backoff = this.baseDelayMs * 2 ** (attempt - 2) * (1 + Math.random() * 0.25);
     const retryAfter = err?.details?.retryAfterMs;
-    return retryAfter != null ? Math.max(retryAfter, backoff) : backoff;
+    if (retryAfter == null) return backoff;
+    return Math.max(Math.min(retryAfter, RETRY_AFTER_CAP_MS), backoff);
   }
 
   #acquire() {
@@ -160,7 +219,9 @@ export function validateSchema(value, schema, path = "$") {
   if (schema.enum && !schema.enum.includes(value)) {
     problems.push(`${path}: ${JSON.stringify(value)} not in enum [${schema.enum.join(", ")}]`);
   }
-  const types = schema.type ? [].concat(schema.type) : [];
+  // Director-generated schemas may omit `type`; `properties` implies object.
+  const declared = schema.type ? [].concat(schema.type) : [];
+  const types = declared.length ? declared : schema.properties ? ["object"] : [];
   if (types.length && !types.some((t) => typeMatches(value, t))) {
     problems.push(`${path}: expected ${types.join("|")}, got ${value === null ? "null" : Array.isArray(value) ? "array" : typeof value}`);
     return problems; // wrong type → deeper checks are noise

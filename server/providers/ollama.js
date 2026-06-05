@@ -1,6 +1,6 @@
 // Ollama (or any compatible local endpoint). Local: free, keyless, and the
 // only network adapter allowed under privacy mode "strict".
-import { Adapter, httpJSON } from "./base.js";
+import { Adapter, httpJSON, malformedResponse } from "./base.js";
 
 const DEFAULT_BASE_URL = "http://localhost:11434";
 
@@ -25,7 +25,11 @@ export class OllamaAdapter extends Adapter {
     if (req.maxTokens !== undefined) body.options.num_predict = req.maxTokens;
     if (req.schema) body.format = "json";
     const raw = await httpJSON("POST", `${this.baseUrl}/api/chat`, { body });
-    const text = typeof raw.message?.content === "string" ? raw.message.content : undefined;
+    // A 200 with an empty/HTML/shapeless body must not TypeError downstream.
+    if (!raw || typeof raw !== "object" || !raw.message || typeof raw.message !== "object") {
+      throw malformedResponse("ollama", raw);
+    }
+    const text = typeof raw.message.content === "string" ? raw.message.content : undefined;
     let json;
     if (req.schema && text !== undefined) {
       try { json = JSON.parse(text); } catch { /* completeWithRepair handles it */ }

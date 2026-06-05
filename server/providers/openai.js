@@ -1,7 +1,7 @@
 // OpenAI Chat Completions adapter. Structured output via response_format
 // json_schema (strict). OpenRouter subclasses this and tweaks the dialect.
 import { ConcordError } from "../core/errors.js";
-import { Adapter, httpJSON } from "./base.js";
+import { Adapter, httpJSON, malformedResponse } from "./base.js";
 
 const STATIC_CATALOG = [
   { id: "gpt-5.2", name: "GPT-5.2", family: "openai", ctx: 400_000, pricing: { inUSDper1M: 1.25, outUSDper1M: 10 }, snapshot: "gpt-5.2", estimate: true },
@@ -49,8 +49,29 @@ export class OpenAIAdapter extends Adapter {
   }
 
   parseResponse(raw, req) {
-    const choice = raw.choices?.[0] ?? {};
-    const text = typeof choice.message?.content === "string" ? choice.message.content : undefined;
+    // A 200 with an empty/HTML/shapeless body must not TypeError downstream.
+    if (!raw || !Array.isArray(raw.choices) || raw.choices.length === 0) {
+      throw malformedResponse(this.name, raw);
+    }
+    const choice = raw.choices[0] ?? {};
+    const message = choice.message ?? {};
+    // Fast-fail outcomes that no amount of schema repair can fix; these are
+    // not SCHEMA_INVALID, so completeWithRepair lets them propagate untouched.
+    if (message.refusal) {
+      throw new ConcordError(
+        "PROVIDER_REFUSAL",
+        `${this.name}: model refused the request: ${String(message.refusal).slice(0, 300)}`,
+        { provider: this.name, refusal: message.refusal, finishReason: choice.finish_reason ?? null },
+      );
+    }
+    if (choice.finish_reason === "length" && req.schema) {
+      throw new ConcordError(
+        "TRUNCATED",
+        `${this.name}: structured output truncated at the token limit; raise maxTokens (currently ${req.maxTokens ?? "default"}) and retry`,
+        { provider: this.name, maxTokens: req.maxTokens ?? null, advice: "raise maxTokens" },
+      );
+    }
+    const text = typeof message.content === "string" ? message.content : undefined;
     let json;
     if (req.schema && text !== undefined) {
       try { json = JSON.parse(text); } catch { /* completeWithRepair handles it */ }
