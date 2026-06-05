@@ -39,6 +39,10 @@ function mergeCues(cues) {
   for (const cue of cues) {
     if (!cue.text) continue;
     const last = turns[turns.length - 1];
+    // Consecutive cues WITHOUT speakers intentionally do NOT merge: stored
+    // turns coerce a null speaker to "Speaker" while incoming cues keep null,
+    // so this check fails for them. Anonymous captions are often arbitrary
+    // mid-sentence breaks; merging them would fuse the whole file into one turn.
     if (last && last.speaker === cue.speaker) {
       last.text += (last.text ? " " : "") + cue.text;
       last.t1 = cue.t1 ?? last.t1;

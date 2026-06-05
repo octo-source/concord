@@ -1,5 +1,7 @@
 // Unitization: parsed source -> Unit[] for schemes response|sentence|paragraph|turn.
-// Unit: {id, text, meta, pos} with id = ids.unitId(corpusId, ordinal, text).
+// Unit: {id, text, meta, pos} with id = ids.unitId(corpusId, sourceIndex, text),
+// where sourceIndex is derived from the unit's position in the parsed source
+// (not the emitted ordinal), so ids are stable across re-imports.
 import { unitId } from "../core/ids.js";
 import { ConcordError } from "../core/errors.js";
 import { bestTextColumn } from "./mapping.js";
@@ -105,12 +107,12 @@ export function unitize(corpusId, parsed, scheme, { textColumn } = {}) {
     if (scheme !== "paragraph" && scheme !== "sentence" && scheme !== "response") {
       throw new ConcordError("BAD_SCHEME", `scheme "${scheme}" does not apply to documents`, { scheme });
     }
-    for (const doc of parsed.docs) {
+    parsed.docs.forEach((doc, di) => {
       if (scheme === "response") {
         // whole document as one unit
         const text = doc.paras.join("\n\n").trim();
-        if (text) bases.push({ text, meta: { doc: doc.name }, pos: { doc: doc.name } });
-        continue;
+        if (text) bases.push({ text, meta: { doc: doc.name }, pos: { doc: doc.name }, src: di });
+        return;
       }
       doc.paras.forEach((p, pi) => {
         const text = String(p).trim();
@@ -118,9 +120,9 @@ export function unitize(corpusId, parsed, scheme, { textColumn } = {}) {
         const pos = { doc: doc.name, para: pi };
         const meta = { doc: doc.name };
         if (Array.isArray(doc.pages) && doc.pages[pi] !== undefined) meta.page = doc.pages[pi];
-        bases.push({ text, meta, pos });
+        bases.push({ text, meta, pos, src: `${di}:${pi}` });
       });
-    }
+    });
   } else if (Array.isArray(parsed.turns)) {
     if (scheme !== "turn" && scheme !== "sentence") {
       throw new ConcordError("BAD_SCHEME", `scheme "${scheme}" does not apply to transcripts`, { scheme });
@@ -132,6 +134,7 @@ export function unitize(corpusId, parsed, scheme, { textColumn } = {}) {
         text,
         meta: { speaker: turn.speaker ?? null },
         pos: { turn: ti, speaker: turn.speaker ?? null, t0: turn.t0 ?? null, t1: turn.t1 ?? null },
+        src: ti,
       });
     });
   } else {
@@ -139,17 +142,19 @@ export function unitize(corpusId, parsed, scheme, { textColumn } = {}) {
   }
 
   const units = [];
-  let ord = 0;
   for (const b of bases) {
     const texts = scheme === "sentence" ? splitSentences(b.text) : [b.text];
-    for (const text of texts) {
-      // One-unit-per-row keeps the literal source row index (stable across
-      // re-imports even when blank rows are skipped); sentence sub-units use
-      // the global ordinal so identical sentences never collide.
-      const idx = scheme !== "sentence" && b.src !== undefined ? b.src : ord;
+    texts.forEach((text, si) => {
+      // Ids hash the unit's SOURCE index (b.src), never the emitted ordinal,
+      // so ids stay stable across re-imports even when empty elements are
+      // skipped: rows use the literal row index, paragraphs "<doc>:<para>",
+      // turns the turn index, whole-doc responses the doc index. Sentence
+      // units append the sentence's index within its source element
+      // ("<src>:<n>"), which keeps identical sentences in different elements
+      // from colliding.
+      const idx = scheme === "sentence" ? `${b.src}:${si}` : b.src;
       units.push({ id: unitId(corpusId, idx, text), text, meta: b.meta, pos: b.pos });
-      ord++;
-    }
+    });
   }
   return units;
 }

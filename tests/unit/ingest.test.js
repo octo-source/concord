@@ -425,6 +425,111 @@ test("unitize sentence: repeated identical sentences in one row get distinct ids
   assert.notEqual(units[0].id, units[1].id);
 });
 
+test("unitize turn: id uses SOURCE turn index even after skipped empty turns", () => {
+  const skipped = {
+    turns: [
+      { speaker: "A", t0: 0, t1: 2, text: "First turn." },
+      { speaker: "B", t0: 2, t1: 4, text: "   " },
+      { speaker: "C", t0: 4, t1: 6, text: "Third turn here." },
+    ],
+    issues: [],
+  };
+  const units = unitize(CORPUS, skipped, "turn");
+  assert.equal(units.length, 2);
+  assert.equal(units[1].pos.turn, 2);
+  assert.equal(units[1].id, unitId(CORPUS, 2, "Third turn here."));
+  // same turn keeps the same id when the empty middle turn has text instead
+  const filled = {
+    turns: [
+      { speaker: "A", t0: 0, t1: 2, text: "First turn." },
+      { speaker: "B", t0: 2, t1: 4, text: "Middle turn present." },
+      { speaker: "C", t0: 4, t1: 6, text: "Third turn here." },
+    ],
+    issues: [],
+  };
+  const filledUnits = unitize(CORPUS, filled, "turn");
+  assert.equal(filledUnits[2].id, units[1].id);
+});
+
+test("unitize paragraph: id uses SOURCE doc/para indices even after skipped empty paras", () => {
+  const skipped = {
+    docs: [
+      { name: "a.txt", paras: ["Para one.", "   ", "Para three."] },
+      { name: "b.txt", paras: ["Other doc."] },
+    ],
+    issues: [],
+  };
+  const units = unitize(CORPUS, skipped, "paragraph");
+  assert.equal(units.length, 3);
+  assert.deepEqual(units[1].pos, { doc: "a.txt", para: 2 });
+  assert.equal(units[1].id, unitId(CORPUS, "0:2", "Para three."));
+  assert.equal(units[2].id, unitId(CORPUS, "1:0", "Other doc."));
+  // same paras keep the same ids when the empty para has text instead
+  const filled = {
+    docs: [
+      { name: "a.txt", paras: ["Para one.", "Middle para present.", "Para three."] },
+      { name: "b.txt", paras: ["Other doc."] },
+    ],
+    issues: [],
+  };
+  const filledUnits = unitize(CORPUS, filled, "paragraph");
+  assert.equal(filledUnits.length, 4);
+  assert.equal(filledUnits[2].id, units[1].id);
+  assert.equal(filledUnits[3].id, units[2].id);
+});
+
+test("unitize sentence: identical sentences in different rows get distinct ids", () => {
+  const parsed = { rows: [{ t: "Yes I agree." }, { t: "Yes I agree." }], issues: [] };
+  const units = unitize(CORPUS, parsed, "sentence", { textColumn: "t" });
+  assert.equal(units.length, 2);
+  assert.notEqual(units[0].id, units[1].id);
+});
+
+test("unitize sentence: ids anchored to source row, unchanged when earlier empty row gains text", () => {
+  const skipped = { rows: [{ t: "" }, { t: "Stable point. Another point." }], issues: [] };
+  const filled = {
+    rows: [{ t: "New text appeared. Two sentences now." }, { t: "Stable point. Another point." }],
+    issues: [],
+  };
+  const a = unitize(CORPUS, skipped, "sentence", { textColumn: "t" });
+  const b = unitize(CORPUS, filled, "sentence", { textColumn: "t" });
+  assert.equal(a.length, 2);
+  assert.equal(b.length, 4);
+  // row 1's sentence ids do not depend on whether row 0 was empty
+  assert.deepEqual(a.map((u) => u.id), b.slice(2).map((u) => u.id));
+  // id = unitId(corpusId, "<sourceRowIndex>:<sentenceIndexWithinRow>", text)
+  assert.equal(a[0].id, unitId(CORPUS, "1:0", "Stable point."));
+  assert.equal(a[1].id, unitId(CORPUS, "1:1", "Another point."));
+});
+
+test("unitize: re-running on identical parsed input yields identical ids (all schemes)", () => {
+  const rows = { rows: [{ t: "One thing. Two things." }, { t: "" }, { t: "Three things." }], issues: [] };
+  const docs = { docs: [{ name: "a.txt", paras: ["P one.", "", "P two."] }], issues: [] };
+  const turns = {
+    turns: [
+      { speaker: "A", t0: 0, t1: 1, text: "Hi there. Quick note." },
+      { speaker: "B", t0: 1, t1: 2, text: "" },
+      { speaker: "C", t0: 2, t1: 3, text: "Bye now." },
+    ],
+    issues: [],
+  };
+  const runs = [
+    ["response", rows, { textColumn: "t" }],
+    ["sentence", rows, { textColumn: "t" }],
+    ["paragraph", docs, {}],
+    ["sentence", docs, {}],
+    ["turn", turns, {}],
+    ["sentence", turns, {}],
+  ];
+  for (const [scheme, parsed, opts] of runs) {
+    const ids1 = unitize(CORPUS, parsed, scheme, opts).map((u) => u.id);
+    const ids2 = unitize(CORPUS, parsed, scheme, opts).map((u) => u.id);
+    assert.ok(ids1.length > 0, `${scheme}: expected units`);
+    assert.deepEqual(ids1, ids2, `${scheme}: ids differ across identical runs`);
+    assert.equal(new Set(ids1).size, ids1.length, `${scheme}: ids not unique`);
+  }
+});
+
 test("unitize: scheme/source mismatch throws ConcordError", () => {
   assert.throws(
     () => unitize(CORPUS, { rows: [{ t: "x" }], issues: [] }, "turn", { textColumn: "t" }),
