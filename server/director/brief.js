@@ -123,7 +123,11 @@ export async function generateBrief(project, corpusId, { onParagraph } = {}) {
       { role: "user", content: user },
     ],
     schema: BRIEF_SCHEMA,
-    maxTokens: 4096,
+    // The brief is the Director's longest structured output — paragraphs +
+    // themes + per-claim unit refs. 4096 truncated in the field (Gemini Flash
+    // via OpenRouter); 16384 leaves real-model verbosity room, and a
+    // truncation still retries once at 2x inside callDirector.
+    maxTokens: 16384,
   });
   const out = res.json;
 

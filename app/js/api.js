@@ -112,6 +112,7 @@ export function sseSubscribe(url, { method = "GET", body, onEvent, onDone, onErr
     const reader = res.body.getReader();
     const decoder = new TextDecoder();
     let buffer = "";
+    let failed = false; // a streamed `error` event is terminal — suppress onDone
     const dispatch = (block) => {
       let event = "message";
       const data = [];
@@ -124,6 +125,18 @@ export function sseSubscribe(url, { method = "GET", body, onEvent, onDone, onErr
       const rawData = data.join("\n");
       let parsed = rawData;
       try { parsed = JSON.parse(rawData); } catch { /* plain-text data event */ }
+      // Server convention (every Concord SSE route): a terminal failure inside
+      // an open 200 stream arrives as `event: error` with {code, message}.
+      // Surface it through onError CENTRALLY so no wrapper or screen can drop
+      // it — a swallowed error event leaves the UI composing forever.
+      if (event === "error") {
+        failed = true;
+        if (!closed) {
+          onError?.(new ApiError(parsed?.code ?? "STREAM_ERROR",
+            parsed?.message ?? "the stream reported an error", { status: 200, details: parsed }));
+        }
+        return;
+      }
       onEvent?.(event, parsed);
     };
 
@@ -140,9 +153,9 @@ export function sseSubscribe(url, { method = "GET", body, onEvent, onDone, onErr
         }
       }
       if (buffer.trim()) dispatch(buffer);
-      if (!closed) onDone?.();
+      if (!closed && !failed) onDone?.();
     } catch (err) {
-      if (!closed) onError?.(new ApiError("STREAM_BROKEN", `Stream interrupted (${err.message})`, { status: 0 }));
+      if (!closed && !failed) onError?.(new ApiError("STREAM_BROKEN", `Stream interrupted (${err.message})`, { status: 0 }));
     }
   })();
 

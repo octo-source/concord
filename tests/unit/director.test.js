@@ -971,3 +971,65 @@ test("ConcordError is used for director-facing failures", async () => {
     assert.ok(err instanceof ConcordError);
   }
 });
+
+// ---------------------------------------------------------------- truncation retry (June 2026 field bug)
+
+// A real Director (Gemini Flash via OpenRouter) truncated the brief JSON at
+// maxTokens 4096 and the product hard-failed. Director calls now retry ONCE
+// at a doubled budget (capped) before giving up.
+test("withTruncationRetry: TRUNCATED retries once at doubled budget; cap honored; other errors propagate", async () => {
+  const { withTruncationRetry } = await import("../../server/director/director.js");
+
+  const calls = [];
+  const r = await withTruncationRetry(async (mt) => {
+    calls.push(mt);
+    if (calls.length === 1) throw new ConcordError("TRUNCATED", "structured output truncated");
+    return { ok: mt };
+  }, { maxTokens: 4096 });
+  assert.deepEqual(calls, [4096, 8192], "second attempt doubles the budget");
+  assert.equal(r.ok, 8192);
+
+  const calls2 = [];
+  await withTruncationRetry(async (mt) => {
+    calls2.push(mt);
+    if (calls2.length === 1) throw new ConcordError("TRUNCATED", "x");
+    return {};
+  }, { maxTokens: 20000 });
+  assert.deepEqual(calls2, [20000, 32768], "doubled budget is capped at 32768");
+
+  await assert.rejects(
+    () => withTruncationRetry(async () => { throw new ConcordError("TRUNCATED", "still truncated"); }, { maxTokens: 1024 }),
+    (e) => e.code === "TRUNCATED",
+    "a second truncation propagates",
+  );
+
+  const calls3 = [];
+  await assert.rejects(
+    () => withTruncationRetry(async (mt) => { calls3.push(mt); throw new ConcordError("PROVIDER_HTTP", "boom"); }, { maxTokens: 4096 }),
+    (e) => e.code === "PROVIDER_HTTP",
+  );
+  assert.equal(calls3.length, 1, "non-truncation errors never retry");
+
+  const calls4 = [];
+  await assert.rejects(
+    () => withTruncationRetry(async (mt) => { calls4.push(mt); throw new ConcordError("TRUNCATED", "at cap already"); }, { maxTokens: 32768 }),
+    (e) => e.code === "TRUNCATED",
+  );
+  assert.equal(calls4.length, 1, "already at the cap: nothing larger to try");
+});
+
+test("generateBrief asks for a realistic token budget (>= 16384)", async () => {
+  const project = await makeProject({ handler: "t-budget" });
+  const { corpusId } = await makeCorpus(project, { n: 40 });
+  const seen = { maxTokens: null };
+  mock.setHandler("t-budget", (req) => {
+    seen.maxTokens = req.maxTokens;
+    return {
+      paragraphs: [{ md: "One paragraph.", refs: [] }],
+      themes: [], redFlags: [], suggestedQuestions: [], unitOfAnalysis: "response",
+    };
+  });
+  await generateBrief(project, corpusId, {});
+  assert.ok(seen.maxTokens >= 16384,
+    `brief budget must survive real frontier verbosity (got ${seen.maxTokens}; 4096 truncated in the field)`);
+});

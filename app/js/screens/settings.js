@@ -22,6 +22,21 @@ const PRIVACY_DESC = {
   strict: "Network adapters are disabled app-wide. Everything — including the Director — runs locally.",
 };
 
+// Mirror of the server registry's privacy gates (server/providers/registry.js)
+// so Settings can WARN at save time about a Director that will be blocked at
+// use time. The server stays the enforcer; this is the courtesy copy.
+const LOCAL_PROVIDERS = new Set(["mock", "ollama"]);
+const NO_TRAINING_ALLOWED = new Set(["anthropic", "openai", "mock", "ollama"]);
+function privacyBlocks(mode, provider) {
+  if (mode === "strict" && !LOCAL_PROVIDERS.has(provider)) {
+    return `strict mode only allows local models (mock, ollama), not ${provider}.`;
+  }
+  if (mode === "no-training" && !NO_TRAINING_ALLOWED.has(provider)) {
+    return `no-training mode blocks ${provider} (no contractual no-training terms) unless a justification is logged. Switch the project to open, or use anthropic/openai/local.`;
+  }
+  return null;
+}
+
 export function render(mount, params) {
   const projectScoped = Boolean(params.slug);
   asyncMount(mount, async () => {
@@ -121,6 +136,11 @@ export function render(mount, params) {
                 if (!director.model) director.model = dirModelSel.value;
                 await api.settings.update({ project: { slug: params.slug, director } });
                 toast.success("Director updated.", { detail: `${director.provider} · ${director.model}`, data: true });
+                // The save is project policy; the privacy gate fires at USE.
+                // Warn now if this combination will be blocked then — the
+                // silent version of this trap cost a researcher an afternoon.
+                const blockedBy = privacyBlocks(project.privacyMode, director.provider);
+                if (blockedBy) toast.warn(`This Director will be blocked at use: ${blockedBy}`, { duration: 9000 });
               } catch (err) {
                 toast.error("Could not update the Director.", { detail: String(err.message ?? err) });
               }
@@ -178,8 +198,6 @@ export function render(mount, params) {
 // Live key entry (GET /api/settings → keys[name]): {configured, apiKey:
 // <masked>, baseUrl?}. Reachability is the health probe's boolean. Keys save
 // via PUT /api/settings {keys: {name: <key>}} → response keys[name].apiKey.
-const LOCAL_PROVIDERS = new Set(["ollama", "mock"]);
-
 function providerCard(name, entry, reachable) {
   const local = LOCAL_PROVIDERS.has(name);
   const dot = el("span", {
