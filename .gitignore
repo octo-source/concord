@@ -5,3 +5,4 @@ config/
 .DS_Store
 Thumbs.db
 *.tmp.*
+server-boot.log

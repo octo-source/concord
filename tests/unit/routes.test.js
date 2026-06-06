@@ -1768,7 +1768,11 @@ test("instruments: dictionary preview returns per-unit hit spans for highlightin
 
 test("evidence: the dossier behind a unit — text, dictionary hits, outputs with provenance, gold labels, source pos", async () => {
   const gs = await ok("GET", `/api/projects/${S.slug}/goldsets/${S.goldsetId}`);
-  const goldUnitId = gs.sample[0].unitId;
+  // sample order is seeded by the random goldset id, so the Director-escalated
+  // long unit occasionally lands first — skip it: its persisted label is the
+  // override ("no"), not ORACLE's "yes"
+  const longUnit = S.unitsB.find((u) => u.meta.respondent_id === `r${LONG_ROW}`);
+  const goldUnitId = gs.sample.find((s) => s.unitId !== longUnit.id).unitId;
   const d = await ok("GET", `/api/projects/${S.slug}/evidence/${goldUnitId}`);
   assert.equal(d.unit.id, goldUnitId);
   assert.equal(typeof d.unit.text, "string");
@@ -1786,7 +1790,6 @@ test("evidence: the dossier behind a unit — text, dictionary hits, outputs wit
   assert.ok("coder-B" in goldEntry.coders);
 
   // escalated unit: provenance marker rides on the dossier
-  const longUnit = S.unitsB.find((u) => u.meta.respondent_id === `r${LONG_ROW}`);
   const dLong = await ok("GET", `/api/projects/${S.slug}/evidence/${longUnit.id}`);
   const esc = dLong.outputs.find((o) => o.runId === S.runId).outputs[0];
   assert.equal(esc.escalated, true);

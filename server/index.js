@@ -110,6 +110,29 @@ export async function startServer({
     server.listen(port, "127.0.0.1", resolve);
   });
 
+  // `localhost` resolves to ::1 FIRST on Windows; some HTTP clients try only
+  // the first answer. Mirror the listener on IPv6 loopback (same port, same
+  // router) so localhost works regardless of resolver order. Best-effort —
+  // machines without IPv6 simply skip it.
+  const boundPort = server.address().port;
+  let server6 = null;
+  try {
+    server6 = http.createServer((req, res) => {
+      router.handle(req, res).catch((err) => {
+        console.error(err);
+        if (!res.writableEnded) {
+          try { res.statusCode = 500; res.end(); } catch { /* socket gone */ }
+        }
+      });
+    });
+    await new Promise((resolve, reject) => {
+      server6.once("error", reject);
+      server6.listen(boundPort, "::1", resolve);
+    });
+  } catch {
+    server6 = null; // no IPv6 loopback — IPv4 alone is fine
+  }
+
   // Heal orphaned runs: a record still saying "running" at boot belongs to a
   // process that no longer exists (restart/crash mid-run). Mark it paused —
   // resume is exactly-once off the outputs on disk — so the UI never watches
@@ -119,11 +142,16 @@ export async function startServer({
   return {
     server,
     router,
-    port: server.address().port,
+    port: boundPort,
     close: () => new Promise((resolve) => {
-      server.close(resolve);
-      // live SSE/keep-alive connections would hold close() open forever
+      let pending = server6 ? 2 : 1;
+      const one = () => { if (--pending === 0) resolve(); };
+      server.close(one);
       server.closeAllConnections?.();
+      if (server6) {
+        server6.close(one);
+        server6.closeAllConnections?.();
+      }
     }),
   };
 }
