@@ -10,8 +10,30 @@ import { parseMultipart } from "../router.js";
 import { createConstruct } from "../core/objects.js";
 import { loadProject, updateProject } from "../core/store.js";
 import * as ledger from "../core/ledger.js";
-import { importCodebook, inductiveTaxonomy, acceptConstructs } from "../director/constructs.js";
+import { draftConstructs, importCodebook, inductiveTaxonomy, acceptConstructs } from "../director/constructs.js";
+import { readCorpusUnits, seededSample } from "../director/director.js";
 import { findOr404, requireBody, pdirOf, withDirectorSpend } from "./_shared.js";
+
+// "Draft with Director" input: free text that is EITHER newline-separated
+// concept names (optionally "name: hint") to formalize, or a single research
+// question. A lone line that ends in "?" — or that has no colon and more than
+// six words — reads as a question; everything else reads as concepts.
+export function parseDraftInput(input) {
+  const lines = String(input ?? "").split(/\r?\n/).map((l) => l.trim()).filter(Boolean);
+  if (lines.length === 0) {
+    throw new ConcordError("VALIDATION", "draft input is empty — give concept names (one per line, optionally \"name: hint\") or a research question", {});
+  }
+  if (lines.length === 1) {
+    const line = lines[0];
+    if (line.endsWith("?") || (!line.includes(":") && line.split(/\s+/).length > 6)) {
+      return line; // a question, passed through whole
+    }
+  }
+  return lines.map((line) => {
+    const i = line.indexOf(":");
+    return i === -1 ? line : { name: line.slice(0, i).trim(), definition: line.slice(i + 1).trim() };
+  });
+}
 
 export default [
   {
@@ -66,6 +88,26 @@ export default [
       if (!corpusId) throw new ConcordError("VALIDATION", "inductive taxonomy requires a corpus", {});
       return withDirectorSpend(project, () =>
         inductiveTaxonomy(project, corpusId, body.n !== undefined ? { n: body.n } : {}));
+    },
+  },
+  {
+    // Draft with Director: formalize MY concepts (or compile MY question)
+    // into codebook entries — distinct from /inductive, which proposes themes
+    // FROM the corpus. Returns proposals only; /constructs/accept persists.
+    method: "POST",
+    pattern: "/api/projects/:p/constructs/draft",
+    handler: async (req, res, params) => {
+      const project = await loadProject(params.p);
+      const body = requireBody(req, ["input"]);
+      const themesOrQuestion = parseDraftInput(body.input);
+      const corpusId = body.corpusId ?? project.corpora?.[0]?.id;
+      if (!corpusId) {
+        throw new ConcordError("VALIDATION", "construct drafting requires a corpus to mine worked examples from — import one first", {});
+      }
+      const { units } = await readCorpusUnits(project, corpusId);
+      const sample = seededSample(units, Math.min(60, units.length), `draft|${corpusId}`);
+      const constructs = await withDirectorSpend(project, () => draftConstructs(project, themesOrQuestion, sample));
+      return { constructs, sampleN: sample.length };
     },
   },
   {

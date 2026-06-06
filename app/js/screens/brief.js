@@ -13,6 +13,7 @@ import * as toast from "../components/toast.js";
 import * as quotecard from "../components/quotecard.js";
 import * as glyph from "../components/glyph.js";
 import * as ladder from "../components/ladder.js";
+import * as scopechip from "../components/scopechip.js";
 import { fmtCount, fmtDate } from "../format.js";
 import { section, emptyState, errorView, ensureProject, setReading, backLink, mdInline } from "./_shared.js";
 
@@ -20,6 +21,7 @@ export const route = "p/:slug/brief/:bid";
 export const title = "Corpus Brief";
 
 let stream = null;
+let composeTimer = null;
 
 export function render(mount, params, query) {
   setReading(true);
@@ -41,9 +43,26 @@ export function render(mount, params, query) {
     destroy() {
       stream?.close?.();
       stream = null;
+      clearInterval(composeTimer);
+      composeTimer = null;
       setReading(false);
     },
   };
+}
+
+/* The brief reads ONE text column and summarizes ALL metadata columns — the
+   scope chip under the byline says exactly that. Stored artifacts may carry
+   their own textColumn/metaColumns; otherwise the corpus entry answers. */
+function briefScope(project, corpusId, artifact = null) {
+  const corpusEntry = (project?.corpora ?? []).find((c) => c.id === corpusId) ?? null;
+  const base = scopechip.fromCorpus(corpusEntry, project);
+  if (!base && !artifact?.textColumn) return null;
+  return scopechip.render({
+    ...(base ?? {}),
+    textColumn: artifact?.textColumn ?? base?.textColumn ?? null,
+    metaColumns: artifact?.metaColumns ?? base?.metaColumns ?? null,
+    allMeta: true,
+  });
 }
 
 /* ---- streamed (new) ---------------------------------------------------------- */
@@ -56,12 +75,24 @@ function startStream(column, params, query, project) {
     sampleN: null,
     date: new Date().toISOString(),
   }));
+  const scopeEl = briefScope(project, corpusId);
+  if (scopeEl) column.append(scopeEl);
 
   const body = el("div", { class: "brief__body", aria: { live: "polite" } });
+  const composeText = el("span", {}, " reading a stratified sample · 0s — one Director call, ~30–60 s on flash-class models");
   const composing = el("p", { class: "brief__composing", role: "status" },
     el("span", { class: "brief__cursor", aria: { hidden: "true" } }, "▍"),
-    " reading a stratified sample…");
+    composeText);
   column.append(body, composing);
+
+  // elapsed seconds so a long call reads as working, not hung
+  const startedAt = Date.now();
+  clearInterval(composeTimer);
+  composeTimer = setInterval(() => {
+    const sec = Math.round((Date.now() - startedAt) / 1000);
+    composeText.textContent = ` reading a stratified sample · ${sec}s — one Director call, ~30–60 s on flash-class models`;
+  }, 1000);
+  const stopClock = () => { clearInterval(composeTimer); composeTimer = null; };
 
   const paras = [];
   stream = api.brief.generate(params.slug, corpusId, {
@@ -70,12 +101,14 @@ function startStream(column, params, query, project) {
       body.append(paragraphEl(para, paras.length));
     },
     onDone({ briefId } = {}) {
+      stopClock();
       composing.remove();
       toast.success("Corpus Brief drafted.", { detail: briefId, data: true });
       // re-enter through the stored route so refresh/share works
       if (briefId) router.navigate(`p/${params.slug}/brief/${briefId}`, { replace: true });
     },
     onError(err) {
+      stopClock();
       composing.remove();
       column.append(errorView(err, { retry: () => { clear(column); startStream(column, params, query, project); } }));
     },
@@ -115,6 +148,8 @@ async function renderStored(column, params, project) {
     sampleDesign: brief.sample?.design,
     date: brief.createdAt,
   }));
+  const scopeEl = briefScope(project, brief.corpusId, brief);
+  if (scopeEl) column.append(scopeEl);
 
   if (brief.unitOfAnalysis) {
     column.append(el("p", { class: "brief__unitline faint" },

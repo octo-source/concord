@@ -5,13 +5,33 @@
 // corpus meta; it never touches a model.
 import { readFile } from "node:fs/promises";
 import { ConcordError } from "../core/errors.js";
+import { newId, unitId } from "../core/ids.js";
 import { loadProject, updateProject } from "../core/store.js";
+import * as ledger from "../core/ledger.js";
 import { detect } from "../ingest/mapping.js";
+import { scan as junkScan } from "../ingest/junk.js";
 import { score as dictScore, tokenize as dictTokenize } from "../instruments/dictionary.js";
 import { estimateRun } from "../providers/costs.js";
 import { getAdapter } from "../providers/registry.js";
 import { briefSampleTarget } from "../director/brief.js";
-import { findOr404, readCorpusUnits } from "./_shared.js";
+import { metaColumnsOf } from "./import.js";
+import { findOr404, readCorpusUnits, requireBody, pdirOf, writeTextAtomic, corpusUnitsFile } from "./_shared.js";
+
+// ------------------------------------------------------------------- scope
+
+// Scope provenance off a corpus entry (import.js records the fields at
+// confirm/reunitize). Old corpora predate them: fall back to the unitization
+// block where possible and read null — never throw — for the rest.
+export function scopeOf(corpus) {
+  return {
+    textColumn: corpus.textColumn ?? corpus.unitization?.textColumn ?? null,
+    scheme: corpus.scheme ?? corpus.unitization?.scheme ?? null,
+    unitCount: corpus.unitCount ?? null,
+    junk: corpus.junk ?? null,
+    metaColumns: corpus.metaColumns ?? null,
+    derivedFrom: corpus.derivedFrom ?? null,
+  };
+}
 
 // ----------------------------------------------------------- units listing
 
@@ -315,12 +335,90 @@ export default [
         });
       }
       // the brief price overlays per request (it follows the CURRENT Director
-      // slot and catalog pricing) — it is never persisted into the cache
+      // slot and catalog pricing) — it is never persisted into the cache, and
+      // neither is the scope block (it follows the live corpus entry)
       const meanUnitChars = typeof read.meanUnitChars === "number"
         ? read.meanUnitChars
         : await meanUnitCharsOf(params.p, params.c);
       const briefEstimate = await briefEstimateFor(project, { unitCount: read.unitCount, meanUnitChars });
-      return { ...read, briefEstimate };
+      return { ...read, briefEstimate, scope: scopeOf(corpus) };
+    },
+  },
+  {
+    // Fix a wrong text-column choice WITHOUT re-import: build a NEW corpus
+    // whose unit text is the chosen metadata column, preserving the old text
+    // under its original column name (design §6.2 — re-unitization versions
+    // the corpus; the original is never touched).
+    method: "POST",
+    pattern: "/api/projects/:p/corpora/:c/reunitize",
+    handler: async (req, res, params) => {
+      const project = await loadProject(params.p);
+      const source = findOr404(project.corpora, params.c, "corpus");
+      const { textColumn } = requireBody(req, ["textColumn"]);
+      const units = await readCorpusUnits(params.p, params.c);
+      if (units.length === 0) {
+        throw new ConcordError("VALIDATION", `corpus '${params.c}' has no units to re-unitize`, { corpusId: params.c });
+      }
+      if (!(textColumn in (units[0].meta ?? {}))) {
+        const known = Object.keys(units[0].meta ?? {});
+        throw new ConcordError("VALIDATION", `"${textColumn}" is not a metadata column of this corpus — columns: ${known.join(", ") || "(none)"}`, { textColumn, known });
+      }
+
+      // the old text survives under the old corpus's text column name when
+      // known; legacy corpora that never recorded one fall back to "text_prev"
+      const prevKey = scopeOf(source).textColumn ?? "text_prev";
+      const corpusId = newId("corp");
+      let skipped = 0;
+      const next = [];
+      units.forEach((u, i) => {
+        const v = u.meta?.[textColumn];
+        const text = v === undefined || v === null ? "" : String(v).trim();
+        if (!text) {
+          skipped++;
+          return;
+        }
+        const meta = { ...u.meta };
+        delete meta[textColumn];
+        meta[prevKey] = u.text;
+        // ids hash the SOURCE position (i), never the emitted ordinal, so
+        // skipped units do not renumber their neighbors (same rule as unitize)
+        next.push({ id: unitId(corpusId, i, text), text, meta, pos: u.pos });
+      });
+      if (next.length === 0) {
+        throw new ConcordError("VALIDATION", `every unit's "${textColumn}" is empty — nothing to re-unitize onto`, { textColumn });
+      }
+      const junk = junkScan(next); // mutates unit.flags in place, like import/confirm
+
+      await writeTextAtomic(
+        corpusUnitsFile(project.slug, corpusId),
+        next.map((u) => JSON.stringify(u)).join("\n") + "\n",
+      );
+
+      const sourceScheme = scopeOf(source).scheme;
+      const entry = {
+        id: corpusId,
+        name: `${source.name ?? source.id} · text=${textColumn}`,
+        ...(source.source ? { source: source.source } : {}),
+        unitization: { ...(sourceScheme ? { scheme: sourceScheme } : {}), textColumn },
+        unitCount: next.length,
+        createdAt: new Date().toISOString(),
+        textColumn,
+        scheme: sourceScheme,
+        junk: junk.counts,
+        metaColumns: metaColumnsOf(next),
+        sourceName: source.sourceName ?? source.source?.filename ?? null,
+        derivedFrom: source.id,
+      };
+      await updateProject(project.slug, (p) => {
+        p.corpora.push(entry);
+      });
+      await ledger.append(pdirOf(project.slug), "human", "corpus.unitized", { corpusId }, {
+        textColumn,
+        derivedFrom: source.id,
+        unitCount: next.length,
+        skipped,
+      });
+      return { corpusId, unitCount: next.length, junk: junk.counts, textColumn, skipped };
     },
   },
 ];

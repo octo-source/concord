@@ -63,5 +63,13 @@
     ]}
   ],
   "briefEstimate": { "usd": 0.086667, "etaMin": 1 },
+  "scope": {
+    "textColumn": "response",
+    "scheme": "response",
+    "unitCount": 2500,
+    "junk": { "na": 38, "short": 16, "dup": 24, "bot": 7 },
+    "metaColumns": 6,
+    "derivedFrom": null
+  },
   "computedAt": "2026-06-01T09:22:00.000Z"
 }

@@ -15,13 +15,15 @@
 //                    only when no Director slot is configured
 //   computedAt:      ISO timestamp (also the cache marker)
 
-import { el } from "../dom.js";
+import { el, clear } from "../dom.js";
 import api from "../api.js";
 import * as router from "../router.js";
 import * as bar from "../components/charts/bar.js";
 import * as smallmultiples from "../components/charts/smallmultiples.js";
+import * as scopechip from "../components/scopechip.js";
+import * as toast from "../components/toast.js";
 import { fmtCost, fmtCount, fmtDuration, fmtPct, fmtStat } from "../format.js";
-import { screenHead, section, asyncMount, ensureProject, emptyState } from "./_shared.js";
+import { screenHead, section, asyncMount, ensureProject, refreshProject, emptyState, openSheet } from "./_shared.js";
 
 export const route = "p/:slug/corpus/:cid/instant";
 export const title = "Instant Read";
@@ -53,6 +55,21 @@ export function render(mount, params) {
           read.unitCount ? el("span", { class: "data" }, ` · ${fmtCount(read.unitCount)} units`) : null),
       ],
     }));
+
+    /* -- scope: which column, which rows, what's excluded -- */
+    const corpusEntry = (project?.corpora ?? []).find((c) => c.id === params.cid) ?? null;
+    const scope = read.scope
+      ? { ...read.scope, derivedFrom: scopechip.resolveDerived(read.scope.derivedFrom, project) }
+      : scopechip.fromCorpus(corpusEntry, project);
+    const textCol = scope?.textColumn ?? null;
+    mount.append(el("div", { class: "scopebar" },
+      scope ? scopechip.render(scope) : null,
+      el("button", {
+        class: "btn btn--quiet scopebar__change", type: "button",
+        title: "Pick a different column as the unit text — builds a new corpus; this one is kept",
+        onclick: () => changeTextColumn(params, project, textCol),
+      }, textCol ? `Unit text: ${textCol} — change` : "Unit text: not recorded — set it"),
+    ));
 
     const grid = el("div", { class: "irgrid" });
     mount.append(grid);
@@ -158,4 +175,111 @@ export function render(mount, params) {
       ...children,
     );
   }
+}
+
+/* ---- change the unit text column — the recovery path for wrong-column
+   imports. Probes the first units client-side, ranks metadata keys by mean
+   string length, and confirms into POST corpora/:c/reunitize, which builds a
+   NEW corpus (the original is kept). ------------------------------------------ */
+
+function changeTextColumn(params, project, currentCol) {
+  const s = openSheet({ title: "Change the unit text column", overline: "Re-unitize this corpus" });
+
+  s.body.append(el("p", { class: "screen__hint" },
+    currentCol
+      ? `Units currently read their text from “${currentCol}”. `
+      : "This corpus does not record which column its text came from. ",
+    "Pick the column Concord should measure instead. Confirming builds a ",
+    el("strong", {}, "new corpus"),
+    " from that column — this one stays unchanged, so nothing built on it breaks."));
+
+  const listHost = el("div", { class: "choicelist", role: "radiogroup", aria: { label: "Unit text column" } },
+    el("p", { class: "faint" }, "Reading the first units to find text-like columns…"));
+  s.body.append(listHost);
+
+  let chosen = null;
+  const confirmBtn = el("button", {
+    class: "btn btn--primary", type: "button", disabled: true,
+    onclick: async () => {
+      if (!chosen) return;
+      confirmBtn.disabled = true;
+      confirmBtn.textContent = `Re-unitizing from ${chosen}…`;
+      try {
+        const res = await api.corpora.reunitize(params.slug, params.cid, { textColumn: chosen });
+        s.close();
+        toast.success(`Re-unitized — ${fmtCount(res.unitCount)} units now read from “${res.textColumn}”.`, {
+          detail: `${fmtCount(res.skipped ?? 0)} rows skipped (empty in that column) · the original corpus is kept`,
+          data: true,
+        });
+        await refreshProject(params.slug).catch(() => {});
+        router.navigate(`p/${params.slug}/corpus/${res.corpusId}/instant`);
+      } catch (err) {
+        confirmBtn.disabled = false;
+        confirmBtn.textContent = `Re-unitize — unit text from ${chosen}`;
+        toast.error("Re-unitize failed.", { detail: String(err.message ?? err) });
+      }
+    },
+  }, "Re-unitize");
+  s.foot.append(
+    el("button", { class: "btn btn--quiet", type: "button", onclick: () => s.close() }, "Cancel"),
+    confirmBtn,
+  );
+
+  (async () => {
+    let candidates = [];
+    try {
+      const page = await api.corpora.units(params.slug, params.cid, { limit: 12 });
+      candidates = rankTextyColumns(page?.units ?? []);
+    } catch (err) {
+      clear(listHost).append(el("p", { class: "faint" },
+        "Could not read sample units: ", String(err.message ?? err)));
+      return;
+    }
+    clear(listHost);
+    if (!candidates.length) {
+      listHost.append(el("p", { class: "faint" },
+        "No metadata columns to read from — this corpus carries only its unit text."));
+      return;
+    }
+    for (const c of candidates) {
+      listHost.append(el("label", { class: "choice" },
+        el("input", {
+          type: "radio", name: "unit-text-col", value: c.key,
+          onchange: () => {
+            chosen = c.key;
+            confirmBtn.disabled = false;
+            confirmBtn.textContent = `Re-unitize — unit text from ${c.key}`;
+          },
+        }),
+        el("span", { class: "choice__text" },
+          el("span", { class: "choice__label" },
+            el("span", { class: "data" }, c.key),
+            el("span", { class: "chip chip--ghost data" }, `~${fmtCount(c.meanLen)} chars`)),
+          c.preview ? el("span", { class: "choice__preview data" }, c.preview) : null)));
+    }
+    listHost.append(el("p", { class: "screen__hint faint" },
+      "Columns ranked by mean text length over the first units — longer usually means “this is the open-ended answer”."));
+  })();
+}
+
+/** Rank a unit sample's metadata keys by mean string length (texty first). */
+function rankTextyColumns(units, topN = 8) {
+  const stats = new Map(); // key → {sum, n, preview}
+  for (const u of units) {
+    for (const [key, value] of Object.entries(u?.meta ?? {})) {
+      if (value === null || value === undefined) continue;
+      const str = String(value);
+      const rec = stats.get(key) ?? { sum: 0, n: 0, preview: "" };
+      rec.sum += str.length;
+      rec.n += 1;
+      if (!rec.preview && str.trim()) {
+        rec.preview = str.length > 90 ? str.slice(0, 90) + "…" : str;
+      }
+      stats.set(key, rec);
+    }
+  }
+  return [...stats.entries()]
+    .map(([key, r]) => ({ key, meanLen: Math.round(r.sum / Math.max(1, r.n)), preview: r.preview }))
+    .sort((a, b) => b.meanLen - a.meanLen)
+    .slice(0, topN);
 }

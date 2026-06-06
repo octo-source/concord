@@ -356,7 +356,7 @@ function planSheet(project, res, question) {
         try {
           const approved = await api.questionbar.approve(project.slug, planId);
           s.close();
-          toast.success("Plan approved — artifacts materialized.", {
+          toast.success("Plan approved — constructs and instruments created.", {
             detail: `${(approved?.constructIds ?? []).length} constructs · ${(approved?.instrumentIds ?? []).length} instruments`,
             data: true,
           });

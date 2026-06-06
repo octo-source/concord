@@ -110,6 +110,13 @@ export async function generateBrief(project, corpusId, { onParagraph } = {}) {
   const { columns } = detect(units.map((u) => u.meta ?? {})); // summary for the prompt
   const metaSummary = columns.map((c) => `${c.name} (${c.role})`).join(", ");
 
+  // Scope provenance: which column the unit text came from, and how many
+  // metadata columns ride alongside. Old corpora predate the entry fields —
+  // fall back to the unitization block, then to detection for the count, and
+  // never fabricate a column name.
+  const textColumn = meta.textColumn ?? meta.unitization?.textColumn ?? null;
+  const metaColumns = typeof meta.metaColumns === "number" ? meta.metaColumns : columns.length;
+
   const { system, user } = briefPrompt({
     projectName: project.name,
     corpusName: meta.name ?? corpusId,
@@ -117,10 +124,16 @@ export async function generateBrief(project, corpusId, { onParagraph } = {}) {
     sample,
     metaSummary,
   });
+  // The brief must name its scope: a Director (and a researcher reading over
+  // its shoulder) that thinks it is reading descriptions when it is reading
+  // titles is the exact field failure this line exists to prevent.
+  const scopedUser = textColumn
+    ? `Unit text comes from the column '${textColumn}'; ${metaColumns} metadata columns are summarized alongside.\n\n${user}`
+    : user;
   const res = await callDirector(project, {
     messages: [
       { role: "system", content: system },
-      { role: "user", content: user },
+      { role: "user", content: scopedUser },
     ],
     schema: BRIEF_SCHEMA,
     // The brief is the Director's longest structured output — paragraphs +
@@ -144,6 +157,8 @@ export async function generateBrief(project, corpusId, { onParagraph } = {}) {
   const brief = {
     id: newId("brief"),
     corpusId,
+    textColumn,
+    metaColumns,
     createdAt: new Date().toISOString(),
     authoredBy: "director",
     humanTouched: false,

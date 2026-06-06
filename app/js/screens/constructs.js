@@ -1,10 +1,13 @@
 // Constructs — #/p/:slug/constructs[/:id] — the codebook. A list pane and a
-// structured editor: definition, include/exclude criteria, edge cases,
-// categories with EXPLICIT order (order feeds ordinal statistics), and a
-// worked-examples table with kind chips. Director-authored constructs wear
-// the glyph until the first human edit lands (humanTouched PUT) — then it
-// dissolves. Draft with Director, import a legacy codebook (proposals →
-// accept), or enter inductive mode (labeled as hypothesis generation).
+// structured editor: definition, include/exclude criteria, borderline-case
+// rules, categories with EXPLICIT order (order feeds ordinal statistics), and
+// a worked-examples table with kind chips. Director-authored constructs wear
+// the attribution mark until the first human edit lands (humanTouched PUT).
+// Draft with Director formalizes the USER's concepts (POST constructs/draft);
+// Inductive mode asks the Director to propose themes FROM the corpus and is
+// labeled hypothesis generation. Both Director sheets show elapsed-time busy
+// states, and a module-level in-flight guard keeps repeat header clicks from
+// stacking sheets or double-spending a call.
 
 import { el, clear } from "../dom.js";
 import api from "../api.js";
@@ -102,14 +105,24 @@ function editor(pane, params, construct, query = {}) {
     saveBtn.disabled = false;
   };
 
+  // after a save, the editor must say what comes next — a save that changes
+  // nothing visible reads as a save that failed
+  const nextStep = el("p", { class: "editor__next", hidden: true });
+
   const saveBtn = el("button", {
     class: "btn btn--primary", type: "button", disabled: !dirty,
     onclick: async () => {
       saveBtn.disabled = true;
       try {
         await api.constructs.update(params.slug, k.id, k);
-        toast.success("Construct saved.", { detail: k.humanTouched && construct.authoredBy === "director" && !construct.humanTouched ? "adopted — the Director's glyph dissolves" : k.id, data: true });
+        const adopted = construct.authoredBy === "director" && !construct.humanTouched && k.humanTouched;
+        toast.success("Construct saved.", { detail: adopted ? "Adopted — now yours to edit." : k.id, data: !adopted });
         dirty = false;
+        nextStep.hidden = false;
+        clear(nextStep).append(
+          "Saved. Next: ",
+          el("a", { href: `#/p/${params.slug}/instruments?construct=${encodeURIComponent(k.id)}` },
+            "compile an instrument for this construct →"));
       } catch (err) {
         saveBtn.disabled = false;
         toast.error("Save failed.", { detail: String(err.message ?? err) });
@@ -131,12 +144,14 @@ function editor(pane, params, construct, query = {}) {
       }, ...TYPES.map((t) => el("option", { value: t, selected: t === k.type }, t))),
       saveBtn),
   ));
+  pane.append(nextStep);
 
   /* definition */
   pane.append(section("Definition",
     el("textarea", {
       class: "input textarea", rows: 3, "aria-label": "Definition",
       value: k.definition ?? "",
+      placeholder: "One or two sentences a stranger could apply — e.g. “The primary grievance the respondent treats as decisive. One label per unit: the deciding theme, not every theme mentioned.”",
       oninput: (e) => { k.definition = e.target.value; touch(); },
     }, k.definition ?? "")));
 
@@ -144,8 +159,12 @@ function editor(pane, params, construct, query = {}) {
   const criteria = k.criteria ?? (k.criteria = { include: [], exclude: [] });
   pane.append(section("Criteria",
     el("div", { class: "twocol" },
-      editList("Include when…", criteria.include, touch),
-      editList("Exclude when…", criteria.exclude, touch))));
+      editList("Include when…", criteria.include, touch, {
+        placeholder: "e.g. “Names pay, equity, or the comp process as a reason for leaving.”",
+      }),
+      editList("Exclude when…", criteria.exclude, touch, {
+        placeholder: "e.g. “Mentions pay only to dismiss it (‘the pay was fine’).”",
+      }))));
 
   /* categories with order */
   if (k.categories) {
@@ -154,9 +173,14 @@ function editor(pane, params, construct, query = {}) {
       categoriesEditor(k, touch)));
   }
 
-  /* edge cases */
+  /* edge cases — rules for borderline units, so coders (human or model)
+     stop guessing */
   k.edgeCases = k.edgeCases ?? [];
-  pane.append(section("Edge cases", editList("The hard calls, written down", k.edgeCases, touch, { wide: true })));
+  pane.append(section("Edge cases",
+    editList("Rules for borderline cases, one per line", k.edgeCases, touch, {
+      wide: true,
+      placeholder: "e.g. “Mentions quitting hypothetically (‘if things don't change…’) → code as absent.”",
+    })));
 
   /* worked examples */
   k.examples = k.examples ?? [];
@@ -165,7 +189,7 @@ function editor(pane, params, construct, query = {}) {
   if (dirty) saveBtn.disabled = false;
 }
 
-function editList(label, arr, touch, { wide = false } = {}) {
+function editList(label, arr, touch, { wide = false, placeholder = null } = {}) {
   const listEl = el("ul", { class: `editlist${wide ? " editlist--wide" : ""}`, role: "list" });
   const redraw = () => {
     clear(listEl);
@@ -173,6 +197,7 @@ function editList(label, arr, touch, { wide = false } = {}) {
       listEl.append(el("li", { class: "editlist__row" },
         el("textarea", {
           class: "input editlist__input", rows: 1, "aria-label": `${label} ${i + 1}`,
+          placeholder,
           oninput: (e) => { arr[i] = e.target.value; touch(); },
         }, item),
         el("button", {
@@ -201,10 +226,12 @@ function categoriesEditor(k, touch) {
         el("kbd", { class: "catrow__key", title: "Coding-sprint key" }, String(i + 1)),
         el("input", {
           class: "input catrow__label", value: cat.label ?? cat.value, "aria-label": `Category ${i + 1} label`,
+          placeholder: "label — e.g. Severe",
           oninput: (e) => { cat.label = e.target.value; touch(); },
         }),
         el("input", {
-          class: "input catrow__anchor", value: cat.anchor ?? "", placeholder: "anchor — what this pole means",
+          class: "input catrow__anchor", value: cat.anchor ?? "",
+          placeholder: "what this pole means — e.g. “depletion, health language, ‘nothing left’”",
           "aria-label": `Category ${i + 1} anchor`,
           oninput: (e) => { cat.anchor = e.target.value; touch(); },
         }),
@@ -253,11 +280,13 @@ function examplesTable(k, touch) {
             el("td", { class: "extable__text" },
               el("textarea", {
                 class: "input extable__input", rows: 2, "aria-label": `Example ${i + 1} text`,
+                placeholder: "paste a real unit — e.g. “Base salary sat 18% under market and the refresh grants never came.”",
                 oninput: (e) => { ex.text = e.target.value; touch(); },
               }, ex.text ?? "")),
             el("td", {},
               el("input", {
                 class: "input", value: ex.label ?? "", "aria-label": `Example ${i + 1} label`,
+                placeholder: "its correct label — e.g. pay",
                 oninput: (e) => { ex.label = e.target.value; touch(); },
               })),
             el("td", {},
@@ -289,6 +318,9 @@ function examplesTable(k, touch) {
 /* ---- flows: draft / import / inductive --------------------------------------------- */
 
 // Live contracts:
+//   POST constructs/draft {input, corpusId?} → {constructs: proposals[],
+//     sampleN} — un-persisted, full construct proposals formalizing the
+//     USER's concepts; accepting persists through POST constructs.
 //   POST constructs/inductive → a TAXONOMY artifact {mode:
 //     "inductive-hypothesis", corpusId, sampleN, themes: [{name, definition,
 //     quoteRefs}], note, issues: {invalidRefs}, …} — themes, not constructs.
@@ -296,28 +328,119 @@ function examplesTable(k, touch) {
 //     true} — full director-authored construct proposals.
 //   POST constructs accepts a full construct body (name + type required).
 
+// ONE Director sheet at a time. Clicking a header button while a call is in
+// flight refocuses the open sheet (or says the call is still running if the
+// sheet was closed) instead of stacking a second sheet / second spend.
+let activeDirector = null; // {kind, busy(), sheetOpen(), focus(), close()}
+
+function guardDirector(kind) {
+  if (!activeDirector) return false;
+  if (activeDirector.busy()) {
+    if (activeDirector.sheetOpen()) activeDirector.focus();
+    else toast.info("The Director is still working on the last request.", {
+      detail: "proposals open the moment the call returns — no need to click again",
+    });
+    return true;
+  }
+  if (activeDirector.kind === kind) { // same sheet already open — refocus it
+    activeDirector.focus();
+    return true;
+  }
+  activeDirector.close(); // idle sheet of the other kind — swap, don't stack
+  return false;
+}
+
+/** Footer busy state: a sweeping rule + elapsed seconds beside the disabled
+    action button. Returns stop(). */
+function sheetBusy(s, actionBtn, lineFor) {
+  actionBtn.disabled = true;
+  const text = el("span", { class: "busyline__text" }, lineFor(0));
+  const line = el("span", { class: "busyline", role: "status" },
+    el("span", { class: "busyline__rule", aria: { hidden: "true" } }),
+    text);
+  const started = Date.now();
+  const timer = setInterval(() => {
+    text.textContent = lineFor(Math.round((Date.now() - started) / 1000));
+  }, 1000);
+  s.foot.replaceChildren(line, actionBtn);
+  return () => clearInterval(timer);
+}
+
+/** Re-resolve the route so newly accepted constructs appear in the list. */
+function repaintConstructs() {
+  window.dispatchEvent(new HashChangeEvent("hashchange"));
+}
+
 function draftWithDirector(params) {
-  const s = openSheet({ title: "Draft with the Director", overline: "Suggestion mode" });
+  if (guardDirector("draft")) return;
+  let inFlight = false;
+  let sheetOpen = true;
+  let stopBusy = null;
+
+  const s = openSheet({
+    title: "Draft with the Director", overline: "Your concepts → draft constructs",
+    onClose: () => {
+      sheetOpen = false;
+      stopBusy?.();
+      if (!inFlight && activeDirector?.kind === "draft") activeDirector = null;
+    },
+  });
+
+  const input = el("textarea", {
+    class: "input textarea", rows: 5, "aria-label": "Concepts to draft",
+    placeholder: "One concept per line (name: optional hint), or a research question.\nburnout: exhaustion the respondent attributes to their own workload\nWhich exits were preventable?",
+  });
   s.body.append(
-    el("p", { class: "screen__hint" }, "The Director reads a corpus sample and sketches candidate themes — definition and anchoring quotes each. A theme you accept becomes a draft construct wearing ", el("span", { class: "dglyph__mark" }, glyph.GLYPH), " until you edit or adopt it."),
+    el("p", {},
+      "Write the concepts ", el("strong", {}, "you"), " want to measure. The Director reads a 60-unit corpus sample and returns a full draft construct for each — definition, include/exclude criteria, worked examples. One Director call, usually 30–60 seconds; nothing is saved until you accept a proposal."),
+    el("label", { class: "field" },
+      el("span", { class: "field__label overline" }, "Concepts"),
+      input),
+    el("p", { class: "screen__hint faint" },
+      "Drafting formalizes your concepts. To have the Director propose themes ",
+      el("em", {}, "from the corpus"), " instead, use Inductive mode — that is hypothesis generation and is labeled as such."),
   );
-  s.foot.append(
-    el("button", { class: "btn btn--quiet", type: "button", onclick: () => s.close() }, "Cancel"),
-    el("button", {
-      class: "btn btn--primary", type: "button",
-      onclick: async (e) => {
-        e.target.disabled = true;
-        try {
-          const taxonomy = await api.constructs.inductive(params.slug, { n: 60 });
-          s.close();
-          themesSheet(params, taxonomy, "Director draft");
-        } catch (err) {
-          e.target.disabled = false;
-          toast.error("The Director could not draft.", { detail: String(err.message ?? err) });
-        }
-      },
-    }, "Draft"),
-  );
+
+  const paintFoot = () => {
+    runBtn.disabled = false;
+    s.foot.replaceChildren(
+      el("button", { class: "btn btn--quiet", type: "button", onclick: () => s.close() }, "Cancel"),
+      runBtn);
+  };
+  const runBtn = el("button", {
+    class: "btn btn--primary", type: "button",
+    onclick: async () => {
+      const text = input.value.trim();
+      if (!text) { input.focus(); return; }
+      inFlight = true;
+      stopBusy = sheetBusy(s, runBtn, (sec) =>
+        `Drafting from a 60-unit sample · ${sec}s — one Director call, ~30–60 s on flash-class models`);
+      try {
+        const res = await api.constructs.draft(params.slug, { input: text });
+        inFlight = false;
+        stopBusy?.();
+        activeDirector = null;
+        if (sheetOpen) s.close();
+        proposalsSheet(params, res?.constructs ?? [], "Director draft — your concepts, formalized",
+          { sampleN: res?.sampleN });
+      } catch (err) {
+        inFlight = false;
+        stopBusy?.();
+        toast.error("The draft failed.", { detail: String(err.message ?? err) });
+        if (sheetOpen) paintFoot();
+        else activeDirector = null;
+      }
+    },
+  }, "Draft constructs");
+  paintFoot();
+
+  activeDirector = {
+    kind: "draft",
+    busy: () => inFlight,
+    sheetOpen: () => sheetOpen,
+    focus: () => s.el.querySelector("textarea, button:not(.sheet__close)")?.focus(),
+    close: () => s.close(),
+  };
 }
 
 function importCodebook(params) {
@@ -341,28 +464,65 @@ function importCodebook(params) {
 }
 
 function inductiveMode(params) {
-  const s = openSheet({ title: "Inductive mode", overline: "Hypothesis generation — labeled as such" });
+  if (guardDirector("inductive")) return;
+  let inFlight = false;
+  let sheetOpen = true;
+  let stopBusy = null;
+
+  const s = openSheet({
+    title: "Inductive mode", overline: "Hypothesis generation — labeled as such",
+    onClose: () => {
+      sheetOpen = false;
+      stopBusy?.();
+      if (!inFlight && activeDirector?.kind === "inductive") activeDirector = null;
+    },
+  });
+
   s.body.append(
-    el("p", {}, "The Director reads a sample with no codebook and proposes a taxonomy of what it finds. Inductive output is ", el("strong", {}, "hypothesis generation, not measurement"), " — every proposal arrives exploratory and Director-glyphed, and the methods text will say where it came from."),
-    el("p", { class: "screen__hint faint" }, "Sample: 200 units."),
+    el("p", {},
+      "The Director reads 200 corpus units with no codebook and proposes a taxonomy of candidate themes. One Director call, usually 30–90 seconds; you review every proposal before anything is saved."),
+    el("p", { class: "screen__hint" },
+      "Inductive output is ", el("strong", {}, "hypothesis generation, not measurement"),
+      " — proposals arrive exploratory and Director-marked, and the methods text will say where they came from. To formalize concepts you already have, use Draft with Director instead."),
   );
-  s.foot.append(
-    el("button", { class: "btn btn--quiet", type: "button", onclick: () => s.close() }, "Cancel"),
-    el("button", {
-      class: "btn btn--primary", type: "button",
-      onclick: async (e) => {
-        e.target.disabled = true;
-        try {
-          const taxonomy = await api.constructs.inductive(params.slug, { n: 200 });
-          s.close();
-          themesSheet(params, taxonomy, "Inductive proposals");
-        } catch (err) {
-          e.target.disabled = false;
-          toast.error("Inductive pass failed.", { detail: String(err.message ?? err) });
-        }
-      },
-    }, "Run the inductive pass"),
-  );
+
+  const paintFoot = () => {
+    runBtn.disabled = false;
+    s.foot.replaceChildren(
+      el("button", { class: "btn btn--quiet", type: "button", onclick: () => s.close() }, "Cancel"),
+      runBtn);
+  };
+  const runBtn = el("button", {
+    class: "btn btn--primary", type: "button",
+    onclick: async () => {
+      inFlight = true;
+      stopBusy = sheetBusy(s, runBtn, (sec) =>
+        `Reading a 200-unit sample · ${sec}s — one Director call, ~30–90 s on flash-class models`);
+      try {
+        const taxonomy = await api.constructs.inductive(params.slug, { n: 200 });
+        inFlight = false;
+        stopBusy?.();
+        activeDirector = null;
+        if (sheetOpen) s.close();
+        themesSheet(params, taxonomy, "Inductive proposals — hypotheses to review");
+      } catch (err) {
+        inFlight = false;
+        stopBusy?.();
+        toast.error("Inductive pass failed.", { detail: String(err.message ?? err) });
+        if (sheetOpen) paintFoot();
+        else activeDirector = null;
+      }
+    },
+  }, "Run the inductive pass");
+  paintFoot();
+
+  activeDirector = {
+    kind: "inductive",
+    busy: () => inFlight,
+    sheetOpen: () => sheetOpen,
+    focus: () => s.el.querySelector("button:not(.sheet__close)")?.focus(),
+    close: () => s.close(),
+  };
 }
 
 /* Inductive taxonomy → review sheet. Accepting a theme materializes a binary
@@ -386,13 +546,22 @@ function themesSheet(params, taxonomy, titleLine) {
 }
 
 function proposalsSheet(params, proposals, titleLine, { note, sampleN } = {}) {
-  const s = openSheet({ title: titleLine, overline: "Review proposals", wide: true });
+  let accepted = 0;
+  const s = openSheet({
+    title: titleLine, overline: "Review proposals", wide: true,
+    // however the sheet closes (Done, ×, Esc, scrim), accepted constructs
+    // must already be on the screen behind it — never a silent dead-end
+    onClose: () => { if (accepted > 0) repaintConstructs(); },
+  });
   if (sampleN) {
     s.body.append(el("p", { class: "faint screen__hint" },
       `Read from a ${sampleN}-unit sample. `, note ?? ""));
   }
   if (!proposals.length) {
-    s.body.append(el("p", { class: "faint" }, "No proposals came back."));
+    s.body.append(el("p", { class: "faint" }, "No proposals came back. Try more specific concepts, or check the Director model in Settings."));
+  } else {
+    s.body.append(el("p", { class: "screen__hint" },
+      "Accept adds a proposal to your codebook immediately (it appears in the list behind this sheet); Dismiss drops it. Accepted constructs stay editable — open one to refine its definition and criteria."));
   }
   for (const prop of proposals) {
     const { quoteRefs, ...constructBody } = prop;
@@ -415,9 +584,11 @@ function proposalsSheet(params, proposals, titleLine, { note, sampleN } = {}) {
             e.target.disabled = true;
             try {
               const created = await api.constructs.create(params.slug, { ...constructBody, authoredBy: "director", humanTouched: false });
-              toast.success(`Accepted “${created.name}”.`, { detail: "it keeps the Director's glyph until you edit it" });
+              accepted += 1;
+              toast.success(`Accepted “${created.name}” — it is in your codebook now.`, { detail: "open it from the list to edit; editing marks it as yours" });
               row.classList.add("proposal--accepted");
               e.target.textContent = "Accepted";
+              repaintConstructs(); // the list behind the sheet updates now
             } catch (err) {
               e.target.disabled = false;
               toast.error("Could not accept.", { detail: String(err.message ?? err) });

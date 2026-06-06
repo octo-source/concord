@@ -194,6 +194,13 @@ export const corpora = {
   /** Units page: { offset, limit, q, ...metaFilters } */
   units: (p, c, params = {}) => get_(`${P(p)}/corpora/${encodeURIComponent(c)}/units`, { query: params }),
   instantRead: (p, c) => get_(`${P(p)}/corpora/${encodeURIComponent(c)}/instantread`),
+  /**
+   * Re-unitize from a different column → {corpusId, unitCount, junk,
+   * textColumn, skipped}. Builds a NEW corpus (the original is kept);
+   * `skipped` counts source rows empty in the chosen column.
+   */
+  reunitize: (p, c, { textColumn } = {}) =>
+    post(`${P(p)}/corpora/${encodeURIComponent(c)}/reunitize`, { textColumn }),
 };
 
 export const brief = {
@@ -236,6 +243,12 @@ export const constructs = {
     form.append("file", file, file.name ?? "codebook");
     return request("POST", `${P(p)}/constructs/import`, { multipart: form });
   },
+  /**
+   * Formalize the USER's concepts (one per line, `name: optional hint`, or a
+   * research question) against a corpus sample → {constructs: proposals[],
+   * sampleN}. Proposals are un-persisted; accepting one goes through create().
+   */
+  draft: (p, { input, corpusId } = {}) => post(`${P(p)}/constructs/draft`, { input, corpusId }),
   inductive: (p, { corpusId, n } = {}) => post(`${P(p)}/constructs/inductive`, { corpusId, n }),
 };
 

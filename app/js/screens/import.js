@@ -99,15 +99,70 @@ function renderSheet(mount, params, proposal, file) {
   // live: column roles ride under mapping.columns (null for column-less docs)
   const columns = (proposal.mapping?.columns ?? []).map((c) => ({ ...c }));
   const tabular = columns.length > 0;
+  const preview = proposal.preview ?? [];
   // tabular rows unitize as response|sentence; document/transcript sources
   // confirm with the server's format default (omit the scheme)
   let unitization = tabular ? "response" : null;
 
+  // THE choice of an import: which column is the unit text. Mean length comes
+  // from the parser's stats when present, else from the preview rows; the
+  // default is the LONGEST text-role column (never just the first).
+  const meanLenOf = (col) => col.stats?.meanLength
+    ?? Math.round(preview.reduce((s, row) => s + String(row?.[col.name] ?? "").length, 0) / Math.max(1, preview.length));
+  const previewLineOf = (name) => {
+    for (const row of preview) {
+      const v = String(row?.[name] ?? "").trim();
+      if (v) return v.length > 90 ? v.slice(0, 90) + "…" : v;
+    }
+    return "";
+  };
+  const ranked = columns
+    .map((col) => ({ col, meanLen: meanLenOf(col), preview: previewLineOf(col.name) }))
+    .sort((a, b) => b.meanLen - a.meanLen);
+  const textRanked = ranked.filter((r) => r.col.role === "text");
+  let unitTextColumn = (textRanked[0] ?? ranked[0])?.col.name ?? null;
+
   mount.append(screenHead({
     overline: "Import · review the mapping",
     title: file?.name ?? "Mapping",
-    lede: `Parsed locally — ${fmtCount((proposal.preview ?? []).length)} preview rows below. Adjust any column's role; nothing here blocks the import.`,
+    lede: `Parsed locally — ${fmtCount(preview.length)} preview rows below. Adjust any column's role; nothing here blocks the import.`,
   }));
+
+  /* -- unit text: the one choice that decides what gets measured -- */
+  const confirmLabel = () => (tabular && unitTextColumn ? `Import — unit text from ${unitTextColumn}` : "Confirm import");
+  if (tabular) {
+    const choiceRow = (r) => el("label", { class: "choice" },
+      el("input", {
+        type: "radio", name: "unit-text", value: r.col.name,
+        checked: r.col.name === unitTextColumn,
+        onchange: () => {
+          unitTextColumn = r.col.name;
+          confirmBtn.textContent = confirmLabel();
+        },
+      }),
+      el("span", { class: "choice__text" },
+        el("span", { class: "choice__label" },
+          el("span", { class: "data" }, r.col.name),
+          el("span", { class: "chip chip--ghost data" }, `~${fmtCount(r.meanLen)} chars`),
+          r === textRanked[0] ? el("span", { class: "chip chip--ghost choice__advised" }, "longest text column") : null),
+        r.preview ? el("span", { class: "choice__preview data" }, r.preview) : null));
+
+    const others = ranked.filter((r) => r.col.role !== "text");
+    mount.append(section("Unit text — the column Concord measures",
+      el("p", { class: "screen__hint" },
+        "One column becomes the text of every unit; every other column rides along as metadata. ",
+        "Concord pre-picked the longest text column — check the preview line and change it if that is not the answer text."),
+      el("div", { class: "choicelist", role: "radiogroup", aria: { label: "Unit text column" } },
+        ...textRanked.map(choiceRow),
+        textRanked.length === 0
+          ? el("p", { class: "screen__hint faint" }, "No column was detected as text — pick one below.")
+          : null,
+        others.length
+          ? el("details", { class: "utc-more", open: textRanked.length === 0 },
+              el("summary", {}, `Pick from all ${fmtCount(columns.length)} columns…`),
+              el("div", { class: "choicelist utc-more__list" }, ...others.map(choiceRow)))
+          : null)));
+  }
 
   /* -- column role chips -- */
   if (tabular) {
@@ -169,7 +224,7 @@ function renderSheet(mount, params, proposal, file) {
     ));
   }
 
-  /* -- the one confirm -- */
+  /* -- the one confirm — it echoes the unit-text choice -- */
   const confirmBtn = el("button", {
     class: "btn btn--primary btn--lg",
     type: "button",
@@ -179,7 +234,7 @@ function renderSheet(mount, params, proposal, file) {
       bar.replaceChildren(progress.el);
       try {
         // live confirm wants the text column by name + the scheme
-        const textColumn = columns.find((c) => c.role === "text")?.name;
+        const textColumn = tabular ? unitTextColumn : null;
         const result = await api.imports.confirm(params.slug, {
           importId: proposal.importId,
           mapping: textColumn ? { textColumn } : {},
@@ -188,8 +243,8 @@ function renderSheet(mount, params, proposal, file) {
         progress.finish();
         const junkCounts = result.junkQueue?.counts ?? {};
         const junkTotal = Object.values(junkCounts).reduce((s, n) => s + n, 0);
-        toast.success(`Corpus imported — ${fmtCount(result.unitCount)} units.`, {
-          detail: `${fmtCount(junkTotal)} junk-queued${unitization ? ` · ${unitization} unitization` : ""}`, data: true,
+        toast.success(`Corpus imported — ${fmtCount(result.unitCount)} units${textColumn ? ` from “${textColumn}”` : ""}.`, {
+          detail: `${fmtCount(junkTotal)} flagged as junk (kept, marked)${unitization ? ` · ${unitization} unitization` : ""}`, data: true,
         });
         await refreshProject(params.slug).catch(() => {});
         router.navigate(`p/${params.slug}/corpus/${result.corpusId}/instant`);
@@ -199,7 +254,7 @@ function renderSheet(mount, params, proposal, file) {
         toast.error("Import failed.", { detail: String(err.message ?? err) });
       }
     },
-  }, "Confirm import");
+  }, confirmLabel());
   const bar = el("div", { class: "confirmbar" }, confirmBtn);
   mount.append(bar);
 }

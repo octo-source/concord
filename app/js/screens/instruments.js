@@ -40,7 +40,7 @@ async function sampleUnits(slug, project, n = 5) {
   return page?.units ?? [];
 }
 
-export function render(mount, params) {
+export function render(mount, params, query = {}) {
   asyncMount(mount, async () => {
     const project = await ensureProject(params.slug);
     const [instruments, constructs, catalogRes] = await Promise.all([
@@ -51,7 +51,12 @@ export function render(mount, params) {
     // live catalog envelope: {providers: {name: [models]}, cachedAt}
     return { project, instruments, constructs, catalog: catalogRes?.providers ?? {} };
   }, ({ instruments, constructs, catalog }) => {
-    const selected = params.id ? instruments.find((i) => i.id === params.id) : null;
+    let selected = params.id ? instruments.find((i) => i.id === params.id) : null;
+    // the constructs editor links here as instruments?construct=<id> after a
+    // save — preselect that construct's first instrument when one exists
+    if (!selected && !params.id && query?.construct) {
+      selected = instruments.find((i) => i.constructId === query.construct) ?? null;
+    }
 
     mount.append(screenHead({
       overline: "Instruments",
@@ -102,10 +107,16 @@ export function render(mount, params) {
     const main = el("div", { class: "split__main" });
     split.append(main);
     if (!selected) {
-      main.append(emptyState({
-        title: instruments.length ? "Pick an instrument." : "Nothing to edit yet.",
-        body: "Dictionaries run locally and free. Judges compile a codebook into a prompt. Panels put disjoint model families on the same bench.",
-      }));
+      const wanted = query?.construct ? constructs.find((c) => c.id === query.construct) : null;
+      main.append(emptyState(wanted
+        ? {
+            title: `No instrument measures “${wanted.name}” yet.`,
+            body: "Instruments for it will appear in this list once compiled. The fastest route: ask the Question Bar (press /) to plan the measurement — the plan drafts and compiles an instrument you review before anything runs.",
+          }
+        : {
+            title: instruments.length ? "Pick an instrument." : "Nothing to edit yet.",
+            body: "Dictionaries run locally and free. Judges compile a codebook into a prompt. Panels put disjoint model families on the same bench.",
+          }));
       return;
     }
     instrumentEditor(main, params, selected, constructs, catalog);
@@ -125,7 +136,7 @@ function instrumentEditor(main, params, instRaw, constructs, catalog) {
       saveBtn.disabled = true;
       try {
         await api.instruments.update(params.slug, inst.id, inst);
-        toast.success("Instrument saved.", { detail: "edits reset the ladder to ◌ — recalibrate to climb again" });
+        toast.success("Instrument saved.", { detail: "edits reset its evidence level to ◌ — run Stability check or calibrate against gold to restore it" });
         dirty = false;
       } catch (err) {
         saveBtn.disabled = false;
@@ -610,7 +621,7 @@ function actionRow(main, params, inst) {
       clear(out).append(el("p", { class: "faint", role: "status" }, `${glyph.GLYPH} the Director is compiling…`));
       try {
         const next = await api.instruments.compile(params.slug, inst.id);
-        toast.success(`Compiled v${next.version}.`, { detail: "Director-authored — the glyph stays until you touch it", data: false });
+        toast.success(`Compiled v${next.version}.`, { detail: "Director-compiled — review the prompt below and edit to make it yours", data: false });
         await refreshProject(params.slug).catch(() => {});
         window.dispatchEvent(new HashChangeEvent("hashchange"));
       } catch (err) {

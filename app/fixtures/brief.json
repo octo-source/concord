@@ -4,6 +4,8 @@
   "createdAt": "2026-06-01T09:32:00Z",
   "authoredBy": "director",
   "humanTouched": false,
+  "textColumn": "response",
+  "metaColumns": 6,
   "unitOfAnalysis": "One exit-survey response per row (one respondent each).",
   "paragraphs": [
     {

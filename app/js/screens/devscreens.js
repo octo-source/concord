@@ -14,12 +14,12 @@ const SLUG = "techcorp-exit";
 
 const SCREENS = [
   ["Projects home", "#/", "project cards with ladder summary; new-project sheet (name + privacy mode)"],
-  ["Import", `#/p/${SLUG}/import`, "drop/pick a file → column role chips with confidence, 20-row preview, gentle issues, unitization advice ✦, junk queue, one Confirm → Instant Read"],
-  ["Instant Read", `#/p/${SLUG}/corpus/corp_exit2025/instant`, "renders <1s: length hist, language mix, distinctive terms, VADER sketch, metadata small multiples; all-local badge; cost-labeled Brief CTA"],
+  ["Import", `#/p/${SLUG}/import`, "drop/pick a file → Unit text radio block (mean length + preview, longest preselected, Confirm echoes the choice) above column role chips, 20-row preview, gentle issues, unitization, one Confirm → Instant Read"],
+  ["Instant Read", `#/p/${SLUG}/corpus/corp_exit2025/instant`, "renders <1s: scope chip (text column · units · junk · metadata columns) with change-text-column recovery, length hist, language mix, distinctive terms, VADER sketch, metadata small multiples; all-local badge; cost-labeled Brief CTA"],
   ["Corpus Brief (stream)", `#/p/${SLUG}/brief/new?corpus=corp_exit2025`, "paragraphs stream in over SSE with margin quote-pulls; refs are inspector doors"],
   ["Corpus Brief (stored)", `#/p/${SLUG}/brief/brief_a1`, "reading column ~68ch; themes with Explore action (estimate chips); red flags as annotations; Director byline ✦"],
   ["Explorer", `#/p/${SLUG}/explore/run_panel_full`, "prevalence bars ◌ with data-evidence; Director-flagged cross-tabs with dismissible annotations; co-occurrence heat; calibration nudge with price"],
-  ["Constructs", `#/p/${SLUG}/constructs/k_theme`, "structured editor; categories with explicit order; worked examples with kind chips; glyph dissolves on first edit; import/inductive flows"],
+  ["Constructs", `#/p/${SLUG}/constructs/k_theme`, "structured editor; categories with explicit order; worked examples with kind chips; Director mark clears on first edit; draft/import/inductive flows with elapsed-time busy states"],
   ["Instruments — dictionary", `#/p/${SLUG}/instruments/inst_dict`, "term chips, weights, negation toggle+window, live highlighted preview on sample units"],
   ["Instruments — judge ◌", `#/p/${SLUG}/instruments/inst_judge_x`, "compiled prompt with slot highlighting; workerClass; model picker; raw escape hatch; actions row"],
   ["Instruments — judge ◑", `#/p/${SLUG}/instruments/inst_judge_s`, "stability badge; silver-tune SSE iteration cards + curve"],

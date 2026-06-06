@@ -95,6 +95,41 @@
       "source": "legacy-codebook-2019.docx · p.7"
     }
   ],
+  "draftProposals": [
+    {
+      "name": "Preventable exit",
+      "type": "binary",
+      "definition": "The respondent describes a departure the organization could plausibly have prevented — a named, fixable grievance (comp, manager, workload, path) rather than relocation, family, or pure opportunity.",
+      "categories": [ { "value": "present", "label": "Preventable" }, { "value": "absent", "label": "Not preventable" } ],
+      "criteria": {
+        "include": ["A specific fixable cause is named as decisive (comp process, staffing, promised promotion)."],
+        "exclude": ["Moves framed as personal (family, relocation, career change) with no organizational grievance."]
+      },
+      "edgeCases": ["“Left for money” with no complaint about the comp process → not preventable unless a raise was requested and refused."],
+      "examples": [
+        { "text": "I gave finance two comp cycles to fix it. They didn't, so a competitor did.", "label": "present", "kind": "positive", "unitId": "u_03d7e8a1f4b2c690" },
+        { "text": "Pay was fair, manager was kind, I just moved cities for family.", "label": "absent", "kind": "negative", "unitId": "u_47a3e9c5d2f1b860" }
+      ],
+      "authoredBy": "director",
+      "humanTouched": false
+    },
+    {
+      "name": "Counteroffer mentioned",
+      "type": "binary",
+      "definition": "The response mentions a counteroffer — received, refused, arriving too late, or conspicuously absent — anywhere in the exit account.",
+      "categories": [ { "value": "present", "label": "Mentioned" }, { "value": "absent", "label": "Not mentioned" } ],
+      "criteria": {
+        "include": ["Any reference to a retention offer, match, or its absence counts, however brief."],
+        "exclude": ["Generic comp complaints with no offer narrative are absent."]
+      },
+      "edgeCases": ["“They suddenly found budget when I resigned” → present: that is a counteroffer story without the word."],
+      "examples": [
+        { "text": "Loved the people. Left for money. It really is that simple.", "label": "absent", "kind": "nearmiss", "unitId": "u_4b9c2e7d80a1f355" }
+      ],
+      "authoredBy": "director",
+      "humanTouched": false
+    }
+  ],
   "inductiveTaxonomy": {
     "mode": "inductive-hypothesis",
     "corpusId": "corp_exit2025",

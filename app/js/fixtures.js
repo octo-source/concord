@@ -246,9 +246,62 @@ function patch() {
     }
     return { units: clone(list.slice(offset, offset + limit)), total: db.units.total, offset, limit };
   };
-  apiNs.corpora.instantRead = async () => {
+  // live scopeOf (routes/corpora.js): the scope block follows the live corpus
+  // entry, never the cached read — mirrored here so a fixture re-unitize
+  // changes the chip on the NEW corpus's instant read.
+  const scopeOf = (corpus) => ({
+    textColumn: corpus.textColumn ?? corpus.unitization?.textColumn ?? null,
+    scheme: corpus.scheme ?? corpus.unitization?.scheme ?? null,
+    unitCount: corpus.unitCount ?? null,
+    junk: clone(corpus.junk ?? null),
+    metaColumns: corpus.metaColumns ?? null,
+    derivedFrom: corpus.derivedFrom ?? null,
+  });
+  apiNs.corpora.instantRead = async (p, c) => {
     await sleep(120); // < 1s, honestly
-    return clone(db.instantread);
+    const out = clone(db.instantread);
+    const corpus = P.corpora.find((x) => x.id === c);
+    if (corpus) {
+      out.unitCount = corpus.unitCount ?? out.unitCount;
+      out.scope = scopeOf(corpus);
+    }
+    return out;
+  };
+  // live: POST corpora/:c/reunitize {textColumn} → {corpusId, unitCount,
+  // junk, textColumn, skipped} — a NEW corpus entry; the original is kept.
+  apiNs.corpora.reunitize = async (p, c, { textColumn } = {}) => {
+    await sleep(900);
+    const src = P.corpora.find((x) => x.id === c);
+    if (!src) return notFound(`corpus "${c}"`);
+    if (!textColumn) {
+      throw new apiNs.ApiError("VALIDATION", "textColumn is required", { status: 400 });
+    }
+    const known = Object.keys(db.units.units[0]?.meta ?? {});
+    if (!known.includes(textColumn)) {
+      throw new apiNs.ApiError("VALIDATION",
+        `"${textColumn}" is not a metadata column of this corpus — columns: ${known.join(", ") || "(none)"}`,
+        { status: 400 });
+    }
+    const skipped = 41; // rows empty in the chosen column
+    const unitCount = Math.max(1, (src.unitCount ?? db.units.total) - skipped);
+    const junk = { na: 3, short: 9, dup: 24, bot: 7 };
+    const scheme = src.scheme ?? src.unitization?.scheme ?? "response";
+    const entry = {
+      id: newId("corp"),
+      name: `${src.name ?? src.id} · text=${textColumn}`,
+      ...(src.source ? { source: clone(src.source) } : {}),
+      unitization: { scheme, textColumn },
+      unitCount,
+      createdAt: new Date().toISOString(),
+      textColumn,
+      scheme,
+      junk,
+      metaColumns: src.metaColumns ?? known.length,
+      sourceName: src.sourceName ?? src.source?.filename ?? null,
+      derivedFrom: src.id,
+    };
+    P.corpora.push(entry);
+    return { corpusId: entry.id, unitCount, junk: clone(junk), textColumn, skipped };
   };
 
   /* -- brief (artifact + SSE) -- */
@@ -345,6 +398,32 @@ function patch() {
   apiNs.constructs.importFile = async () => {
     await sleep(800);
     return { constructs: clone(db.constructs.importProposals), proposed: true };
+  };
+  // live: POST constructs/draft {input, corpusId?} → {constructs:
+  // proposals[], sampleN} — un-persisted proposals formalizing the USER's
+  // concepts. The fixture renames its canned proposals after the typed lines
+  // (`name: hint` honored) so the flow feels real; a lone research question
+  // returns the bank as-is.
+  apiNs.constructs.draft = async (p, { input } = {}) => {
+    await sleep(2400); // one Director call's worth of waiting
+    const bank = clone(db.constructs.draftProposals ?? []);
+    if (!String(input ?? "").trim()) {
+      throw new apiNs.ApiError("VALIDATION",
+        "draft input is empty — give concept names (one per line, optionally \"name: hint\") or a research question",
+        { status: 400 });
+    }
+    const lines = String(input).split(/\r?\n/).map((s) => s.trim()).filter(Boolean);
+    const isQuestion = lines.length === 1 &&
+      (lines[0].endsWith("?") || (!lines[0].includes(":") && lines[0].split(/\s+/).length > 6));
+    if (isQuestion || bank.length === 0) return { constructs: bank, sampleN: 60 };
+    const constructs = lines.map((line, i) => {
+      const at = line.indexOf(":");
+      const name = (at === -1 ? line : line.slice(0, at)).trim();
+      const hint = at === -1 ? null : line.slice(at + 1).trim();
+      const tpl = bank[i % bank.length];
+      return { ...clone(tpl), name: name || tpl.name, definition: hint || tpl.definition };
+    });
+    return { constructs, sampleN: 60 };
   };
   // live: → taxonomy artifact {mode, corpusId, sampleN, themes, note, issues, …}
   apiNs.constructs.inductive = async () => {

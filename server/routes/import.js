@@ -15,7 +15,7 @@ import { parseMultipart } from "../router.js";
 import { newId } from "../core/ids.js";
 import { loadProject, updateProject } from "../core/store.js";
 import * as ledger from "../core/ledger.js";
-import { detect } from "../ingest/mapping.js";
+import { detect, bestTextColumn } from "../ingest/mapping.js";
 import { unitize } from "../ingest/unitize.js";
 import { scan as junkScan } from "../ingest/junk.js";
 import { pdirOf, writeJsonAtomic, writeTextAtomic, readJsonFile, corpusUnitsFile } from "./_shared.js";
@@ -48,6 +48,38 @@ function previewOf(parsed) {
   }
   if (Array.isArray(parsed.turns)) return parsed.turns.slice(0, 20);
   return [];
+}
+
+// The column actually carrying unit text, resolved with the same preference
+// order unitize applies (explicit choice → mapping detection → longest mean
+// length). Resolved BEFORE unitize and passed in, so what the corpus entry
+// records can never diverge from what unitization used. Non-tabular parses
+// (docs/turns) have no text column → null.
+function resolveTextColumn(parsed, requested) {
+  if (!Array.isArray(parsed.rows) || parsed.rows.length === 0) return null;
+  if (requested) return requested;
+  const best = bestTextColumn(parsed.rows);
+  if (best) return best;
+  // mirror unitize's fallback: longest mean-length column wins
+  let bestName = null;
+  let bestLen = -1;
+  for (const name of Object.keys(parsed.rows[0])) {
+    if (name.startsWith("__")) continue;
+    let sum = 0;
+    for (const r of parsed.rows) sum += String(r[name] ?? "").length;
+    if (sum / parsed.rows.length > bestLen) {
+      bestLen = sum / parsed.rows.length;
+      bestName = name;
+    }
+  }
+  return bestName;
+}
+
+// Number of distinct metadata keys across a corpus's units (scope provenance).
+export function metaColumnsOf(units) {
+  const keys = new Set();
+  for (const u of units) for (const k of Object.keys(u.meta ?? {})) keys.add(k);
+  return keys.size;
 }
 
 async function latestImportId(slug) {
@@ -132,8 +164,9 @@ export default [
       const parsed = record.parsed;
       const scheme = body.unitization?.scheme
         ?? (parsed.rows ? "response" : parsed.docs ? "paragraph" : "turn");
-      const textColumn = body.mapping?.textColumn
+      const requestedTextColumn = body.mapping?.textColumn
         ?? (body.mapping?.columns ?? []).find((c) => c.role === "text")?.name;
+      const textColumn = resolveTextColumn(parsed, requestedTextColumn);
 
       const corpusId = newId("corp");
       const units = unitize(corpusId, parsed, scheme, textColumn ? { textColumn } : {});
@@ -155,6 +188,15 @@ export default [
         unitization: { scheme, ...(textColumn ? { textColumn } : {}) },
         unitCount: units.length,
         createdAt: new Date().toISOString(),
+        // Scope provenance (field gap: a 60-column XLSX landed unitization on
+        // the TITLE column and nothing downstream said so). Every corpus entry
+        // records WHICH column became unit text and what rode along; readers
+        // must tolerate nulls on corpora created before these fields existed.
+        textColumn: textColumn ?? null,
+        scheme,
+        junk: junk.counts,
+        metaColumns: metaColumnsOf(units),
+        sourceName: record.filename ?? null,
       };
       await updateProject(project.slug, (p) => {
         p.corpora.push(meta);

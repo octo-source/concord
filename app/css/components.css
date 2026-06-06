@@ -59,6 +59,33 @@
 .chip--cat[data-slot="4"] { --cat-hue: var(--cat-4); }
 .chip--cat[data-slot="5"] { --cat-hue: var(--cat-5); }
 
+/* ---- scope chip ------------------------------------------------------------
+   The one-line scope answer (components/scopechip.js): which text column,
+   how many units, what is junk-flagged, which metadata columns. Mono micro
+   segments separated by interpuncts; the warn segment flags corpora that
+   never recorded their text column. */
+
+.scopechip {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  margin: 0;
+  font-family: var(--font-mono);
+  font-size: var(--fs-micro);
+  line-height: 1.7;
+  color: var(--ink-muted);
+  font-variant-numeric: tabular-nums;
+}
+.scopechip__seg { white-space: nowrap; }
+.scopechip__seg + .scopechip__seg::before {
+  content: "·";
+  margin: 0 0.55em;
+  color: var(--ink-ghost);
+}
+.scopechip__key { color: var(--ink-faint); }
+.scopechip__val { color: var(--ink); font-weight: 500; }
+.scopechip__seg--warn { color: var(--signal-text); }
+
 /* ---- buttons --------------------------------------------------------------- */
 
 .btn {

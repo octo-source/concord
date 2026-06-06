@@ -13,7 +13,12 @@
       "source": { "filename": "techcorp-exit-survey.csv", "format": "csv", "rows": 2500 },
       "unitization": { "scheme": "response", "textColumn": "response" },
       "unitCount": 2500,
-      "createdAt": "2026-06-01T09:21:00Z"
+      "createdAt": "2026-06-01T09:21:00Z",
+      "textColumn": "response",
+      "scheme": "response",
+      "junk": { "na": 38, "short": 16, "dup": 24, "bot": 7 },
+      "metaColumns": 6,
+      "sourceName": "techcorp-exit-survey.csv"
     }
   ],
   "analyses": [

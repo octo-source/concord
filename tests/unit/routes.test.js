@@ -9,14 +9,14 @@
 //   - tests run serially in declaration order and share state via S.
 import { test, before, after } from "node:test";
 import assert from "node:assert/strict";
-import { mkdtemp, rm } from "node:fs/promises";
+import { mkdtemp, mkdir, rm, writeFile } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import { unzipSync, strFromU8 } from "fflate";
 
 import { startServer } from "../../server/index.js";
 import { getAdapter } from "../../server/providers/registry.js";
-import { readNdjson, projectDir } from "../../server/core/store.js";
+import { readNdjson, projectDir, updateProject } from "../../server/core/store.js";
 import * as ledger from "../../server/core/ledger.js";
 import { sha256 } from "../../server/core/ids.js";
 
@@ -375,6 +375,14 @@ test("import: upload CSV → mapping proposal + preview; confirm → corpus + ju
   assert.equal(corpus.unitCount, 64);
   assert.equal(corpus.source.format, "csv");
   assert.equal(corpus.unitization.scheme, "response");
+
+  // scope provenance recorded at confirm (the Kickstarter field failure: the
+  // researcher must always be able to see WHICH column is in scope)
+  assert.equal(corpus.textColumn, "response");
+  assert.equal(corpus.scheme, "response");
+  assert.deepEqual(corpus.junk, confirmed.junkQueue.counts);
+  assert.equal(corpus.metaColumns, 3, "respondent_id, dept, tenure ride as metadata");
+  assert.equal(corpus.sourceName, "exit-survey.csv");
 });
 
 test("corpora: units listing paginates and filters by meta + substring", async () => {
@@ -419,9 +427,140 @@ test("corpora: instant read computes locally and caches into the corpus meta", a
   assert.equal(typeof r.briefEstimate.etaMin, "number");
   assert.ok(r.briefEstimate.etaMin > 0);
 
+  // the scope block: WHAT was analyzed, straight from the corpus entry
+  assert.equal(r.scope.textColumn, "response");
+  assert.equal(r.scope.scheme, "response");
+  assert.equal(r.scope.unitCount, 64);
+  assert.equal(typeof r.scope.junk?.na, "number", "junk counts ride the scope block");
+  assert.equal(r.scope.metaColumns, 3);
+  assert.equal(r.scope.derivedFrom, null);
+
   const again = await ok("GET", `/api/projects/${S.slug}/corpora/${S.corpusA}/instantread`);
   assert.equal(again.computedAt, r.computedAt, "second call serves the cached result");
   assert.deepEqual(again.briefEstimate, r.briefEstimate, "the cached read still quotes the brief price");
+  assert.deepEqual(again.scope, r.scope, "scope rides the cached read too");
+  const cached = (await getProject()).corpora.find((c) => c.id === S.corpusA).instantread;
+  assert.equal(cached.scope, undefined, "scope overlays per request — never baked into the cache");
+  assert.equal(cached.briefEstimate, undefined, "briefEstimate stays per-request too");
+});
+
+// =========================================================================
+// scope provenance: reunitize (the Kickstarter field failure) + legacy nulls
+// =========================================================================
+
+function makeKickstarterCsv() {
+  // The field failure in miniature: a short title column wins unitization
+  // while the real description (abouttxt) rides as metadata. Rows 10–11 have
+  // no description at all (→ skipped on reunitize).
+  const lines = ["name,state,abouttxt"];
+  for (let i = 0; i < 12; i++) {
+    const about = i < 10
+      ? `We are building an open source hardware synthesizer with community documentation and full schematics release number ${i} for everyone.`
+      : "";
+    lines.push(`Project ${i},CA,${about}`);
+  }
+  return lines.join("\n") + "\n";
+}
+
+test("reunitize: versions the corpus onto a metadata text column — original untouched, old text preserved, skipped counted, ledgered", async () => {
+  await ok("POST", "/api/projects", { name: "Kick Project" });
+  const slug = "kick-project";
+  const up = await upload(`/api/projects/${slug}/import`, "kickstarter.csv", makeKickstarterCsv());
+  const confirmed = await ok("POST", `/api/projects/${slug}/import/confirm`, {
+    importId: up.importId,
+    mapping: { textColumn: "name" }, // the wrong choice the researcher made
+    unitization: { scheme: "response" },
+  });
+  assert.equal(confirmed.unitCount, 12);
+
+  let p = await ok("GET", `/api/projects/${slug}`);
+  const orig = p.corpora.find((c) => c.id === confirmed.corpusId);
+  assert.equal(orig.textColumn, "name");
+  assert.equal(orig.scheme, "response");
+  assert.deepEqual(orig.junk, { na: 0, short: 0, dup: 0, bot: 0 });
+  assert.equal(orig.metaColumns, 2, "state + abouttxt");
+  assert.equal(orig.sourceName, "kickstarter.csv");
+
+  // fix the wrong text-column choice WITHOUT re-import
+  const re = await ok("POST", `/api/projects/${slug}/corpora/${confirmed.corpusId}/reunitize`, { textColumn: "abouttxt" });
+  assert.notEqual(re.corpusId, confirmed.corpusId, "re-unitization versions the corpus");
+  assert.equal(re.textColumn, "abouttxt");
+  assert.equal(re.unitCount, 10, "rows with an empty abouttxt are skipped");
+  assert.equal(re.skipped, 2);
+  assert.deepEqual(re.junk, { na: 0, short: 0, dup: 0, bot: 0 }, "junk counts ride the response");
+
+  // new corpus: text swapped in, old text preserved under its original column name
+  const newUnits = await ok("GET", `/api/projects/${slug}/corpora/${re.corpusId}/units?limit=500`);
+  assert.equal(newUnits.total, 10);
+  for (const u of newUnits.units) {
+    assert.match(u.text, /open source hardware synthesizer/);
+    assert.match(u.meta.name, /^Project \d+$/, "old unit text preserved under the old text column's name");
+    assert.ok(!("abouttxt" in u.meta), "the promoted column left the metadata");
+    assert.equal(u.meta.state, "CA", "other metadata carries over");
+  }
+
+  // original corpus untouched
+  const oldUnits = await ok("GET", `/api/projects/${slug}/corpora/${confirmed.corpusId}/units?limit=500`);
+  assert.equal(oldUnits.total, 12);
+  assert.ok(oldUnits.units.every((u) => /^Project \d+$/.test(u.text)));
+
+  // derived corpus entry: name + provenance + lineage
+  p = await ok("GET", `/api/projects/${slug}`);
+  assert.equal(p.corpora.length, 2);
+  const derived = p.corpora.find((c) => c.id === re.corpusId);
+  assert.equal(derived.name, "kickstarter.csv · text=abouttxt");
+  assert.equal(derived.derivedFrom, confirmed.corpusId);
+  assert.equal(derived.textColumn, "abouttxt");
+  assert.equal(derived.scheme, "response");
+  assert.deepEqual(derived.junk, { na: 0, short: 0, dup: 0, bot: 0 });
+  assert.equal(derived.metaColumns, 2, "state + the preserved name column");
+  assert.equal(derived.sourceName, "kickstarter.csv");
+  assert.equal(derived.unitCount, 10);
+
+  // ledger: corpus.unitized for the NEW corpus, actor human, contract payload
+  const ev = await ledger.query(projectDir(slug), { type: "corpus.unitized" });
+  assert.equal(ev.length, 2, "import-confirm + reunitize");
+  assert.equal(ev.at(-1).actor, "human");
+  assert.equal(ev.at(-1).refs.corpusId, re.corpusId);
+  assert.deepEqual(ev.at(-1).payload, {
+    textColumn: "abouttxt", derivedFrom: confirmed.corpusId, unitCount: 10, skipped: 2,
+  });
+
+  // 400 on a column that is not in the first unit's meta; 404 unknown corpus
+  await fail("POST", `/api/projects/${slug}/corpora/${confirmed.corpusId}/reunitize`, { textColumn: "no_such_col" }, 400, "VALIDATION");
+  await fail("POST", `/api/projects/${slug}/corpora/corp_missing/reunitize`, { textColumn: "abouttxt" }, 404, "NOT_FOUND");
+
+  S.kick = { slug, origCorpus: confirmed.corpusId, derivedCorpus: re.corpusId };
+});
+
+test("corpora: instant read scope — derived corpus carries lineage; legacy entries render nulls, not throws", async () => {
+  const { slug, origCorpus, derivedCorpus } = S.kick;
+  const r = await ok("GET", `/api/projects/${slug}/corpora/${derivedCorpus}/instantread`);
+  assert.deepEqual(r.scope, {
+    textColumn: "abouttxt",
+    scheme: "response",
+    unitCount: 10,
+    junk: { na: 0, short: 0, dup: 0, bot: 0 },
+    metaColumns: 2,
+    derivedFrom: origCorpus,
+  });
+
+  // a hand-built legacy corpus entry without ANY of the provenance fields
+  const legacyId = "corp_legacy0000001";
+  const dir = path.join(projectDir(slug), "corpora", legacyId);
+  await mkdir(dir, { recursive: true });
+  const legacyUnits = [
+    { id: "u_00000000000000a1", text: "legacy unit one talking about nothing in particular today", meta: {}, pos: { row: 0 } },
+    { id: "u_00000000000000a2", text: "legacy unit two carrying some other words entirely here", meta: {}, pos: { row: 1 } },
+  ];
+  await writeFile(path.join(dir, "units.ndjson"), legacyUnits.map((u) => JSON.stringify(u)).join("\n") + "\n", "utf8");
+  await updateProject(slug, (p) => { p.corpora.push({ id: legacyId, name: "legacy corpus" }); });
+
+  const lr = await ok("GET", `/api/projects/${slug}/corpora/${legacyId}/instantread`);
+  assert.equal(lr.unitCount, 2, "the read itself still computes");
+  assert.deepEqual(lr.scope, {
+    textColumn: null, scheme: null, unitCount: null, junk: null, metaColumns: null, derivedFrom: null,
+  });
 });
 
 // =========================================================================
@@ -457,6 +596,8 @@ test("brief: GET briefs/:bid returns the persisted artifact; missing → 404", a
   assert.match(brief.paragraphs[0].md, /compensation/);
   assert.ok(Array.isArray(brief.paragraphs[0].refs) && brief.paragraphs[0].refs.length >= 1, "refs ride the stored paragraphs");
   assert.ok(Array.isArray(brief.themes) && brief.themes.length >= 1);
+  assert.equal(brief.textColumn, "response", "the artifact names the column its unit text came from");
+  assert.equal(brief.metaColumns, 3);
   await fail("GET", `/api/projects/${S.slug}/briefs/brief_nope`, undefined, 404, "NOT_FOUND");
   await fail("GET", `/api/projects/no-such-project/briefs/${briefId}`, undefined, 404, "NOT_FOUND");
 });
@@ -561,6 +702,74 @@ test("constructs: docx codebook import returns Director proposals; inductive ret
   });
   assert.equal(accepted.constructIds.length, 1);
   await ok("DELETE", `/api/projects/${S.slug}/constructs/${accepted.constructIds[0]}`); // keep the graph tidy
+});
+
+test("constructs: draft — concepts formalize via the themes path; questions take the question path; nothing persists", async () => {
+  const captured = [];
+  mock().setHandler("routes", (req) => {
+    captured.push(lastUser(req));
+    return {
+      constructs: [{
+        name: "Pay fairness", type: "binary",
+        definition: "The unit evaluates compensation fairness.",
+        criteria: { include: ["names pay fairness"], exclude: [] },
+        edgeCases: [],
+        examples: [{ text: "the salary is too low for this work and it never improves", label: "yes", kind: "positive" }],
+        categories: [{ value: "yes", label: "Yes" }, { value: "no", label: "No" }],
+      }],
+    };
+  });
+
+  const before = (await getProject()).constructs.length;
+
+  // concepts: newline-separated names, optionally "name: hint" → themes path
+  const r1 = await ok("POST", `/api/projects/${S.slug}/constructs/draft`, {
+    input: "pay fairness\nburnout: exhaustion language",
+    corpusId: S.corpusA,
+  });
+  assert.equal(r1.constructs.length, 1);
+  assert.equal(r1.constructs[0].name, "Pay fairness");
+  assert.equal(r1.constructs[0].authoredBy, "director");
+  assert.equal(r1.constructs[0].humanTouched, false);
+  assert.equal(r1.sampleN, 60, "seeded ~60-unit sample from the 64-unit corpus");
+  assert.match(captured[0], /Draft one construct per theme below/);
+  assert.match(captured[0], /- pay fairness/);
+  assert.match(captured[0], /- burnout: exhaustion language/);
+
+  // a research question (single line ending in "?") → question path
+  const r2 = await ok("POST", `/api/projects/${S.slug}/constructs/draft`, {
+    input: "Do creators promise open source?",
+    corpusId: S.corpusA,
+  });
+  assert.equal(r2.constructs.length, 1);
+  assert.equal(r2.sampleN, 60);
+  assert.match(captured[1], /research question/);
+  assert.match(captured[1], /"Do creators promise open source\?"/);
+  assert.doesNotMatch(captured[1], /Draft one construct per theme below/);
+
+  // a single line with no colon and >6 words is also a question; corpus defaults to the first
+  const r3 = await ok("POST", `/api/projects/${S.slug}/constructs/draft`, {
+    input: "how creators describe their funding goals over time",
+  });
+  assert.equal(r3.sampleN, 60);
+  assert.match(captured[2], /research question/);
+
+  // a single "name: hint" line stays a concept, not a question
+  await ok("POST", `/api/projects/${S.slug}/constructs/draft`, {
+    input: "burnout: exhaustion language",
+    corpusId: S.corpusA,
+  });
+  assert.match(captured[3], /Draft one construct per theme below/);
+  assert.match(captured[3], /- burnout: exhaustion language/);
+
+  // proposals are NOT persisted — acceptance stays the separate human act
+  const p = await getProject();
+  assert.equal(p.constructs.length, before, "draft persisted nothing");
+  assert.ok(!p.constructs.some((c) => c.name === "Pay fairness"));
+
+  await fail("POST", `/api/projects/${S.slug}/constructs/draft`, {}, 400, "VALIDATION");
+
+  armMock(); // restore the master handler for downstream tests
 });
 
 // =========================================================================

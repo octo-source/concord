@@ -41,6 +41,7 @@ import * as bar from "../components/charts/bar.js";
 import * as scatter from "../components/charts/scatter.js";
 import * as table from "../components/table.js";
 import * as quotecard from "../components/quotecard.js";
+import * as scopechip from "../components/scopechip.js";
 import { store } from "../state.js";
 import { fmt, fmtStat, fmtP, fmtCount } from "../format.js";
 import { screenHead, section, asyncMount, ensureProject, emptyState } from "./_shared.js";
@@ -102,7 +103,7 @@ export function render(mount, params) {
     }
 
     if (analysis?.results) {
-      renderResult(canvas, params, analysis);
+      renderResult(canvas, params, analysis, project);
     } else if (analysis) {
       canvas.append(emptyState({
         title: `${analysis.kind} analysis · ${analysis.id}`,
@@ -192,7 +193,7 @@ function builderRail(rail, canvas, params, project) {
       try {
         const analysis = await api.analyses.create(params.slug, { kind, spec: specFor() });
         clear(canvas);
-        renderResult(canvas, params, analysis);
+        renderResult(canvas, params, analysis, project);
         toast.success("Analysis computed.", { detail: `${kind} · ${analysis.level}`, data: true });
       } catch (err) {
         clear(canvas).append(emptyState({ title: "The analysis failed.", body: String(err.message ?? err) }));
@@ -218,7 +219,7 @@ function builderRail(rail, canvas, params, project) {
 
 /* ================= results ============================================================== */
 
-function renderResult(canvas, params, analysis) {
+function renderResult(canvas, params, analysis, project = null) {
   const level = analysis.level ?? "exploratory";
 
   canvas.append(el("header", { class: "wb-resulthead" },
@@ -229,6 +230,15 @@ function renderResult(canvas, params, analysis) {
       class: "btn btn--quiet", type: "button",
       onclick: () => addToReport(params, analysis),
     }, "Add to report →")));
+
+  /* -- scope: which corpus/column/rows these numbers were computed over -- */
+  const scopeCorpusId = analysis.spec?.corpusId
+    ?? (project?.runs ?? []).find((r) => r.id === analysis.spec?.runId)?.corpusId
+    ?? null;
+  const corpusEntry = (project?.corpora ?? []).find((c) => c.id === scopeCorpusId)
+    ?? project?.corpora?.[0] ?? null;
+  const scope = scopechip.fromCorpus(corpusEntry, project);
+  if (scope) canvas.append(el("div", { class: "scopebar" }, scopechip.render(scope)));
 
   if (analysis.kind === "crosstab") crosstabResult(canvas, analysis);
   else if (analysis.kind === "model") modelResult(canvas, analysis);

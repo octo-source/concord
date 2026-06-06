@@ -361,6 +361,53 @@ test("brief: unknown corpus → NOT_FOUND", async () => {
   await assert.rejects(generateBrief(project, "corp_nope", {}), { code: "NOT_FOUND" });
 });
 
+test("brief: names the corpus's text column in the prompt and records textColumn + metaColumns on the artifact", async () => {
+  const project = await makeProject({ handler: "t-brief-scope" });
+  const { corpusId } = await makeCorpus(project, { n: 40 });
+  // stamp the provenance import/confirm now records on the corpus entry
+  Object.assign(project, await updateProject(project.slug, (p) => {
+    const c = p.corpora.find((x) => x.id === corpusId);
+    c.textColumn = "abouttxt";
+    c.metaColumns = 60;
+  }));
+
+  let userSeen = null;
+  mock.setHandler("t-brief-scope", (req) => {
+    userSeen = lastUser(req);
+    return {
+      unitOfAnalysis: "one row", paragraphs: [{ md: "p.", refs: [] }],
+      themes: [], redFlags: [], suggestedQuestions: [],
+    };
+  });
+  const brief = await generateBrief(project, corpusId, {});
+  assert.ok(userSeen.includes("Unit text comes from the column 'abouttxt'"),
+    `prompt names the text column (got: ${String(userSeen).slice(0, 200)})`);
+  assert.match(userSeen, /60 metadata columns are summarized alongside/);
+  assert.equal(brief.textColumn, "abouttxt");
+  assert.equal(brief.metaColumns, 60);
+
+  const onDisk = JSON.parse(await readFile(path.join(projectDir(project.slug), "briefs", `${brief.id}.json`), "utf8"));
+  assert.equal(onDisk.textColumn, "abouttxt");
+  assert.equal(onDisk.metaColumns, 60);
+});
+
+test("brief: legacy corpus entry without provenance → no fabricated column name; metaColumns falls back to detection", async () => {
+  const project = await makeProject({ handler: "t-brief-legacy" });
+  const { corpusId } = await makeCorpus(project, { n: 30 }); // entry has no textColumn/metaColumns
+  let userSeen = null;
+  mock.setHandler("t-brief-legacy", (req) => {
+    userSeen = lastUser(req);
+    return {
+      unitOfAnalysis: "one row", paragraphs: [{ md: "p.", refs: [] }],
+      themes: [], redFlags: [], suggestedQuestions: [],
+    };
+  });
+  const brief = await generateBrief(project, corpusId, {});
+  assert.ok(!userSeen.includes("Unit text comes from the column"), "no invented scope sentence");
+  assert.equal(brief.textColumn, null);
+  assert.equal(brief.metaColumns, 2, "dept + tenure detected from the units themselves");
+});
+
 // ---------------------------------------------------------------- constructs.js
 
 test("constructs: draftConstructs returns director-authored proposals with examples mined from the sample", async () => {
