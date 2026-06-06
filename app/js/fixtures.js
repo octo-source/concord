@@ -388,6 +388,36 @@ function patch() {
         createdAt: new Date().toISOString(),
       });
     });
+    // live approve also preflights one PENDING run per instrument (routes/
+    // questionbar.js) — mirror it so the post-approve delivery view's run
+    // links resolve and "Start" works on each created run
+    const planCorpus = P.corpora.find((c) => c.id === db.plan.plan.corpusId) ?? P.corpora.at(-1) ?? null;
+    db.plan.plan.instruments.forEach((spec, i) => {
+      const runId = r.runIds?.[i];
+      if (!runId || db.runs.runs.some((x) => x.id === runId)) return;
+      const instId = r.instrumentIds[i] ?? null;
+      const inst = db.instruments.instruments.find((x) => x.id === instId) ?? null;
+      const per = db.plan.plan.estimate?.perInstrument?.[i] ?? null;
+      db.runs.runs.push({
+        id: runId,
+        instrumentId: instId,
+        versionHash: inst?.versionHash ?? "0000000000000000",
+        corpusId: planCorpus?.id ?? db.plan.plan.corpusId ?? null,
+        status: "pending",
+        checkpoint: { done: 0, total: planCorpus?.unitCount ?? db.units.total },
+        cost: { estUSD: per?.estUSD ?? 0, actualUSD: 0, inputTokens: 0, outputTokens: 0 },
+        escalation: { count: 0, directorModel: P.director?.model ?? null },
+        quarantine: [],
+        provider: spec.provider ?? "fixtures",
+        model: spec.model ?? "fixtures-replay",
+        snapshot: spec.snapshot ?? null,
+        pinned: Boolean(spec.snapshot),
+        capUSD: null,
+        createdAt: new Date().toISOString(),
+        startedAt: null,
+        finishedAt: null,
+      });
+    });
     const stored = (P.plans ?? []).find((x) => x.planId === db.plan.planId);
     if (stored) { stored.status = "approved"; stored.approvedAt = new Date().toISOString(); }
     return r;

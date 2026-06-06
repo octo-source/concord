@@ -8,12 +8,14 @@ import { bus } from "./bus.js";
 import { store } from "./state.js";
 import * as routerMod from "./router.js";
 import api from "./api.js";
-import { fmtCost } from "./format.js";
-import { el, frag } from "./dom.js";
+import { fmtCost, fmtCount } from "./format.js";
+import { el, clear, frag } from "./dom.js";
 import * as rail from "./components/rail.js";
 import * as inspector from "./components/inspector.js";
 import * as toast from "./components/toast.js";
 import * as glyph from "./components/glyph.js";
+import * as ladder from "./components/ladder.js";
+import * as pipeline from "./components/pipeline.js";
 import * as scopechip from "./components/scopechip.js";
 import { fixturesEnabled, installFixtures } from "./fixtures.js";
 import { openSheet, estimateChips, refreshProject } from "./screens/_shared.js";
@@ -122,7 +124,7 @@ function projectToSections(project) {
       items: (project.constructs ?? []).map((c) => item(c, { href: `/p/${slug}/constructs/${c.id}` })) },
     { id: "instruments", title: "Instruments", emptyHint: "Compiled from constructs.",
       items: (project.instruments ?? []).map((i) => item(i, { href: `/p/${slug}/instruments/${i.id}` })) },
-    { id: "goldsets", title: "Gold sets", emptyHint: "Human judgment, sampled with π.",
+    { id: "goldsets", title: "Gold sets", emptyHint: "Hand-coded samples that instruments are checked against.",
       items: [
         ...(project.goldsets ?? []).map((g) => item(g, { count: g.n, href: `/p/${slug}/goldsets/${g.id}` })),
         // creatable from where you need it — needs a construct to code against
@@ -431,14 +433,13 @@ function planSheet(project, res, question) {
         e.target.disabled = true;
         try {
           const approved = await api.questionbar.approve(project.slug, planId);
-          s.close();
           toast.success("Plan approved — constructs and instruments created.", {
             detail: `${(approved?.constructIds ?? []).length} constructs · ${(approved?.instrumentIds ?? []).length} instruments`,
             data: true,
           });
-          const firstInstrument = approved?.instrumentIds?.[0];
-          routerMod.navigate(`p/${project.slug}/runs${firstInstrument ? `?preflight=${firstInstrument}` : ""}`);
-          window.dispatchEvent(new HashChangeEvent("hashchange"));
+          // the rail must show the new artifacts before the sheet points at them
+          const fresh = await refreshProject(project.slug).catch(() => null);
+          deliveryView(s, fresh ?? project, plan, approved);
         } catch (err) {
           e.target.disabled = false;
           toast.error("Approval failed.", { detail: String(err.message ?? err) });
@@ -446,6 +447,78 @@ function planSheet(project, res, question) {
       },
     }, "Approve the plan"),
   );
+}
+
+/* The post-approve delivery view — the same sheet, repainted in place. The
+   plan's pieces are now real artifacts; this lists each one with a link to
+   where it lives, shows the pipeline position (construct and instrument done,
+   run next), and offers the preflight as the primary next step. */
+function deliveryView(s, project, plan, approved) {
+  const slug = project.slug;
+  const constructIds = approved?.constructIds ?? [];
+  const instrumentIds = approved?.instrumentIds ?? [];
+  const runIds = approved?.runIds ?? [];
+  const total = constructIds.length + instrumentIds.length + runIds.length;
+
+  // resolve real names from the refreshed graph; fall back to the plan's specs
+  const constructName = (id, i) =>
+    (project.constructs ?? []).find((c) => c.id === id)?.name ?? plan.constructs?.[i]?.name ?? id;
+  const instrumentName = (id, i) => {
+    const inst = (project.instruments ?? []).find((x) => x.id === id);
+    if (inst?.name) return inst.name;
+    const spec = plan.instruments?.[i];
+    return spec?.constructName ? `${spec.constructName} — judge` : id;
+  };
+
+  // repaint the header: this is no longer a proposal
+  const titleEl = s.el.querySelector(".sheet__title");
+  if (titleEl) titleEl.textContent = "What was created";
+  const overEl = s.el.querySelector(".sheet__head .overline");
+  if (overEl) overEl.textContent = "Plan approved";
+
+  const followLink = () => s.close(); // the sheet must not cover the artifact it points at
+  const items = [
+    ...constructIds.map((id, i) =>
+      el("li", { class: "plansheet__item" },
+        el("span", { class: "chip" }, "construct"),
+        el("a", { class: "plansheet__name", href: `#/p/${slug}/constructs/${id}`, onclick: followLink }, constructName(id, i)),
+        el("span", { class: "faint" }, "→ opens in the codebook"))),
+    ...instrumentIds.map((id, i) =>
+      el("li", { class: "plansheet__item" },
+        el("span", { class: "chip" }, "instrument"),
+        el("a", { class: "plansheet__name", href: `#/p/${slug}/instruments/${id}`, onclick: followLink },
+          instrumentName(id, i),
+          glyph.render({ authoredBy: "director", humanTouched: false })),
+        ladder.render({ level: "exploratory", size: "sm" }),
+        el("span", { class: "faint" }, "→ opens in its editor"))),
+    ...runIds.map((id) =>
+      el("li", { class: "plansheet__item" },
+        el("span", { class: "chip" }, "run"),
+        el("a", { class: "plansheet__name data", href: `#/p/${slug}/runs/${id}`, onclick: followLink }, id),
+        el("span", { class: "faint" }, "— created, not started; you control when it reads the corpus and what it costs"))),
+  ];
+
+  clear(s.body).append(frag(
+    el("p", { class: "plansheet__q" },
+      `The plan is now ${fmtCount(total)} artifact${total === 1 ? "" : "s"} you can inspect and edit:`),
+    el("ul", { class: "plansheet__list", role: "list" }, ...items),
+    pipeline.render({ current: "run", states: { run: "next" } }),
+  ));
+
+  const firstInstrument = instrumentIds[0];
+  clear(s.foot).append(frag(
+    el("button", { class: "btn btn--quiet", type: "button", onclick: () => s.close() }, "Done"),
+    firstInstrument
+      ? el("button", {
+          class: "btn btn--primary", type: "button",
+          onclick: () => {
+            s.close();
+            routerMod.navigate(`p/${slug}/runs?preflight=${firstInstrument}`);
+            window.dispatchEvent(new HashChangeEvent("hashchange"));
+          },
+        }, "Preflight the first run →")
+      : null,
+  ));
 }
 
 /* ---- inspector -------------------------------------------------------------------- */

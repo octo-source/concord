@@ -34,7 +34,7 @@ export function render(mount, params, query) {
     mount.append(screenHead({
       overline: "Runs",
       title: "Measure the corpus.",
-      lede: "A run applies one instrument to the whole corpus. You see the estimated cost before starting and the running total while it goes; an interrupted run resumes where it stopped without paying again for finished units.",
+      lede: "A run applies one instrument to the whole corpus. You see the estimated cost before starting and the running total while it goes; an interrupted run resumes where it stopped without paying again for finished units. Completed runs feed the Workbench.",
       actions: [
         el("button", {
           class: "btn btn--primary", type: "button",
@@ -89,7 +89,7 @@ function instrumentName(instruments, id) {
 /* ================= preflight ============================================================ */
 
 async function preflightSheet(params, project, instruments, presetInstrument) {
-  const s = openSheet({ title: "Preflight", overline: "Price before commitment", wide: true });
+  const s = openSheet({ title: "Preflight", overline: "Cost and privacy check before starting", wide: true });
   const corpora = project.corpora ?? [];
   let instrumentId = presetInstrument ?? instruments[0]?.id ?? null;
   // Default to the MOST RECENTLY CREATED corpus — re-unitized variants
@@ -171,7 +171,7 @@ async function preflightSheet(params, project, instruments, presetInstrument) {
                 `${fmtCost(remaining)} remaining of ${fmtCost(pf.budget.capUSD)} cap`,
                 pf.budget.wouldExceed ? el("span", { class: "chip chip--signal" }, " would exceed") : null)
             : "no project cap"),
-          kv("Hard cap for this run", capInput, el("span", { class: "faint" }, " USD — the run aborts cleanly and resumably at the cap")),
+          kv("Hard cap for this run", capInput, el("span", { class: "faint" }, " USD — the run stops at the cap; resuming later continues without re-paying finished units")),
         ),
       );
       startBtn.disabled = !pf.privacyOk;
@@ -232,11 +232,11 @@ function renderDetail(mount, params) {
     }, label);
 
     const ledeFor = {
-      running: "Reading now. Numbers below accumulate as outputs land.",
+      running: "Running. The numbers below update as units finish.",
       pending: "Created but not started — nothing has been read or paid for yet.",
       paused: "Paused. Outputs already on disk are kept; resuming continues from the checkpoint without re-paying.",
       aborted: "Stopped. Outputs already on disk are kept; a resume continues from the checkpoint without re-paying.",
-      complete: "Complete.",
+      complete: "Complete. Explore the results, or analyze them in the Workbench — every analysis reads one run's outputs.",
       failed: "Failed — see the warnings below; resuming retries only the unfinished units.",
     };
     // the labeled-data takeaway: GET runs/:r/export.csv — your rows plus the
@@ -262,7 +262,7 @@ function renderDetail(mount, params) {
               href: run.instrumentId
                 ? `#/p/${params.slug}/runs?preflight=${encodeURIComponent(run.instrumentId)}`
                 : `#/p/${params.slug}/runs`,
-              title: "Same instrument, different data — the preflight's corpus picker does the rest.",
+              title: "Start a new run of this instrument on a different corpus — pick the corpus in the preflight.",
             }, "Run on another corpus…"),
           ]
         : run.status === "pending"
@@ -312,7 +312,8 @@ function renderDetail(mount, params) {
         liveRegion,
         el("div", { class: "monitor__cols" },
           el("div", { class: "monitor__distwrap" },
-            el("h4", { class: "overline" }, "Label distribution — accumulating"),
+            el("h4", { class: "overline" }, "Label distribution"),
+            live ? el("p", { class: "faint" }, "updates as units finish") : null,
             distHost),
           el("div", { class: "monitor__warnwrap" },
             el("h4", { class: "overline" }, "Warnings"),
@@ -333,22 +334,34 @@ function renderDetail(mount, params) {
         distChart.update(data);
       }
     };
-    distHost.append(el("p", { class: "faint" },
-      live ? "accumulates as outputs land…" : "label distributions live in the run's outputs — explore the results for the full read"));
+    // a run that is not executing states what the empty chart means
+    if (run.status === "complete") {
+      distHost.append(el("p", { class: "faint" },
+        "Finished — the final distribution is in ",
+        el("a", { href: `#/p/${params.slug}/explore/${run.id}` }, "Explore results"), "."));
+    } else if (run.status === "paused" || run.status === "aborted" || run.status === "failed") {
+      distHost.append(el("p", { class: "faint" }, "Partial — resume to continue; outputs so far are kept."));
+    } else if (!live) {
+      distHost.append(el("p", { class: "faint" }, "Empty until the run starts — labels appear here as units finish."));
+    }
 
-    // live warning entries are {kind, message, unitId?} objects
+    // live warning entries are {kind, message, unitId?} objects; the none-line
+    // leaves the moment a real warning lands
     const seenWarnings = new Set();
+    const noWarningsLine = el("li", { class: "monitor__warning monitor__warning--none faint" },
+      "No warnings. A label taking over the distribution (degenerate output) or agreement slipping below the calibration certificate (drift) would be flagged here.");
     const pushWarnings = (warnings = []) => {
       for (const w of warnings) {
         const text = typeof w === "string" ? w : w?.message ?? JSON.stringify(w);
         if (seenWarnings.has(text)) continue;
         seenWarnings.add(text);
+        noWarningsLine.remove();
         warnFeed.append(el("li", { class: "monitor__warning" },
           el("span", { class: "chip chip--signal" }, typeof w === "object" && w?.kind ? w.kind : "watch"),
           el("span", {}, text)));
       }
       if (!warnFeed.children.length) {
-        warnFeed.append(el("li", { class: "monitor__warning monitor__warning--none faint" }, "nothing degenerate, nothing drifting"));
+        warnFeed.append(noWarningsLine);
       }
     };
     pushWarnings([]);
@@ -436,7 +449,7 @@ function renderDetail(mount, params) {
     const qHost = el("div", {});
     if (quarantined.length) {
       qHost.append(el("p", { class: "screen__hint faint" },
-        "These units failed schema validation, refusal, or truncation after constrained repairs — they carry no output line and sit outside every count above."));
+        "These units produced no valid output — schema failure, refusal, or truncation, even after automatic repairs. They carry no label and are excluded from every count above."));
       for (const q of quarantined) {
         qHost.append(el("div", { class: "quarrow" },
           q.unitId
@@ -456,7 +469,7 @@ function renderDetail(mount, params) {
     mount.append(section("Record", kvList(
       kv("Instrument", el("span", { class: "data" }, run.instrumentId ?? "—"), " ", ladderC.render({ level, size: "sm" })),
       kv("Model", el("span", { class: "data" }, [run.provider, run.model].filter(Boolean).join(" · ") || "—"),
-        run.pinned !== undefined ? el("span", { class: "chip chip--ghost" }, run.pinned ? "pinned" : "unpinned — stated in methods") : null),
+        run.pinned !== undefined ? el("span", { class: "chip chip--ghost" }, run.pinned ? "pinned" : "unpinned — noted in the methods export") : null),
       kv("Estimate", el("span", { class: "data" }, fmtCost(run.cost?.estUSD ?? 0)), el("span", { class: "faint" }, " preflight")),
       kv("Started", run.startedAt ? fmtDateTime(run.startedAt) : "—"),
       kv("Finished", run.finishedAt ? fmtDateTime(run.finishedAt) : "—"),
@@ -485,7 +498,7 @@ function renderDetail(mount, params) {
             await api.runs.abort(params.slug, run.id);
             monitor?.close?.();
             monitor = null;
-            toast.warn("Aborted.", { detail: "checkpointed — a future run resumes from here, cached calls stay free" });
+            toast.warn("Aborted.", { detail: "progress is saved — Resume continues from here without re-paying finished units" });
             await refreshProject(params.slug).catch(() => {});
             window.dispatchEvent(new HashChangeEvent("hashchange"));
           } catch (err) { toast.error("Abort failed.", { detail: String(err.message ?? err) }); }

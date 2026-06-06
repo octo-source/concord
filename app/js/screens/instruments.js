@@ -971,8 +971,8 @@ function actionRow(main, params, inst, { onPreviewed, previewScope = null } = {}
           markedValue(`test–retest α = ${fmtStat(res.alpha)}`, res.pass ? "stabilized" : "exploratory"),
           " ",
           res.pass
-            ? el("span", {}, "— stable with itself. ", el("strong", {}, "◑ earned."))
-            : el("span", {}, "— below the .80 bar (Krippendorff's reliable threshold", cite("krippendorff2004"), "); the instrument wobbles on rereads.")));
+            ? el("span", {}, "— the instrument gives the same labels when rerun on the same units. ", el("strong", {}, "Marked ◑ stabilized."))
+            : el("span", {}, "— below the .80 bar (Krippendorff's reliable threshold", cite("krippendorff2004"), "); the instrument changes its labels when rerun on the same units.")));
         if (res.pass) toast.success("Stability passed — instrument is ◑.", { detail: `α = ${fmtStat(res.alpha)}`, data: true });
         await refreshProject(params.slug).catch(() => {});
       } catch (err) {

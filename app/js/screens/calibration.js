@@ -233,7 +233,7 @@ function samplePane(host, params, goldset, construct, { columns = [], project = 
   host.append(section("Why a sample is enough",
     el("p", { class: "screen__hint" },
       "You code a ", el("strong", {}, "sample"), ", not the corpus: ", nOfPop,
-      " units. Because the sample is drawn with known inclusion probabilities (π), agreement statistics and corrected estimates from it are honest about the whole corpus.")));
+      " units. Because the sample is drawn with known inclusion probabilities (π), agreement statistics and corrected estimates computed from it generalize to the whole corpus.")));
 
   if (goldset.sample?.length) {
     host.append(section("Current sample",

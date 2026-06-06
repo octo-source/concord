@@ -35,6 +35,7 @@
 
 import { el, clear, frag } from "../dom.js";
 import api from "../api.js";
+import * as router from "../router.js";
 import * as toast from "../components/toast.js";
 import { cite } from "../components/cite.js";
 import * as ladderC from "../components/ladder.js";
@@ -44,7 +45,7 @@ import * as table from "../components/table.js";
 import * as quotecard from "../components/quotecard.js";
 import * as scopechip from "../components/scopechip.js";
 import { store } from "../state.js";
-import { fmt, fmtStat, fmtP, fmtCount } from "../format.js";
+import { fmt, fmtStat, fmtP, fmtCount, fmtDate } from "../format.js";
 import { screenHead, section, asyncMount, ensureProject, emptyState } from "./_shared.js";
 
 export const route = "p/:slug/analyses";
@@ -55,7 +56,7 @@ const KINDS = [
   { value: "descriptive", label: "Descriptive", hint: "prevalence, distributions" },
   { value: "crosstab", label: "Crosstab", hint: "construct × metadata, χ² honesty, DSL when gold exists" },
   { value: "model", label: "Model", hint: "OLS / logistic with sandwich SEs" },
-  { value: "triangulation", label: "Triangulation", hint: "instrument vs instrument — divergence is where reading starts" },
+  { value: "triangulation", label: "Triangulation", hint: "agreement between two instruments, with the units they label differently" },
   { value: "subgroup", label: "Subgroup audit", hint: "machine-vs-gold agreement and error rates by group — needs a complete gold set" },
 ];
 
@@ -90,7 +91,7 @@ export function render(mount, params, query = {}) {
     mount.append(screenHead({
       overline: "Workbench",
       title: "Analyze what the runs measured.",
-      lede: "Pick an analysis kind on the left, choose variables, and run it over a measured corpus. Where a gold sample exists, estimates arrive bias-corrected (◉) with the naive number hatched beside them.",
+      lede: "Pick an analysis kind on the left, choose variables, and run it over a measured corpus. Where a gold sample exists, estimates arrive bias-corrected (◉) with the naive number hatched beside them. Every analysis reads the labeled outputs of one run.",
     }));
 
     const split = el("div", { class: "split split--workbench" });
@@ -164,6 +165,40 @@ function builderRail(rail, canvas, params, project, presetRunId = null, { column
   const constructs = project.constructs ?? [];
   const instruments = project.instruments ?? [];
 
+  /* -- which run the builder reads ------------------------------------------
+     Every analysis reads ONE run's labeled outputs. The picker holds the
+     complete runs; ?runId= (a run's "Analyze →") presets it, the latest
+     complete run is the default, and withRun() sends the selection with
+     every run-backed spec. No complete runs → nothing to analyze yet. */
+  const completeRuns = (project.runs ?? []).filter((r) => r.status === "complete");
+  const hasRuns = completeRuns.length > 0;
+  let selectedRunId = completeRuns.some((r) => r.id === presetRunId)
+    ? presetRunId
+    : completeRuns.at(-1)?.id ?? null;
+
+  const runOptionLabel = (r) => {
+    const instName = instruments.find((i) => i.id === r.instrumentId)?.name ?? r.instrumentId ?? r.id;
+    const corpus = (project.corpora ?? []).find((c) => c.id === r.corpusId) ?? null;
+    const corpusName = corpus ? scopechip.displayName(corpus) : r.corpusId ?? "corpus not recorded";
+    const units = r.checkpoint?.total ?? r.checkpoint?.done ?? null;
+    return `${instName} on ${corpusName} — ${units === null ? "—" : fmtCount(units)} units · ${fmtDate(r.finishedAt ?? r.createdAt)}`;
+  };
+  const runSel = el("select", { class: "input", "aria-label": "Run whose outputs new analyses read" },
+    ...completeRuns.map((r) => el("option", { value: r.id, selected: r.id === selectedRunId }, runOptionLabel(r))));
+  runSel.addEventListener("change", () => {
+    selectedRunId = runSel.value;
+    // re-enter the screen pinned to the chosen run so the variable pickers
+    // reload that run's corpus columns
+    router.navigate(`p/${params.slug}/analyses?runId=${encodeURIComponent(selectedRunId)}`);
+  });
+  const runPickerNodes = hasRuns
+    ? [varField("reads run", runSel)]
+    : [
+        el("p", { class: "screen__hint" },
+          "Analyses read a run's outputs. Nothing has been measured yet — start a run first."),
+        el("a", { class: "btn", href: `#/p/${params.slug}/runs` }, "Go to Runs →"),
+      ];
+
   // Variable pickers list the corpus's REAL metadata columns — never a
   // canned list. Discrete pickers (crosstab axes, subgroup splits) take
   // categorical and numeric roles; model predictors take numeric only.
@@ -192,6 +227,11 @@ function builderRail(rail, canvas, params, project, presetRunId = null, { column
     ...instruments.map((i) => el("option", { value: i.id }, i.name)));
   const instBSel = el("select", { class: "input", "aria-label": "Instrument B" },
     ...instruments.map((i, idx) => el("option", { value: i.id, selected: idx === 1 }, i.name)));
+
+  // no measured outputs to analyze → the whole builder waits on a run
+  if (!hasRuns) {
+    for (const sel of [constructSel, rowSel, colSel, bySel, xSel, instASel, instBSel]) sel.disabled = true;
+  }
 
   const instrumentForConstruct = () =>
     instruments.find((i) => i.constructId === constructSel.value)?.id;
@@ -239,6 +279,7 @@ function builderRail(rail, canvas, params, project, presetRunId = null, { column
   // a kind whose required variable has no real column cannot run — say why
   // on the button instead of letting the server 400
   const missingVariable = () => {
+    if (!hasRuns) return "analyses read a run's outputs — start a run first";
     if (kind === "crosstab" && !colSel.value) return "crosstab needs a metadata column";
     if (kind === "subgroup" && !bySel.value) return "the subgroup audit needs a metadata column";
     if (kind === "model" && !xSel.value) return "the model needs a numeric column";
@@ -257,15 +298,16 @@ function builderRail(rail, canvas, params, project, presetRunId = null, { column
       el("label", { class: "choice" },
         el("input", {
           type: "radio", name: "wbkind", value: k.value, checked: kind === k.value,
+          disabled: !hasRuns,
           onchange: () => { kind = k.value; paintVars(); },
         }),
         el("span", { class: "choice__text" },
           el("span", { class: "choice__label" }, k.label),
           el("span", { class: "choice__hint" }, k.hint)))));
 
-  // live spec shapes per kind (see header contract); a preset runId from
-  // ?runId= rides every run-backed spec as the pickRun hint
-  const withRun = (spec) => (presetRunId ? { runId: presetRunId, ...spec } : spec);
+  // live spec shapes per kind (see header contract); the run picker's
+  // selection rides every run-backed spec as the pickRun hint
+  const withRun = (spec) => (selectedRunId ? { runId: selectedRunId, ...spec } : spec);
   const specFor = () => {
     if (kind === "triangulation") return { instrumentIds: [instASel.value, instBSel.value] };
     if (kind === "subgroup") return withRun({ instrumentId: instASel.value, by: bySel.value });
@@ -295,10 +337,7 @@ function builderRail(rail, canvas, params, project, presetRunId = null, { column
   paintVars();
   rail.append(frag(
     el("h3", { class: "overline split__group" }, "Build"),
-    presetRunId
-      ? el("p", { class: "screen__hint faint" },
-          "Scoped to run ", el("span", { class: "data" }, presetRunId), " — new analyses read its outputs.")
-      : null,
+    ...runPickerNodes,
     columnsLine,
     kindList,
     variableHost,
@@ -530,7 +569,7 @@ function triangulationResult(canvas, params, analysis) {
   if (numericPairs.length >= 3) {
     const cell = el("div", {});
     scatter.render(cell, numericPairs.map((p) => ({ x: p.a, y: p.b, label: p.unitId, id: p.unitId })), {
-      caption: `Per-unit scores — identity is agreement; strays speak signal. κ = ${fmtStat(r.kappa)}`,
+      caption: `Per-unit scores — points on the diagonal are units the instruments score alike; points off it are disagreements. κ = ${fmtStat(r.kappa)}`,
       xLabel: a?.name ?? "instrument A",
       yLabel: b?.name ?? "instrument B",
       format: (v) => fmtStat(v),
@@ -556,7 +595,7 @@ function triangulationResult(canvas, params, analysis) {
       .catch(() => {});
     browser.append(row);
   }
-  canvas.append(section(`Divergence browser — ${fmtCount(divergent.length)} units where reading starts`, browser));
+  canvas.append(section(`Divergence browser — ${fmtCount(divergent.length)} units the instruments label differently`, browser));
 }
 
 /* -- subgroup: the reliability audit — {by, positive, overall {goldN,
