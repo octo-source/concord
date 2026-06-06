@@ -2331,6 +2331,30 @@ test("catalog: capability fields — static catalogs decorated from capabilities
   }
 });
 
+test("catalog: ?refresh=1 busts BOTH caches — adapter.catalog() is called with {force:true}", async () => {
+  const or = getAdapter({ privacyMode: "open" }, "openrouter").adapter;
+  const sawForce = [];
+  or.catalog = async (opts = {}) => { sawForce.push(opts.force === true); return []; };
+  try {
+    // warm the route cache: a plain refresh forces the adapter once
+    await ok("GET", "/api/catalog/models?refresh=1");
+    assert.deepEqual(sawForce.at(-1), true, "?refresh=1 must force the in-adapter cache, not just the route cache");
+
+    // a plain GET now serves the route cache → the adapter is NOT re-consulted
+    const before = sawForce.length;
+    await ok("GET", "/api/catalog/models");
+    assert.equal(sawForce.length, before, "a warm route cache must not re-hit the adapter");
+
+    // another refresh forces again
+    await ok("GET", "/api/catalog/models?refresh=1");
+    assert.equal(sawForce.at(-1), true);
+    assert.ok(sawForce.length > before, "?refresh=1 always rebuilds and forces");
+  } finally {
+    or.catalog = async () => [];
+    await ok("GET", "/api/catalog/models?refresh=1"); // restore a hermetic cache for later tests
+  }
+});
+
 test("settings: keys are masked on GET (sk-…last4) and never echoed in full", async () => {
   const secret = "sk-ant-api-key-1234abcd";
   await ok("PUT", "/api/settings", { keys: { anthropic: secret } });

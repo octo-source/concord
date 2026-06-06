@@ -1,9 +1,11 @@
 // Anthropic Messages API adapter. Structured output via forced tool use:
 // the schema becomes the lone "emit" tool and tool_choice pins it.
 import { ConcordError } from "../core/errors.js";
-import { Adapter, httpJSON, malformedResponse } from "./base.js";
+import { Adapter, httpJSON, malformedResponse, mergeCatalogPricing } from "./base.js";
 
 const API_VERSION = "2023-06-01";
+const CATALOG_TTL_MS = 60 * 60 * 1000; // 1h, matches routes/catalog.js
+const CATALOG_PAGE_CAP = 20; // /v1/models pages are ≤1000 ids; this is a runaway guard
 
 // Pricing is a static estimate (per 1M tokens) used for preflight cost math
 // when no live source exists; every entry is marked `estimate: true`.
@@ -57,7 +59,51 @@ export class AnthropicAdapter extends Adapter {
     };
   }
 
-  async catalog() {
+  staticCatalog() {
     return STATIC_CATALOG.map((m) => ({ ...m, pricing: { ...m.pricing } }));
+  }
+
+  // Keyless → static list (and NO network call: a missing key must never fetch).
+  // Keyed → live GET /v1/models, paginated, with pricing/ctx merged from the
+  // static table by id-prefix; any fetch failure degrades to the static list.
+  // Cached in-adapter for 1h; `force` (set by the catalog route on ?refresh=1)
+  // bypasses the cache so both layers refresh together.
+  async catalog({ force = false } = {}) {
+    if (!this.apiKey) return this.staticCatalog();
+    if (!force && this._catalogCache && Date.now() - this._catalogCache.at < CATALOG_TTL_MS) {
+      return this._catalogCache.data.map((m) => ({ ...m, pricing: { ...m.pricing } }));
+    }
+    let live;
+    try {
+      live = await this.#fetchModels();
+    } catch {
+      return this.staticCatalog(); // fetch failure → unchanged static behavior
+    }
+    const structuredOutput = this.capabilities().structuredOutput;
+    const data = live.map((m) => mergeCatalogPricing(
+      { id: m.id, name: m.display_name ?? m.id, family: "anthropic", structuredOutput },
+      STATIC_CATALOG,
+    ));
+    this._catalogCache = { at: Date.now(), data };
+    return data.map((m) => ({ ...m, pricing: { ...m.pricing } }));
+  }
+
+  async #fetchModels() {
+    const out = [];
+    let afterId = null;
+    for (let page = 0; page < CATALOG_PAGE_CAP; page++) {
+      const url = new URL(`${this.baseUrl}/v1/models`);
+      url.searchParams.set("limit", "1000");
+      if (afterId) url.searchParams.set("after_id", afterId);
+      const raw = await httpJSON("GET", url.toString(), {
+        headers: { "x-api-key": this.apiKey, "anthropic-version": API_VERSION },
+      });
+      if (!raw || !Array.isArray(raw.data)) throw malformedResponse("anthropic", raw);
+      out.push(...raw.data.filter((m) => m && typeof m.id === "string"));
+      if (!raw.has_more) break;
+      afterId = raw.last_id ?? out.at(-1)?.id ?? null;
+      if (!afterId) break; // can't advance the cursor → stop rather than loop
+    }
+    return out;
   }
 }

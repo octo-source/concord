@@ -23,13 +23,15 @@ function withTimeout(promise, ms) {
   });
 }
 
-async function buildCatalog() {
+async function buildCatalog({ force = false } = {}) {
   const providers = {};
   for (const name of PROVIDERS) {
     try {
       const { adapter } = getAdapter({ privacyMode: "open" }, name);
       const caps = adapter.capabilities();
-      const models = await withTimeout(adapter.catalog(), CATALOG_TIMEOUT_MS);
+      // `force` (from ?refresh=1) busts the in-adapter 1h cache too, so a manual
+      // refresh re-fetches live lists instead of serving an adapter-cached page.
+      const models = await withTimeout(adapter.catalog({ force }), CATALOG_TIMEOUT_MS);
       // Capability fields for the UI (warn + default-filter, never hard-block):
       // adapters that compute their own per-model flags (openrouter, from
       // supported_parameters) pass through untouched; static catalogs are
@@ -74,9 +76,10 @@ export default [
     method: "GET",
     pattern: "/api/catalog/models",
     handler: async (req) => {
-      if (req.query.refresh === "1") catalogCache = null;
+      const force = req.query.refresh === "1";
+      if (force) catalogCache = null;
       if (!catalogCache || Date.now() - catalogCache.at >= CATALOG_TTL_MS) {
-        catalogCache = { at: Date.now(), data: await buildCatalog() };
+        catalogCache = { at: Date.now(), data: await buildCatalog({ force }) };
       }
       return catalogCache.data;
     },

@@ -125,6 +125,42 @@ export function malformedResponse(provider, raw) {
   return new ConcordError("PROVIDER_HTTP", `malformed response from ${provider}: expected envelope missing`, { provider, body: snippet });
 }
 
+// Live model lists (Anthropic /v1/models, OpenAI /v1/models) carry ids and
+// display names but NEITHER pricing NOR context windows. mergeCatalogPricing
+// reconciles a live id against the adapter's static table by LONGEST-id-prefix
+// (so a dated snapshot like "claude-opus-4-8-20260515" inherits the bare
+// "claude-opus-4-8" row), and marks anything it cannot price as an honest
+// unknown: pricing {0,0}, ctx null, estimate true. The static entry's `family`
+// and `snapshot` are NOT inherited — family stays the live family, and the
+// snapshot is the live id itself.
+//
+// live: {id, name, family} plus any capability fields the caller attached.
+// statics: the adapter's STATIC_CATALOG array.
+export function mergeCatalogPricing(live, statics) {
+  let best = null;
+  for (const s of statics) {
+    if (live.id === s.id || live.id.startsWith(s.id)) {
+      if (!best || s.id.length > best.id.length) best = s;
+    }
+  }
+  if (best) {
+    return {
+      ...live,
+      ctx: best.ctx ?? null,
+      pricing: { ...best.pricing },
+      snapshot: live.snapshot ?? live.id,
+      estimate: true, // static pricing is itself an estimate
+    };
+  }
+  return {
+    ...live,
+    ctx: null,
+    pricing: { inUSDper1M: 0, outUSDper1M: 0 },
+    snapshot: live.snapshot ?? live.id,
+    estimate: true,
+  };
+}
+
 // Retry policy (controller decision):
 //   - 429 / 5xx → retryable, full budget (maxAttempts, default 6): rate
 //     limits and transient server faults are expected during long runs and

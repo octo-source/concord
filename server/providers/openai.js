@@ -1,12 +1,23 @@
 // OpenAI Chat Completions adapter. Structured output via response_format
 // json_schema (strict). OpenRouter subclasses this and tweaks the dialect.
 import { ConcordError } from "../core/errors.js";
-import { Adapter, httpJSON, malformedResponse } from "./base.js";
+import { Adapter, httpJSON, malformedResponse, mergeCatalogPricing } from "./base.js";
 
 const STATIC_CATALOG = [
   { id: "gpt-5.2", name: "GPT-5.2", family: "openai", ctx: 400_000, pricing: { inUSDper1M: 1.25, outUSDper1M: 10 }, snapshot: "gpt-5.2", estimate: true },
   { id: "gpt-5.2-mini", name: "GPT-5.2 mini", family: "openai", ctx: 400_000, pricing: { inUSDper1M: 0.25, outUSDper1M: 2 }, snapshot: "gpt-5.2-mini", estimate: true },
 ];
+
+const CATALOG_TTL_MS = 60 * 60 * 1000; // 1h, matches routes/catalog.js
+
+// /v1/models lists EVERY model the key can reach. Keep only chat-completions
+// families (gpt*, o-series o1/o3/o4…, chatgpt*) and drop the modalities Concord
+// cannot drive as a judge — embeddings, TTS, whisper, dall-e, moderation,
+// audio/realtime, transcription, image — including the gpt-4o-* variants that
+// share the chat prefix but are not chat endpoints (gpt-4o-mini-tts, …).
+const CHAT_PREFIX = /^(?:gpt|chatgpt|o\d)/i;
+const NON_CHAT = /(?:embed|tts|whisper|dall-?e|moderation|realtime|audio|transcrib|image|search|computer-use)/i;
+const isChatModel = (id) => typeof id === "string" && CHAT_PREFIX.test(id) && !NON_CHAT.test(id);
 
 // ---------------------------------------------------------------------------
 // OpenAI strict dialect (live-verified 2026-06 against openai/gpt-4o-mini):
@@ -182,7 +193,34 @@ export class OpenAIAdapter extends Adapter {
     };
   }
 
-  async catalog() {
+  staticCatalog() {
     return STATIC_CATALOG.map((m) => ({ ...m, pricing: { ...m.pricing } }));
+  }
+
+  // Keyless → static list (and NO network call). Keyed → live GET /v1/models,
+  // filtered to chat families, with pricing/ctx merged from the static table by
+  // id-prefix; any fetch failure degrades to the static list. Cached in-adapter
+  // for 1h; `force` (set by the catalog route on ?refresh=1) bypasses it.
+  async catalog({ force = false } = {}) {
+    if (!this.apiKey) return this.staticCatalog();
+    if (!force && this._catalogCache && Date.now() - this._catalogCache.at < CATALOG_TTL_MS) {
+      return this._catalogCache.data.map((m) => ({ ...m, pricing: { ...m.pricing } }));
+    }
+    let raw;
+    try {
+      raw = await httpJSON("GET", `${this.baseUrl}/v1/models`, { headers: this.headers() });
+    } catch {
+      return this.staticCatalog(); // fetch failure → unchanged static behavior
+    }
+    if (!raw || !Array.isArray(raw.data)) return this.staticCatalog();
+    const structuredOutput = this.capabilities().structuredOutput;
+    const data = raw.data
+      .filter((m) => m && isChatModel(m.id))
+      .map((m) => mergeCatalogPricing(
+        { id: m.id, name: m.id, family: "openai", structuredOutput },
+        STATIC_CATALOG,
+      ));
+    this._catalogCache = { at: Date.now(), data };
+    return data.map((m) => ({ ...m, pricing: { ...m.pricing } }));
   }
 }

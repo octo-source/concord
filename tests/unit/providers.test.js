@@ -424,6 +424,106 @@ describe("AnthropicAdapter", () => {
   });
 });
 
+// ------------------------------------------------- Anthropic live catalog
+// The Models API (GET /v1/models) returns ids + display names but NO pricing
+// or context windows; the adapter merges those from its static table by
+// longest-id-prefix, and marks anything it cannot price as an honest unknown.
+
+describe("AnthropicAdapter.catalog (live)", () => {
+  // Shape captured from the real endpoint (2026-06): {data:[{id,display_name,
+  // type,created_at}], has_more, first_id, last_id}. Pagination uses ?after_id.
+  const modelsPage = (data, has_more = false) => ({
+    body: { data, has_more, first_id: data[0]?.id ?? null, last_id: data.at(-1)?.id ?? null },
+  });
+
+  it("fetches /v1/models with auth headers and merges static pricing by longest-id-prefix", async () => {
+    await withServer(
+      (call) => {
+        assert.equal(call.method, "GET");
+        assert.match(call.url, /^\/v1\/models(\?|$)/);
+        return modelsPage([
+          // dated snapshot ids → prefix-match the bare static ids
+          { id: "claude-opus-4-8-20260515", display_name: "Claude Opus 4.8", type: "model" },
+          { id: "claude-sonnet-4-6-20260219", display_name: "Claude Sonnet 4.6", type: "model" },
+          // a brand-new model absent from the static table → honest unknown
+          { id: "claude-flux-9-0-20260601", display_name: "Claude Flux 9.0", type: "model" },
+        ]);
+      },
+      async (srv) => {
+        const adapter = new AnthropicAdapter({ apiKey: "sk-ant-live", baseUrl: srv.url });
+        const cat = await adapter.catalog();
+        const call = srv.calls[0];
+        assert.equal(call.headers["x-api-key"], "sk-ant-live");
+        assert.equal(call.headers["anthropic-version"], "2023-06-01");
+
+        const byId = Object.fromEntries(cat.map((m) => [m.id, m]));
+        // live ids appear (the field complaint: new snapshots never showed up)
+        assert.deepEqual(cat.map((m) => m.id), [
+          "claude-opus-4-8-20260515", "claude-sonnet-4-6-20260219", "claude-flux-9-0-20260601",
+        ]);
+        // opus snapshot inherited the static opus pricing + ctx by prefix
+        assert.deepEqual(byId["claude-opus-4-8-20260515"].pricing, { inUSDper1M: 15, outUSDper1M: 75 });
+        assert.equal(byId["claude-opus-4-8-20260515"].ctx, 200_000);
+        assert.equal(byId["claude-opus-4-8-20260515"].name, "Claude Opus 4.8");
+        assert.equal(byId["claude-opus-4-8-20260515"].family, "anthropic");
+        assert.equal(byId["claude-opus-4-8-20260515"].snapshot, "claude-opus-4-8-20260515");
+        assert.deepEqual(byId["claude-sonnet-4-6-20260219"].pricing, { inUSDper1M: 3, outUSDper1M: 15 });
+        // unmatched model → {0,0} pricing, ctx null, estimate flag set (honest)
+        assert.deepEqual(byId["claude-flux-9-0-20260601"].pricing, { inUSDper1M: 0, outUSDper1M: 0 });
+        assert.equal(byId["claude-flux-9-0-20260601"].ctx, null);
+        assert.equal(byId["claude-flux-9-0-20260601"].estimate, true);
+        // capability fields carried so the catalog route stays consistent
+        assert.equal(byId["claude-flux-9-0-20260601"].structuredOutput, true);
+      },
+    );
+  });
+
+  it("paginates via has_more/after_id, accumulating every page", async () => {
+    await withServer(
+      (call, n) => {
+        if (n === 1) {
+          assert.ok(!/after_id/.test(call.url), "first page must not send after_id");
+          return modelsPage([{ id: "claude-opus-4-8-20260515", display_name: "Opus", type: "model" }], true);
+        }
+        assert.match(call.url, /after_id=claude-opus-4-8-20260515/, "second page cursors on last_id");
+        return modelsPage([{ id: "claude-haiku-4-5-20260101", display_name: "Haiku", type: "model" }], false);
+      },
+      async (srv) => {
+        const adapter = new AnthropicAdapter({ apiKey: "k", baseUrl: srv.url });
+        const cat = await adapter.catalog();
+        assert.equal(srv.calls.length, 2, "exactly two pages fetched");
+        assert.deepEqual(cat.map((m) => m.id), ["claude-opus-4-8-20260515", "claude-haiku-4-5-20260101"]);
+      },
+    );
+  });
+
+  it("fetch failure falls back to the static catalog unchanged", async () => {
+    await withServer(
+      () => ({ status: 500, body: { error: { type: "internal" } } }),
+      async (srv) => {
+        const adapter = new AnthropicAdapter({ apiKey: "k", baseUrl: srv.url });
+        const cat = await adapter.catalog();
+        assert.deepEqual(cat.map((m) => m.id), ["claude-opus-4-8", "claude-sonnet-4-6", "claude-haiku-4-5"]);
+        for (const m of cat) assert.equal(m.estimate, true);
+      },
+    );
+  });
+
+  it("caches the live fetch for 1h; force re-fetches", async () => {
+    await withServer(
+      () => modelsPage([{ id: "claude-opus-4-8-20260515", display_name: "Opus", type: "model" }]),
+      async (srv) => {
+        const adapter = new AnthropicAdapter({ apiKey: "k", baseUrl: srv.url });
+        await adapter.catalog();
+        await adapter.catalog();
+        assert.equal(srv.calls.length, 1, "second call within the TTL serves the in-adapter cache");
+        await adapter.catalog({ force: true });
+        assert.equal(srv.calls.length, 2, "force bypasses the cache");
+      },
+    );
+  });
+});
+
 // ---------------------------------------------------------------- OpenAI
 
 describe("OpenAIAdapter", () => {
@@ -527,6 +627,119 @@ describe("OpenAIAdapter", () => {
     }
     assert.deepEqual(adapter.capabilities(),
       { structuredOutput: true, pinning: true, batch: false, local: false, family: "openai" });
+  });
+});
+
+// ------------------------------------------------- OpenAI live catalog
+// GET /v1/models lists EVERY model the key can reach — embeddings, TTS,
+// whisper, dall-e, moderation, audio/realtime — none of which Concord can
+// drive as a judge. The adapter filters to chat-capable families and merges
+// pricing/context from its static table by longest-id-prefix.
+
+describe("OpenAIAdapter.catalog (live)", () => {
+  // Real /v1/models shape: {object:"list", data:[{id, object:"model", created, owned_by}]}.
+  const modelsList = (ids) => ({
+    body: { object: "list", data: ids.map((id) => ({ id, object: "model", created: 1, owned_by: "openai" })) },
+  });
+
+  it("filters non-chat families, keeps chat models, merges pricing by prefix", async () => {
+    await withServer(
+      (call) => {
+        assert.equal(call.method, "GET");
+        assert.equal(call.url, "/v1/models");
+        assert.equal(call.headers.authorization, "Bearer sk-oai-live");
+        return modelsList([
+          "gpt-5.2",                  // exact static match
+          "gpt-5.2-mini-2026-05-01",  // dated → prefix-match gpt-5.2-mini
+          "gpt-6-preview",            // chat, but no static entry → honest unknown
+          "o4-mini",                  // o-series reasoning → chat-capable
+          "chatgpt-4o-latest",        // chatgpt prefix → chat
+          // everything below must be filtered out:
+          "text-embedding-3-large",
+          "gpt-4o-mini-tts",
+          "whisper-1",
+          "dall-e-3",
+          "omni-moderation-latest",
+          "gpt-4o-realtime-preview",
+          "gpt-4o-audio-preview",
+          "gpt-4o-transcribe",
+          "gpt-image-1",
+        ]);
+      },
+      async (srv) => {
+        const adapter = new OpenAIAdapter({ apiKey: "sk-oai-live", baseUrl: srv.url });
+        const cat = await adapter.catalog();
+        const ids = cat.map((m) => m.id);
+        assert.deepEqual(ids, ["gpt-5.2", "gpt-5.2-mini-2026-05-01", "gpt-6-preview", "o4-mini", "chatgpt-4o-latest"],
+          "only chat-capable families survive, in list order");
+
+        const byId = Object.fromEntries(cat.map((m) => [m.id, m]));
+        assert.deepEqual(byId["gpt-5.2"].pricing, { inUSDper1M: 1.25, outUSDper1M: 10 });
+        assert.equal(byId["gpt-5.2"].ctx, 400_000);
+        assert.equal(byId["gpt-5.2"].family, "openai");
+        // dated mini snapshot inherits mini pricing by prefix
+        assert.deepEqual(byId["gpt-5.2-mini-2026-05-01"].pricing, { inUSDper1M: 0.25, outUSDper1M: 2 });
+        assert.equal(byId["gpt-5.2-mini-2026-05-01"].snapshot, "gpt-5.2-mini-2026-05-01");
+        // unknown chat model → honest unknown
+        assert.deepEqual(byId["gpt-6-preview"].pricing, { inUSDper1M: 0, outUSDper1M: 0 });
+        assert.equal(byId["gpt-6-preview"].ctx, null);
+        assert.equal(byId["gpt-6-preview"].estimate, true);
+        assert.equal(byId["o4-mini"].estimate, true, "o-series with no static row is an honest unknown");
+        // capability fields present for catalog-route consistency
+        assert.equal(byId["gpt-5.2"].structuredOutput, true);
+      },
+    );
+  });
+
+  it("longest-prefix wins: gpt-5.2-mini beats gpt-5.2 for a mini snapshot", async () => {
+    await withServer(
+      () => modelsList(["gpt-5.2-mini"]),
+      async (srv) => {
+        const adapter = new OpenAIAdapter({ apiKey: "k", baseUrl: srv.url });
+        const cat = await adapter.catalog();
+        // must pick the mini row (0.25/2), not the gpt-5.2 row (1.25/10)
+        assert.deepEqual(cat[0].pricing, { inUSDper1M: 0.25, outUSDper1M: 2 });
+      },
+    );
+  });
+
+  it("fetch failure falls back to the static catalog unchanged", async () => {
+    await withServer(
+      () => ({ status: 503, body: "<html>down</html>" }),
+      async (srv) => {
+        const adapter = new OpenAIAdapter({ apiKey: "k", baseUrl: srv.url });
+        const cat = await adapter.catalog();
+        assert.deepEqual(cat.map((m) => m.id), ["gpt-5.2", "gpt-5.2-mini"]);
+        for (const m of cat) assert.equal(m.estimate, true);
+      },
+    );
+  });
+
+  it("keyless: no fetch, static fallback", async () => {
+    const realFetch = globalThis.fetch;
+    let fetches = 0;
+    globalThis.fetch = () => { fetches++; throw new Error("network blocked by test"); };
+    try {
+      const cat = await new OpenAIAdapter({}).catalog();
+      assert.equal(fetches, 0, "keyless catalog must not hit the network");
+      assert.deepEqual(cat.map((m) => m.id), ["gpt-5.2", "gpt-5.2-mini"]);
+    } finally {
+      globalThis.fetch = realFetch;
+    }
+  });
+
+  it("caches the live fetch for 1h; force re-fetches", async () => {
+    await withServer(
+      () => modelsList(["gpt-5.2"]),
+      async (srv) => {
+        const adapter = new OpenAIAdapter({ apiKey: "k", baseUrl: srv.url });
+        await adapter.catalog();
+        await adapter.catalog();
+        assert.equal(srv.calls.length, 1, "second call within the TTL serves the in-adapter cache");
+        await adapter.catalog({ force: true });
+        assert.equal(srv.calls.length, 2, "force bypasses the cache");
+      },
+    );
   });
 });
 
