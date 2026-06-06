@@ -28,6 +28,7 @@ import * as pipeline from "../components/pipeline.js";
 import * as quotecard from "../components/quotecard.js";
 import * as modelpicker from "../components/modelpicker.js";
 import * as scopechip from "../components/scopechip.js";
+import { contextLine, corpusText } from "../components/contextline.js";
 import * as line from "../components/charts/line.js";
 import { fmt, fmtStat, fmtCost, fmtCount, fmtDateTime } from "../format.js";
 import { screenHead, section, asyncMount, ensureProject, refreshProject, emptyState, openSheet, sheetBusy, buttonBusy, kv, kvList, markedValue, normalizeQuarantine } from "./_shared.js";
@@ -73,36 +74,37 @@ function textColumnOf(corpus) {
   return corpus?.textColumn ?? corpus?.unitization?.textColumn ?? null;
 }
 
-/* The scope bar — the FIRST line of the editor, directly under the pipeline
-   strip: `Reading: <corpus> · text: <col> · 1,234 units`. With several
-   corpora the corpus is a select (its option labels carry the same facts);
-   with one it is plain text. Everything that reads units — the dictionary
-   live preview, Preview, Silver-tune, Stability — reads this selection. */
-function scopeBar(previewScope) {
+/* The ONE context line of the editor, directly under its title: `measures
+   <construct →> · reads <corpus — text: col · units>`. The reads slot IS the
+   editor's scope: with several corpora it is a select (option labels carry
+   the same facts); with one, plain text. Everything that reads units — the
+   dictionary live preview, Preview, Silver-tune, Stability — obeys it. */
+function editorContextLine(params, inst, construct, previewScope) {
   const corpora = previewScope?.corpora ?? [];
   const corpus = previewScope?.corpus() ?? null;
-  const col = textColumnOf(corpus);
-  const bar = el("p", { class: "readscope__bar", role: "note", aria: { label: "Corpus this instrument reads" } },
-    el("span", { class: "overline readscope__label" }, "Reading"));
+  let readsPart;
   if (corpora.length > 1) {
-    // the select's option labels state text column + units, so the bar says nothing twice
-    bar.append(el("select", {
-      class: "input input--inline readscope__select",
-      "aria-label": "Corpus the previews and checks read — picking a corpus picks the text column",
-      onchange: (e) => previewScope.set(e.target.value),
-    }, ...corpora.map((c) =>
-      el("option", { value: c.id, selected: c.id === previewScope.corpusId }, scopechip.optionLabel(c)))));
+    readsPart = {
+      label: "reads",
+      node: el("select", {
+        class: "input input--inline readscope__select",
+        "aria-label": "Corpus the previews and checks read — picking a corpus picks the text column",
+        onchange: (e) => previewScope.set(e.target.value),
+      }, ...corpora.map((c) =>
+        el("option", { value: c.id, selected: c.id === previewScope.corpusId }, scopechip.optionLabel(c)))),
+    };
   } else if (corpus) {
-    bar.append(
-      el("span", { class: "data readscope__name" }, scopechip.displayName(corpus)),
-      el("span", { class: "readscope__seg" }, "text: ", el("span", { class: "data" }, col ?? "not recorded")),
-      corpus.unitCount !== null && corpus.unitCount !== undefined
-        ? el("span", { class: "readscope__seg" }, el("span", { class: "data" }, fmtCount(corpus.unitCount)), " units")
-        : null);
+    readsPart = { label: "reads", text: corpusText(corpus) };
   } else {
-    bar.append(el("span", { class: "faint" }, "no corpus yet — import one to preview"));
+    readsPart = { label: "reads", text: "no corpus yet — import one to preview", href: `#/p/${params.slug}/import` };
   }
-  return el("div", { class: "readscope" }, bar,
+  return el("div", { class: "readscope" },
+    contextLine([
+      construct
+        ? { label: "measures", text: construct.name, href: `#/p/${params.slug}/constructs/${construct.id}` }
+        : { label: "measures", text: inst.constructId ?? "construct not recorded", faint: true },
+      readsPart,
+    ]),
     el("p", { class: "screen__hint faint readscope__hint" },
       "An instrument reads a corpus's unit text — previews and checks below read this one. To measure a different column, re-unitize the corpus on that column (Instant Read → change)."));
 }
@@ -327,10 +329,6 @@ function instrumentEditor(main, params, instRaw, constructs, catalog, project = 
     clear(stripHost).append(pipeline.render({ current: "instrument", states, action, secondary, companion }));
   };
 
-  /* -- scope bar: what this editor reads — corpus, text column, unit count.
-     First thing under the strip; every preview/check below obeys it. -- */
-  main.append(scopeBar(previewScope));
-
   const saveBtn = el("button", {
     class: "btn btn--primary", type: "button", disabled: true,
     onclick: async () => {
@@ -374,6 +372,10 @@ function instrumentEditor(main, params, instRaw, constructs, catalog, project = 
     el("div", { class: "editor__headactions" }, saveBtn),
   ));
 
+  /* -- context: what this instrument measures and what it reads, in ONE
+     line under the title; every preview/check below obeys its scope. -- */
+  main.append(editorContextLine(params, inst, construct, previewScope));
+
   if (inst.frozen) {
     main.append(el("p", { class: "screen__hint annotation annotation--still" },
       "This instrument is frozen at ● — its certificate is the contract. Any edit forks a new ◌ version with this one as parent."));
@@ -398,6 +400,7 @@ function instrumentEditor(main, params, instRaw, constructs, catalog, project = 
   actions = actionRow(main, params, inst, {
     onPreviewed: () => { previewed = true; paintStrip(); },
     previewScope,
+    construct,
   });
   main.append(section("Actions", actions.el));
   paintStrip();
@@ -888,7 +891,7 @@ function silverCurve(iterations) {
 
 /* ================= actions =========================================================== */
 
-function actionRow(main, params, inst, { onPreviewed, previewScope = null } = {}) {
+function actionRow(main, params, inst, { onPreviewed, previewScope = null, construct = null } = {}) {
   const out = el("div", { class: "actionout" });
   const row = el("div", { class: "actionrow" });
 
@@ -1024,7 +1027,7 @@ function actionRow(main, params, inst, { onPreviewed, previewScope = null } = {}
 
   const freeze = el("button", {
     class: "btn", type: "button", disabled: inst.frozen,
-    onclick: () => freezeSheet(params, inst, previewScope),
+    onclick: () => freezeSheet(params, inst, previewScope, construct),
   }, inst.frozen ? "Frozen ●" : "Freeze → ●");
 
   const runOther = el("a", {
@@ -1045,10 +1048,12 @@ function actionRow(main, params, inst, { onPreviewed, previewScope = null } = {}
   };
 }
 
-function freezeSheet(params, inst, previewScope = null) {
+function freezeSheet(params, inst, previewScope = null, construct = null) {
   const s = openSheet({ title: "Freeze this instrument", overline: "Calibration certificate" });
   let goldsetId = null;
   let select = null;
+  // "Gold — <construct>" names; legacy sets derive the same shape
+  const goldName = (g) => g.name ?? (construct ? `Gold — ${construct.name}` : g.id);
 
   // create-and-go: a new gold set for THIS construct, sampling from the
   // editor's current scope corpus, landing in the studio's Sample pane
@@ -1091,7 +1096,7 @@ function freezeSheet(params, inst, previewScope = null) {
     }
     select = el("select", { class: "input", "aria-label": "Gold set" },
       el("option", { value: "" }, "choose a gold set…"),
-      ...own.map((g) => el("option", { value: g.id }, `${g.name ?? g.id} (${g.status})`)));
+      ...own.map((g) => el("option", { value: g.id }, `${goldName(g)} (${g.status})`)));
     select.addEventListener("change", () => { goldsetId = select.value || null; });
     pickerHost.append(
       el("label", { class: "field" }, el("span", { class: "field__label overline" }, "Certify against"), select),

@@ -395,7 +395,7 @@ function cleanLine(line) {
 // createRun(project, {instrumentId, corpusId, unitFilter?, capUSD?}) → run
 // Validates instrument + corpus, computes the preflight estimate, persists
 // the pending Run into project.runs via updateProject, ledgers run.preflight.
-export async function createRun(project, { instrumentId, corpusId, unitFilter, capUSD } = {}, { dir } = {}) {
+export async function createRun(project, { instrumentId, corpusId, unitFilter, capUSD, name } = {}, { dir } = {}) {
   const instrument = findOrThrow(project.instruments, instrumentId, "instrument");
   findOrThrow(project.corpora, corpusId, "corpus");
   constructOf(project, instrument); // must exist before any run is created
@@ -443,6 +443,7 @@ export async function createRun(project, { instrumentId, corpusId, unitFilter, c
     versionHash: instrument.versionHash,
     corpusId,
     ...(unitFilter !== undefined && unitFilter !== null ? { unitFilter } : {}),
+    ...(typeof name === "string" && name !== "" ? { name } : {}),
     status: "pending",
     checkpoint: { done: 0, total: units.length },
     cost: { estUSD: est.estUSD, actualUSD: 0, inputTokens: 0, outputTokens: 0 },

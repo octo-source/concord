@@ -17,7 +17,7 @@ import api from "../api.js";
 import * as router from "../router.js";
 import * as toast from "../components/toast.js";
 import * as ladderC from "../components/ladder.js";
-import * as scopechip from "../components/scopechip.js";
+import { contextLine, corpusText } from "../components/contextline.js";
 import { cite } from "../components/cite.js";
 import { fmtStat, fmtCount, fmtPct } from "../format.js";
 import { screenHead, section, asyncMount, ensureProject, refreshProject, emptyState, LEVEL_PRICE } from "./_shared.js";
@@ -70,19 +70,24 @@ export function render(mount, params, query = {}) {
       lede: "Every way this construct has been read, and how much the readers agree. Humans first: human–human agreement is the ceiling any machine is measured against.",
     }));
 
-    /* -- scope: which corpus these readings cover -- */
+    /* -- context: whose agreement story this is, over which corpus -- */
     const corpusId = data?.corpusId ?? query?.corpusId ?? null;
     const corpus = (project?.corpora ?? []).find((c) => c.id === corpusId) ?? null;
-    mount.append(el("div", { class: "scopebar" },
-      el("span", { class: "overline" }, "construct"),
-      el("span", {}, constructName),
-      construct?.type ? el("span", { class: "chip" }, construct.type) : null,
-      el("span", { class: "overline" }, "read over"),
-      corpus
-        ? [el("span", { class: "data" }, scopechip.displayName(corpus)),
-           scopechip.render(scopechip.fromCorpus(corpus, project))]
-        : el("span", { class: "faint" }, corpusId ?? "all corpora with readings"),
-    ));
+    mount.append(contextLine([
+      {
+        label: "construct",
+        node: el("span", {},
+          construct
+            ? el("a", { class: "contextline__link", href: `#/p/${params.slug}/constructs/${encodeURIComponent(params.cid)}` }, constructName, " →")
+            : el("span", { class: "contextline__text" }, constructName),
+          construct?.type ? el("span", { class: "chip" }, construct.type) : null),
+      },
+      {
+        label: "read over",
+        text: corpus ? corpusText(corpus, project) : (corpusId ?? "all corpora with readings"),
+        faint: !corpus,
+      },
+    ]));
 
     if (dataError) {
       mount.append(emptyState({

@@ -17,9 +17,10 @@ import { cite } from "../components/cite.js";
 import * as confusion from "../components/confusion.js";
 import * as quotecard from "../components/quotecard.js";
 import * as ladderC from "../components/ladder.js";
-import * as scopechip from "../components/scopechip.js";
+import * as renameable from "../components/renameable.js";
+import { contextLine, corpusText } from "../components/contextline.js";
 import { fmtStat, fmtCount, fmtClock } from "../format.js";
-import { screenHead, section, asyncMount, ensureProject, emptyState, openSheet, setFullbleed, markedValue } from "./_shared.js";
+import { screenHead, section, asyncMount, ensureProject, refreshProject, emptyState, openSheet, setFullbleed, markedValue, goldsetDisplayName } from "./_shared.js";
 
 export const route = "p/:slug/goldsets/:gid";
 export const title = "Calibration Studio";
@@ -104,24 +105,42 @@ export function render(mount, params, query) {
 
     mount.append(screenHead({
       overline: `Calibration studio · ${goldset.id}`,
-      title: construct ? `Gold for “${construct.name}”` : "Gold standard",
+      // the gold set's NAME is the title — renameable in place; legacy sets
+      // fall back to "Gold — <construct>"
+      title: renameable.render({
+        value: goldset.name ?? null,
+        fallback: goldsetDisplayName(project, goldset) || "Gold standard",
+        label: "Rename this gold set",
+        onSave: async (name) => {
+          try {
+            await api.goldsets.update(params.slug, goldset.id, { name });
+            goldset.name = name;
+            toast.success("Gold set renamed.", { detail: name, data: false });
+            refreshProject(params.slug).catch(() => {});
+          } catch (err) {
+            toast.error("Rename failed.", { detail: String(err.message ?? err) });
+            throw err;
+          }
+        },
+      }),
       lede: "Draw a sample, code it blind by hand, then compare: human–human agreement first, every instrument against the adjudicated gold after. This is what turns ◌ numbers into ● numbers.",
       actions: [coderLauncherBtn(params, goldset)],
     }));
 
-    /* -- scope: which construct this gold measures, sampled from which
-       corpus (text column · units) — stated at the top, like everywhere
-       else units are read. -- */
+    /* -- context: whose gold this is and where its units come from -- */
     const goldCorpus = (project?.corpora ?? []).find((c) => c.id === goldset.corpusId) ?? null;
-    mount.append(el("div", { class: "scopebar" },
-      el("span", { class: "overline" }, "construct"),
-      el("span", {}, construct?.name ?? goldset.constructId ?? "—"),
-      el("span", { class: "overline" }, "sampling from"),
-      goldCorpus
-        ? [el("span", { class: "data" }, scopechip.displayName(goldCorpus)),
-           scopechip.render(scopechip.fromCorpus(goldCorpus, project))]
-        : el("span", { class: "faint" },
-            goldset.corpusId ?? "corpus not recorded — this gold set predates scope tracking")));
+    mount.append(contextLine([
+      construct
+        ? { label: "gold for", text: construct.name, href: `#/p/${params.slug}/constructs/${construct.id}` }
+        : { label: "gold for", text: goldset.constructId ?? "construct not recorded", faint: true },
+      {
+        label: "sampled from",
+        text: goldCorpus ? corpusText(goldCorpus, project)
+          : goldset.corpusId ? `${goldset.corpusId} — corpus no longer in this project`
+          : "corpus not recorded — this gold set predates scope tracking",
+        faint: !goldCorpus,
+      },
+    ]));
 
     const tabs = el("div", { class: "panetabs", role: "tablist", aria: { label: "Studio panes" } });
     const paneHost = el("div", { class: "panehost" });

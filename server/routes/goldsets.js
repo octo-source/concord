@@ -29,6 +29,7 @@ import {
   findOr404, requireBody, pdirOf, readCorpusUnits, unitsById, metaColumnNames,
   goldsetFile, readGoldset, goldLabelMap, agreementReport, statValue,
   finalsOf, addSpend, writeJsonAtomic, readNdjson, runOutputsFile, finalJurorOf,
+  validateName,
 } from "./_shared.js";
 
 // ------------------------------------------------------------ persistence
@@ -41,6 +42,7 @@ function metaOf(gs) {
   return {
     id: gs.id,
     constructId: gs.constructId,
+    name: gs.name ?? "",
     tier: gs.tier,
     design: gs.design,
     status: gs.status,
@@ -50,6 +52,20 @@ function metaOf(gs) {
     ...(gs.humanAgreement ? { humanAgreement: { percent: gs.humanAgreement.percent, kappa: gs.humanAgreement.kappa, alpha: gs.humanAgreement.alpha, n: gs.humanAgreement.n } } : {}),
     createdAt: gs.createdAt,
   };
+}
+
+// Auto-name a new gold set "Gold — <construct>", suffixing " (2)", " (3)"…
+// when the base (or a prior suffix) is already taken by another gold set on
+// the project. Names are labels for humans; the construct link is the real
+// provenance, so a collision is cosmetic, not an error.
+function uniqueGoldsetName(project, constructName) {
+  const base = `Gold — ${constructName}`;
+  const taken = new Set((project.goldsets ?? []).map((g) => g.name).filter(Boolean));
+  if (!taken.has(base)) return base;
+  for (let k = 2; ; k++) {
+    const candidate = `${base} (${k})`;
+    if (!taken.has(candidate)) return candidate;
+  }
 }
 
 // Mutate a goldset artifact + its project meta inside the project lock.
@@ -317,11 +333,14 @@ export default [
     handler: async (req, res, params) => {
       const project = await loadProject(params.p);
       const body = requireBody(req, ["constructId"]);
-      findOr404(project.constructs, body.constructId, "construct");
+      const construct = findOr404(project.constructs, body.constructId, "construct");
       const corpusId = body.corpusId ?? project.corpora?.[0]?.id;
       if (!corpusId) throw new ConcordError("VALIDATION", "gold sets need a corpus to sample from", {});
       findOr404(project.corpora, corpusId, "corpus");
-      const gs = createGoldSet({ constructId: body.constructId, tier: body.tier, design: body.design });
+      const name = typeof body.name === "string" && body.name !== ""
+        ? validateName(body.name, "name")
+        : uniqueGoldsetName(project, construct.name);
+      const gs = createGoldSet({ constructId: body.constructId, tier: body.tier, design: body.design, name });
       gs.corpusId = corpusId;
       gs.createdAt = new Date().toISOString();
       await writeGoldset(params.p, gs);
@@ -358,8 +377,12 @@ export default [
       if (body.status !== undefined && !allowed.includes(body.status)) {
         throw new ConcordError("VALIDATION", `status must be one of ${allowed.join(", ")}`, { status: body.status });
       }
+      // a rename is validated up front (1..120) but never ledgered — the name
+      // is a human label, not a scientific act on the gold standard
+      if (body.name !== undefined) validateName(body.name, "name");
       let completedNow = false;
       const gs = await mutateGoldset(params.p, params.id, (g) => {
+        if (body.name !== undefined) g.name = body.name;
         if (body.status !== undefined) {
           completedNow = body.status === "complete" && g.status !== "complete";
           g.status = body.status;

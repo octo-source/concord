@@ -467,6 +467,36 @@ test("constructs: draftConstructs returns director-authored proposals with examp
   assert.deepEqual(events.map((e) => e.refs.constructId).sort(), [...ids].sort());
 });
 
+test("constructs: draftConstructs stamps draftedFrom when a corpus fed the sample; acceptance persists it", async () => {
+  const project = await makeProject({ handler: "t-draft-prov" });
+  const { corpusId, units } = await makeCorpus(project, { n: 12 });
+  mock.setHandler("t-draft-prov", () => ({
+    constructs: [{
+      name: "Pay complaint", type: "binary",
+      definition: "The unit complains about compensation level or fairness.",
+      criteria: { include: ["names pay as a problem"], exclude: [] },
+      edgeCases: [], examples: [],
+      categories: [{ value: "yes", label: "Yes" }, { value: "no", label: "No" }],
+    }],
+  }));
+
+  // sample drawn from a registered corpus → proposals carry its id
+  const out = await draftConstructs(project, ["pay"], units.slice(0, 5));
+  assert.equal(out.length, 1);
+  assert.equal(out[0].draftedFrom, corpusId, "the proposal names the corpus that fed the sample");
+
+  // ad-hoc units that belong to no registered corpus → no stamp, no guess
+  const loose = await draftConstructs(project, ["pay"], [
+    { id: "u_ffffffffffffff01", text: "a loose unit from nowhere in particular", meta: {} },
+  ]);
+  assert.equal(loose[0].draftedFrom, undefined);
+
+  // acceptance persists the provenance onto the project graph
+  const ids = await acceptConstructs(project, out);
+  const fresh = await loadProject(project.slug);
+  assert.equal(fresh.constructs.find((c) => c.id === ids[0]).draftedFrom, corpusId);
+});
+
 test("constructs: importCodebook parses a DOCX and structures it via one Director call", async () => {
   const project = await makeProject({ handler: "t-import" });
   const buf = await readFile(path.join(path.dirname(fileURLToPath(import.meta.url)), "..", "fixtures", "ingest-min.docx"));

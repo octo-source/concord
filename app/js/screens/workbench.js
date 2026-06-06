@@ -177,11 +177,16 @@ function builderRail(rail, canvas, params, project, presetRunId = null, { column
     : completeRuns.at(-1)?.id ?? null;
 
   const runOptionLabel = (r) => {
-    const instName = instruments.find((i) => i.id === r.instrumentId)?.name ?? r.instrumentId ?? r.id;
-    const corpus = (project.corpora ?? []).find((c) => c.id === r.corpusId) ?? null;
-    const corpusName = corpus ? scopechip.displayName(corpus) : r.corpusId ?? "corpus not recorded";
+    // the run's NAME leads when it has one; legacy runs derive the same facts
+    let base = r.name ?? null;
+    if (!base) {
+      const instName = instruments.find((i) => i.id === r.instrumentId)?.name ?? r.instrumentId ?? r.id;
+      const corpus = (project.corpora ?? []).find((c) => c.id === r.corpusId) ?? null;
+      const corpusName = corpus ? scopechip.displayName(corpus) : r.corpusId ?? "corpus not recorded";
+      base = `${instName} on ${corpusName}`;
+    }
     const units = r.checkpoint?.total ?? r.checkpoint?.done ?? null;
-    return `${instName} on ${corpusName} — ${units === null ? "—" : fmtCount(units)} units · ${fmtDate(r.finishedAt ?? r.createdAt)}`;
+    return `${base} — ${units === null ? "—" : fmtCount(units)} units · ${fmtDate(r.finishedAt ?? r.createdAt)}`;
   };
   const runSel = el("select", { class: "input", "aria-label": "Run whose outputs new analyses read" },
     ...completeRuns.map((r) => el("option", { value: r.id, selected: r.id === selectedRunId }, runOptionLabel(r))));

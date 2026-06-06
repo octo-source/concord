@@ -99,6 +99,13 @@ export function createProject(input = {}) {
     briefs: input.briefs ?? [],
     plans: input.plans ?? [], // Question Bar plan artifacts
     runs: input.runs ?? [],
+    // The report canvas is a persisted project artifact from birth: a list of
+    // layout blocks (chart|table|quote|text|methods-excerpt) plus a stamp of
+    // when it last changed. Exports default their layout to these blocks.
+    report: {
+      blocks: input.report?.blocks ?? [],
+      updatedAt: input.report?.updatedAt ?? null,
+    },
   };
 }
 
@@ -143,6 +150,10 @@ export function createConstruct(input = {}) {
     if (typeof min !== "number" || typeof max !== "number" || !(min < max)) fail("scale requires numbers min < max", { field: "scale", value: input.scale });
     out.scale = { min, max };
   }
+  // Provenance: the corpus id whose sample fed a Director draft. Optional —
+  // only stamped when a registered corpus actually backed the proposal, never
+  // guessed (a hand-authored construct carries no draftedFrom).
+  if (input.draftedFrom !== undefined) out.draftedFrom = reqString(input.draftedFrom, "draftedFrom");
   return out;
 }
 
@@ -243,9 +254,12 @@ export function rehydrateProject(project) {
 
 export function createGoldSet(input = {}) {
   reqString(input.constructId, "constructId");
+  if (input.name !== undefined && typeof input.name !== "string") fail("name must be a string", { field: "name", value: input.name });
   const out = {
     id: input.id ?? newId("gs"),
     constructId: input.constructId,
+    // A human-facing label; "" by default (routes auto-name "Gold — <construct>").
+    name: input.name ?? "",
     tier: oneOf(input.tier ?? "gold", GOLDSET_TIERS, "tier"),
     design: oneOf(input.design ?? "srs", GOLDSET_DESIGNS, "design"),
     sample: (input.sample ?? []).map((s, i) => {
@@ -271,11 +285,14 @@ export function createRun(input = {}) {
   reqString(input.corpusId, "corpusId");
   reqString(input.provider, "provider");
   reqString(input.model, "model");
+  if (input.name !== undefined && typeof input.name !== "string") fail("name must be a string", { field: "name", value: input.name });
   const out = {
     id: input.id ?? newId("run"),
     instrumentId: input.instrumentId,
     versionHash: input.versionHash,
     corpusId: input.corpusId,
+    // A human-facing label; "" by default (routes auto-name "<instrument> · <corpus>").
+    name: input.name ?? "",
     status: oneOf(input.status ?? "pending", RUN_STATUSES, "status"),
     checkpoint: { done: input.checkpoint?.done ?? 0, total: input.checkpoint?.total ?? 0 },
     cost: {

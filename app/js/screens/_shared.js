@@ -8,6 +8,7 @@ import { store } from "../state.js";
 import api from "../api.js";
 import * as ladder from "../components/ladder.js";
 import * as glyph from "../components/glyph.js";
+import * as scopechip from "../components/scopechip.js";
 import { fmtCost, fmtCount, fmtDuration } from "../format.js";
 
 /* ---- screen scaffolding ----------------------------------------------------- */
@@ -241,6 +242,38 @@ export function sheetBusy(s, actionBtn, { label, hint } = {}) {
     stopBtn();
     s.setLocked?.(false);
   };
+}
+
+/* ---- display names ------------------------------------------------------------------
+   Runs and gold sets carry a `name` (auto-named at creation: "<instrument> ·
+   <corpus>" / "Gold — <construct>"). Legacy records predate names — these
+   helpers derive the SAME shape client-side so every list, rail item, and
+   picker reads alike whichever era the record is from. */
+
+/** run.name || "<instrument> · <corpus>" derived from the project graph. */
+export function runDisplayName(project, run) {
+  if (!run) return "";
+  if (run.name) return run.name;
+  const inst = (project?.instruments ?? []).find((i) => i.id === run.instrumentId) ?? null;
+  const corpus = (project?.corpora ?? []).find((c) => c.id === run.corpusId) ?? null;
+  const instName = inst?.name ?? run.instrumentId ?? null;
+  const corpusName = corpus ? scopechip.displayName(corpus) : run.corpusId ?? null;
+  if (instName && corpusName) return `${instName} · ${corpusName}`;
+  return instName ?? corpusName ?? run.id ?? "";
+}
+
+/** goldset.name || "Gold — <construct>" derived from the project graph. */
+export function goldsetDisplayName(project, goldset) {
+  if (!goldset) return "";
+  if (goldset.name) return goldset.name;
+  const construct = (project?.constructs ?? []).find((c) => c.id === goldset.constructId) ?? null;
+  return construct ? `Gold — ${construct.name}` : goldset.id ?? "";
+}
+
+/** Truncate for tight slots (the rail); pair with title= carrying the full text. */
+export function truncate(text, max = 34) {
+  const s = String(text ?? "");
+  return s.length > max ? s.slice(0, max - 1).trimEnd() + "…" : s;
 }
 
 /* ---- quarantine -------------------------------------------------------------------- */

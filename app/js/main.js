@@ -18,7 +18,7 @@ import * as ladder from "./components/ladder.js";
 import * as pipeline from "./components/pipeline.js";
 import * as scopechip from "./components/scopechip.js";
 import { fixturesEnabled, installFixtures } from "./fixtures.js";
-import { openSheet, estimateChips, refreshProject } from "./screens/_shared.js";
+import { openSheet, estimateChips, refreshProject, runDisplayName, goldsetDisplayName, truncate } from "./screens/_shared.js";
 
 // the twelve (plus home and the dev index)
 import * as homeScreen from "./screens/home.js";
@@ -126,14 +126,22 @@ function projectToSections(project) {
       items: (project.instruments ?? []).map((i) => item(i, { href: `/p/${slug}/instruments/${i.id}` })) },
     { id: "goldsets", title: "Gold sets", emptyHint: "Hand-coded samples that instruments are checked against.",
       items: [
-        ...(project.goldsets ?? []).map((g) => item(g, { count: g.n, href: `/p/${slug}/goldsets/${g.id}` })),
+        // "Gold — <construct>" names; legacy sets derive the same shape
+        ...(project.goldsets ?? []).map((g) => {
+          const full = goldsetDisplayName(project, g);
+          return { id: g.id, label: truncate(full, 34), title: full, count: g.n, humanTouched: true, href: `/p/${slug}/goldsets/${g.id}` };
+        }),
         // creatable from where you need it — needs a construct to code against
         ...((project.constructs ?? []).length
           ? [{ id: "goldsets-new", label: "+ New gold set…", humanTouched: true, action: "new-goldset" }]
           : []),
       ] },
     { id: "runs", title: "Runs", emptyHint: "Nothing has been measured yet.",
-      items: (project.runs ?? []).map((r) => item({ id: r.id, name: r.id }, { href: `/p/${slug}/runs/${r.id}` })) },
+      // "<instrument> · <corpus>" names; the title attribute carries the full text
+      items: (project.runs ?? []).map((r) => {
+        const full = runDisplayName(project, r);
+        return { id: r.id, label: truncate(full, 34), title: full, humanTouched: true, href: `/p/${slug}/runs/${r.id}` };
+      }) },
     { id: "analyses", title: "Analyses", emptyHint: "Crosstabs, models, triangulation — corrected where gold exists.",
       items: [
         // the Workbench is the builder screen — findable before any analysis exists

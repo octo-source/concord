@@ -65,6 +65,7 @@ function build(nav, { sections, activeId, onSelect }) {
         class: `rail__item${isActive ? " rail__item--active" : ""}`,
         type: "button",
         tabindex: "-1",
+        title: item.title ?? null, // full text when the label is truncated
         dataset: { id: item.id, section: section.id },
         aria: { current: isActive ? "true" : null },
         onclick: () => {

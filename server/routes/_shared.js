@@ -52,6 +52,62 @@ export function findOr404(list, id, what) {
   return found;
 }
 
+// ------------------------------------------------------------------- naming
+
+// A human-facing rename: a non-empty string of 1..120 characters. Returns the
+// validated name; throws VALIDATION otherwise. The one definition shared by
+// every artifact that carries an editable `name` label (runs, gold sets).
+export function validateName(name, field = "name") {
+  if (typeof name !== "string") throw new ConcordError("VALIDATION", `${field} must be a string`, { field, value: name });
+  if (name.length < 1 || name.length > 120) {
+    throw new ConcordError("VALIDATION", `${field} must be 1..120 characters`, { field, length: name.length });
+  }
+  return name;
+}
+
+// A corpus's display name for run labels. The re-unitize naming scheme stores
+// names like "exit-survey.csv · text=response"; that "· text=<col>" suffix is
+// scope provenance the corpus screen already shows, so it is stripped from the
+// compact "<instrument> · <corpus>" run label to avoid stuttering.
+export function corpusDisplayName(corpus) {
+  const raw = corpus?.name ?? corpus?.sourceName ?? corpus?.id ?? "corpus";
+  return String(raw).replace(/\s*·\s*text=[^·]*$/i, "").trim() || String(raw);
+}
+
+// ------------------------------------------------------------------- report
+
+// The report canvas's block vocabulary — the SAME set the report renderer
+// accepts (reporting/report.js KINDS). A layout block is chart|table|quote|
+// text|methods-excerpt; the canvas persists exactly what the exporter draws.
+export const REPORT_BLOCK_KINDS = new Set(["chart", "table", "quote", "text", "methods-excerpt"]);
+export const REPORT_MAX_BLOCKS = 100;
+
+// Validate ONE persisted report block: a plain object with a known kind.
+// Shape beyond the kind is the renderer's contract (a ref or inline content) —
+// validated again at render time — so the canvas stays permissive about
+// in-progress blocks while refusing an unknown kind outright.
+export function validateReportBlock(block, where = "block") {
+  if (block === null || typeof block !== "object" || Array.isArray(block)) {
+    throw new ConcordError("VALIDATION", `${where} must be an object`, { where });
+  }
+  if (!REPORT_BLOCK_KINDS.has(block.kind)) {
+    throw new ConcordError("VALIDATION", `${where} has unknown kind '${block.kind}' — one of: ${[...REPORT_BLOCK_KINDS].join(", ")}`, { where, kind: block.kind });
+  }
+  return block;
+}
+
+// Validate a whole replacement layout: an array of ≤100 valid blocks.
+export function validateReportBlocks(blocks) {
+  if (!Array.isArray(blocks)) {
+    throw new ConcordError("VALIDATION", "report blocks must be an array", { value: typeof blocks });
+  }
+  if (blocks.length > REPORT_MAX_BLOCKS) {
+    throw new ConcordError("VALIDATION", `a report holds at most ${REPORT_MAX_BLOCKS} blocks`, { count: blocks.length });
+  }
+  blocks.forEach((b, i) => validateReportBlock(b, `blocks[${i}]`));
+  return blocks;
+}
+
 export function pdirOf(slug) {
   return projectDir(slug, projectsDir());
 }

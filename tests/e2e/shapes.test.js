@@ -807,7 +807,7 @@ test("calibration.js: goldset create/get artifact; sample → {goldsetId, design
   assert.ok(meta);
   assert.equal(meta.n, 30);
   assert.ok(Array.isArray(meta.coders));
-  assert.equal(meta.name, undefined, "goldset metas carry no name — screens fall back to the id");
+  assert.equal(meta.name, "Gold — Pay complaint", "goldset metas carry the auto-name 'Gold — <construct>'");
 });
 
 test("calibration.js: coder next view {unit {id, text, pos}, construct, progress}; label → progress {coderId, done, total, remaining, flagged}", async () => {

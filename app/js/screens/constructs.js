@@ -20,6 +20,8 @@ import * as toast from "../components/toast.js";
 import * as glyph from "../components/glyph.js";
 import * as pipeline from "../components/pipeline.js";
 import * as quotecard from "../components/quotecard.js";
+import * as scopechip from "../components/scopechip.js";
+import { contextLine } from "../components/contextline.js";
 import { screenHead, section, asyncMount, ensureProject, emptyState, openSheet, sheetBusy } from "./_shared.js";
 
 export const route = "p/:slug/constructs";
@@ -175,6 +177,31 @@ function editor(pane, params, construct, query = {}) {
       }, ...TYPES.map((t) => el("option", { value: t, selected: t === k.type }, t))),
       saveBtn),
   ));
+
+  /* -- context: where this construct came from, and what measures it.
+     draftedFrom is stamped by the Director's draft flow; legacy constructs
+     simply omit the segment. -- */
+  const project = store.get("project");
+  const measuringInstruments = (project?.instruments ?? []).filter((i) => i.constructId === k.id);
+  const draftedCorpus = k.draftedFrom
+    ? (project?.corpora ?? []).find((c) => c.id === k.draftedFrom) ?? null
+    : null;
+  pane.append(contextLine([
+    k.draftedFrom
+      ? (draftedCorpus
+          ? { label: "drafted from", text: scopechip.displayName(draftedCorpus), href: `#/p/${params.slug}/corpus/${draftedCorpus.id}/instant` }
+          : { label: "drafted from", text: `${k.draftedFrom} — corpus no longer in this project`, faint: true })
+      : null,
+    measuringInstruments.length
+      ? {
+          label: "measured by",
+          node: el("span", {}, ...measuringInstruments.flatMap((inst, i) => [
+            i ? ", " : null,
+            el("a", { class: "contextline__link", href: `#/p/${params.slug}/instruments/${inst.id}` }, inst.name, " →"),
+          ])),
+        }
+      : { label: "measured by", text: "no instruments yet — compile one", href: compileHref },
+  ]));
   pane.append(nextStep);
 
   /* definition */

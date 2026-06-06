@@ -666,6 +666,9 @@ test("questionbar: compile plan → approve materializes constructs + instrument
   assert.ok(p.instruments.some((i) => i.id === approved.instrumentIds[0]));
   const run = p.runs.find((r) => r.id === approved.runIds[0]);
   assert.equal(run.status, "pending");
+  const planInstrument = p.instruments.find((i) => i.id === approved.instrumentIds[0]);
+  const corpusAName = p.corpora.find((c) => c.id === S.corpusA).name;
+  assert.equal(run.name, `${planInstrument.name} · ${corpusAName}`, "approval auto-names the pending run");
   assert.equal((await events({ type: "plan.compiled" })).length, 1);
   assert.equal((await events({ type: "plan.approved" })).length, 1);
   assert.equal((await events({ type: "run.preflight" })).length, 1);
@@ -1220,6 +1223,7 @@ test("runs: start frozen-judge run → monitor SSE ticks then done; outputs exac
   const p = await getProject();
   const run = p.runs.find((r) => r.id === S.runId);
   assert.equal(run.status, "complete");
+  assert.equal(run.name, "Pay judge · exit-survey-full.csv", "POST /runs auto-names from the instrument + corpus graph");
   assert.equal(run.escalation.count, 1);
   assert.equal(p.budget.spentUSD, 0, "mock run rolls up $0");
   const runEvents = (await events({ ref: S.runId })).map((e) => `${e.type}:${e.actor}`);
@@ -2375,4 +2379,156 @@ test("runs: startServer's boot sweep heals orphaned running records across bundl
   } finally {
     await second.close();
   }
+});
+
+test("runs: launch persists status=running BEFORE answering (no stale-status race for fast clients)", async () => {
+  const { updateProject } = await import("../../server/core/store.js");
+  let pendingId = null;
+  await updateProject(S.slug, (p) => {
+    const src = p.runs?.[0];
+    pendingId = "run_race_pin";
+    p.runs.push({ ...structuredClone(src), id: pendingId, status: "pending", error: { code: "ORPHANED", message: "stale" } });
+  });
+  await ok("POST", `/api/projects/${S.slug}/runs/${pendingId}/resume`);
+  // read IMMEDIATELY — the field bug was a client refresh racing the engine's
+  // own first persist and re-rendering a static pending screen
+  const p = await ok("GET", `/api/projects/${S.slug}`);
+  const r = p.runs.find((x) => x.id === pendingId);
+  assert.notEqual(r.status, "pending", "status must not read pending after launch returns");
+  assert.ok(["running", "complete", "paused", "failed"].includes(r.status), `launched status, got ${r.status}`);
+  assert.equal(r.error, undefined, "a fresh launch clears stale ORPHANED explanations");
+  // settle the background execution so the suite's later assertions see a quiet state
+  for (let i = 0; i < 60; i++) {
+    const fresh = await ok("GET", `/api/projects/${S.slug}`);
+    const cur = fresh.runs.find((x) => x.id === pendingId);
+    if (cur.status !== "running") break;
+    await new Promise((res) => setTimeout(res, 100));
+  }
+});
+
+// =========================================================================
+// naming, report persistence, provenance (researcher-feedback contracts)
+// =========================================================================
+
+test("runs: auto-name strips a redundant '· text=<col>' corpus suffix; PUT renames with 1..120 validation, no ledger", async () => {
+  armMock();
+  // a corpus whose STORED name carries the redundant suffix (the re-unitize
+  // naming scheme): the display name in a run label drops it
+  const up = await upload(`/api/projects/${S.slug}/import`, "strip-check.csv",
+    "respondent_id,response\n" +
+    "r0,the salary is too low for the hours we put in here\n" +
+    "r1,the team is genuinely kind and the office is comfortable\n" +
+    "r2,nothing else to add about the work or the people\n");
+  const confirmed = await ok("POST", `/api/projects/${S.slug}/import/confirm`, {
+    importId: up.importId,
+    mapping: { textColumn: "response" },
+    unitization: { scheme: "response" },
+    name: "strip-check.csv · text=response",
+  });
+
+  const ledgerBefore = (await events({})).length;
+  const started = await ok("POST", `/api/projects/${S.slug}/runs`, {
+    instrumentId: S.inst1, corpusId: confirmed.corpusId,
+  });
+  let p = await getProject();
+  assert.equal(p.runs.find((r) => r.id === started.runId).name, "Pay judge · strip-check.csv",
+    "auto-name is '<instrument> · <corpus display name>' with the redundant text= suffix stripped");
+  await readSse(`/api/projects/${S.slug}/runs/${started.runId}/monitor`); // settle the background run
+
+  // rename persists on the project graph; names are labels, not provenance
+  const renamed = await ok("PUT", `/api/projects/${S.slug}/runs/${started.runId}`, { name: "Salary screen, spot check" });
+  assert.equal(renamed.name, "Salary screen, spot check");
+  p = await getProject();
+  assert.equal(p.runs.find((r) => r.id === started.runId).name, "Salary screen, spot check");
+  const renameEvents = (await events({})).slice(ledgerBefore).filter((e) => /rename/i.test(e.type));
+  assert.equal(renameEvents.length, 0, "renames are not ledgered");
+
+  await fail("PUT", `/api/projects/${S.slug}/runs/${started.runId}`, { name: "x".repeat(121) }, 400, "VALIDATION");
+  await fail("PUT", `/api/projects/${S.slug}/runs/${started.runId}`, { name: "" }, 400, "VALIDATION");
+  await fail("PUT", `/api/projects/${S.slug}/runs/${started.runId}`, { name: 42 }, 400, "VALIDATION");
+  await fail("PUT", `/api/projects/${S.slug}/runs/run_nope`, { name: "fine" }, 404, "NOT_FOUND");
+});
+
+test("goldsets: create auto-names 'Gold — <construct>' with a (2) suffix on collision; PUT renames; corpusId stored", async () => {
+  const g1 = await ok("POST", `/api/projects/${S.slug}/goldsets`, { constructId: S.construct2Id, corpusId: S.corpusB });
+  assert.equal(g1.name, "Gold — Team praise");
+  assert.equal(g1.corpusId, S.corpusB, "the corpus the UI passed is stored on the artifact");
+
+  const g2 = await ok("POST", `/api/projects/${S.slug}/goldsets`, { constructId: S.construct2Id, corpusId: S.corpusB });
+  assert.equal(g2.name, "Gold — Team praise (2)", "second gold set for the construct suffixes");
+
+  const list = await ok("GET", `/api/projects/${S.slug}/goldsets`);
+  assert.equal(list.find((g) => g.id === g1.id).name, "Gold — Team praise", "the project meta carries the name");
+  assert.equal(list.find((g) => g.id === g1.id).corpusId, S.corpusB);
+
+  const renamed = await ok("PUT", `/api/projects/${S.slug}/goldsets/${g1.id}`, { name: "Praise calibration set" });
+  assert.equal(renamed.name, "Praise calibration set");
+  const full = await ok("GET", `/api/projects/${S.slug}/goldsets/${g1.id}`);
+  assert.equal(full.name, "Praise calibration set");
+
+  await fail("PUT", `/api/projects/${S.slug}/goldsets/${g1.id}`, { name: "x".repeat(121) }, 400, "VALIDATION");
+  await fail("PUT", `/api/projects/${S.slug}/goldsets/${g1.id}`, { name: "" }, 400, "VALIDATION");
+
+  // keep construct2 gold-free for any later exploratory-path assertions
+  await ok("DELETE", `/api/projects/${S.slug}/goldsets/${g1.id}`);
+  await ok("DELETE", `/api/projects/${S.slug}/goldsets/${g2.id}`);
+});
+
+test("report: a persisted project artifact — PUT validates + replaces, POST appends, export defaults to it", async () => {
+  // the default rides the project graph from birth
+  let p = await getProject();
+  assert.deepEqual(p.report, { blocks: [], updatedAt: null });
+
+  // PUT validates kinds, shape and the block budget
+  await fail("PUT", `/api/projects/${S.slug}/report`, { blocks: [{ kind: "gif" }] }, 400, "VALIDATION");
+  await fail("PUT", `/api/projects/${S.slug}/report`, { blocks: "nope" }, 400, "VALIDATION");
+  await fail("PUT", `/api/projects/${S.slug}/report`,
+    { blocks: Array.from({ length: 101 }, () => ({ kind: "text", content: "x" })) }, 400, "VALIDATION");
+
+  // PUT replaces the layout wholesale
+  const put = await ok("PUT", `/api/projects/${S.slug}/report`, {
+    blocks: [
+      { kind: "text", content: "Pay dominates exit narratives." },
+      { kind: "table", ref: S.crosstabAnalysisId },
+    ],
+  });
+  assert.equal(put.blocks.length, 2);
+  assert.ok(put.updatedAt, "replacing stamps updatedAt");
+
+  // POST appends one block (the workbench Add-to-report call)
+  const quoteText = "the pay never moved in three years and nobody explained why";
+  const appended = await ok("POST", `/api/projects/${S.slug}/report/blocks`, {
+    block: { kind: "quote", content: { text: quoteText, attribution: "exit interview r3" } },
+  });
+  assert.deepEqual(appended, { blocks: 3 });
+  await fail("POST", `/api/projects/${S.slug}/report/blocks`, { block: { kind: "hologram" } }, 400, "VALIDATION");
+
+  p = await getProject();
+  assert.equal(p.report.blocks.length, 3);
+  assert.equal(p.report.blocks[2].kind, "quote");
+  assert.ok(p.report.blocks[2].addedAt, "appended blocks are timestamped");
+
+  // exports/report with NO ?layout= renders the persisted blocks
+  const res = await fetch(`${base}/api/projects/${S.slug}/exports/report`);
+  assert.equal(res.status, 200);
+  const html = await res.text();
+  assert.match(html, /Pay dominates exit narratives\./);
+  assert.ok(html.includes(quoteText), "the appended quote block's content lands in the exported HTML");
+});
+
+test("constructs: draft proposals carry draftedFrom — the corpus that fed the sample — and accept persists it", async () => {
+  armMock();
+  const r = await ok("POST", `/api/projects/${S.slug}/constructs/draft`, {
+    input: "pay fairness",
+    corpusId: S.corpusA,
+  });
+  assert.ok(r.constructs.length >= 1);
+  for (const c of r.constructs) {
+    assert.equal(c.draftedFrom, S.corpusA, "every proposal names the corpus its worked examples came from");
+  }
+
+  const accepted = await ok("POST", `/api/projects/${S.slug}/constructs/accept`, { constructs: r.constructs });
+  const got = await ok("GET", `/api/projects/${S.slug}/constructs/${accepted.constructIds[0]}`);
+  assert.equal(got.draftedFrom, S.corpusA);
+  await ok("DELETE", `/api/projects/${S.slug}/constructs/${got.id}`); // keep the graph tidy
 });

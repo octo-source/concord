@@ -6,7 +6,7 @@ import { ConcordError } from "../core/errors.js";
 import { loadProject } from "../core/store.js";
 import { compileQuestion, approvePlan } from "../director/questionbar.js";
 import { createRun } from "../runs/engine.js";
-import { withDirectorSpend } from "./_shared.js";
+import { withDirectorSpend, corpusDisplayName } from "./_shared.js";
 
 export default [
   {
@@ -35,9 +35,13 @@ export default [
       // researcher's explicit next step
       const fresh = await loadProject(params.p);
       const plan = (fresh.plans ?? []).find((x) => x.planId === params.plan);
+      const corpus = (fresh.corpora ?? []).find((c) => c.id === plan.corpusId);
+      const corpusName = corpusDisplayName(corpus);
       const runIds = [];
       for (const instrumentId of approved.instrumentIds) {
-        const run = await createRun(fresh, { instrumentId, corpusId: plan.corpusId });
+        const instrument = (fresh.instruments ?? []).find((i) => i.id === instrumentId);
+        const name = instrument ? `${instrument.name} · ${corpusName}` : undefined;
+        const run = await createRun(fresh, { instrumentId, corpusId: plan.corpusId, ...(name ? { name } : {}) });
         runIds.push(run.id);
       }
       return { ...approved, runIds };

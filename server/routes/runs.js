@@ -22,7 +22,7 @@ import { entropy as panelEntropy } from "../instruments/panel.js";
 import {
   findOr404, requireBody, pdirOf, readCorpusUnits, unitsById, readGoldset,
   goldLabelMap, addSpend, readNdjson, runOutputsFile, finalJurorOf, round6, labelKey,
-  writeJsonAtomic,
+  writeJsonAtomic, corpusDisplayName, validateName,
 } from "./_shared.js";
 // the replication archive's CSV writer is the single home for RFC-4180
 // quoting + formula-injection hardening — reused here, never duplicated
@@ -185,6 +185,19 @@ async function launchRun(params, { resume = false } = {}) {
   }
   await armDrift(project, instrument, run.id);
   const escalate = project.director ? makeEscalator(project, construct) : undefined;
+  // Persist "running" BEFORE answering: the engine runs in the background and
+  // persists at its own pace, so a client that refreshes right after this
+  // response would otherwise read the stale pending/paused status, render a
+  // static screen, and never subscribe to the monitor — runs proceeding
+  // invisibly was a field report. The engine treats running(stale) as
+  // resumable, so this write is always consistent with what follows.
+  await updateProject(params.p, (p) => {
+    const r = (p.runs ?? []).find((x) => x.id === run.id);
+    if (r && r.status !== "complete") {
+      r.status = "running";
+      delete r.error; // a fresh launch clears ORPHANED/paused explanations
+    }
+  });
   startExecution(params.p, run.id, { escalate });
   return { runId: run.id, status: "running", resumed: resume };
 }
@@ -229,7 +242,7 @@ export default [
       const body = requireBody(req, ["instrumentId", "corpusId"]);
       const instrument = findOr404(project.instruments, body.instrumentId, "instrument");
       const construct = findOr404(project.constructs, instrument.constructId, "construct");
-      findOr404(project.corpora, body.corpusId, "corpus");
+      const corpus = findOr404(project.corpora, body.corpusId, "corpus");
 
       // privacy: constructing the adapters is the gate (403 on strict violations)
       for (const j of jurorPayloadsOf(instrument)) getAdapter(project, j.provider);
@@ -239,16 +252,40 @@ export default [
       const est = await estimateInstrument(project, instrument, units);
       checkBudget((project.budget?.spentUSD ?? 0) + est.estUSD, project.budget?.capUSD ?? null);
 
+      // Auto-name "<instrument> · <corpus display>" — a human-readable handle
+      // for a run the researcher can later rename. The body may override it.
+      const autoName = `${instrument.name} · ${corpusDisplayName(corpus)}`;
       const run = await engineMod.createRun(project, {
         instrumentId: body.instrumentId,
         corpusId: body.corpusId,
         ...(body.unitFilter !== undefined ? { unitFilter: body.unitFilter } : {}),
         ...(body.capUSD !== undefined ? { capUSD: body.capUSD } : {}),
+        name: typeof body.name === "string" && body.name !== "" ? body.name : autoName,
       });
       await armDrift(project, instrument, run.id);
       const escalate = project.director ? makeEscalator(project, construct) : undefined;
       startExecution(params.p, run.id, { escalate });
       return { runId: run.id, estUSD: run.cost.estUSD, total: run.checkpoint.total };
+    },
+  },
+  {
+    // Rename: a run's `name` is a human-facing label, not provenance — editing
+    // it is NOT a ledgered scientific act, so this writes the project graph and
+    // returns the run without appending any event.
+    method: "PUT",
+    pattern: "/api/projects/:p/runs/:r",
+    handler: async (req, res, params) => {
+      const body = requireBody(req, ["name"]);
+      const name = validateName(body.name, "name");
+      let updated = null;
+      await updateProject(params.p, (p) => {
+        const run = (p.runs ?? []).find((x) => x.id === params.r);
+        if (!run) throw new ConcordError("NOT_FOUND", `run '${params.r}' not found`, { id: params.r });
+        run.name = name;
+        updated = run;
+      });
+      await snapshotRun(params.p, params.r);
+      return updated;
     },
   },
   {

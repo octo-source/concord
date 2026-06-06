@@ -318,6 +318,8 @@ export const goldsets = {
 export const runs = {
   preflight: (p, { instrumentId, corpusId } = {}) => post(`${P(p)}/runs/preflight`, { instrumentId, corpusId }),
   start: (p, { instrumentId, corpusId, capUSD } = {}) => post(`${P(p)}/runs`, { instrumentId, corpusId, capUSD }),
+  /** Rename a run (runs are auto-named "<instrument> · <corpus>" at creation). */
+  rename: (p, r, name) => put(`${P(p)}/runs/${encodeURIComponent(r)}`, { name }),
   /**
    * Live run monitor. GET + SSE.
    * handlers: onTick({done,total,costUSD,labelDist,warnings}), onDone(data),
@@ -375,6 +377,18 @@ export const reliability = {
     get_(`${P(p)}/reliability/${encodeURIComponent(constructId)}`, { query: { corpusId } }),
 };
 
+export const report = {
+  /**
+   * The project report: {blocks: [{kind, ref?, content?, addedAt}], updatedAt}
+   * persisted on the project. addBlock APPENDS one block (the Workbench's
+   * "Add to report"); save REPLACES the block list (the canvas's reorder/
+   * remove). Both resolve with the updated report, so callers can state the
+   * real block count. The server's report export defaults to these blocks.
+   */
+  addBlock: (p, block) => post(`${P(p)}/report/blocks`, { block }),
+  save: (p, blocks) => put(`${P(p)}/report`, { blocks }),
+};
+
 export const exports = {
   methods: (p) => get_(`${P(p)}/exports/methods`),
   /** Raw-stream endpoints (zip / standalone HTML) — link or download directly. */
@@ -404,7 +418,7 @@ export const health = () => get_("/api/health");
 
 export const api = {
   projects, imports, corpora, brief, questionbar, constructs, instruments,
-  goldsets, runs, analyses, evidence, reliability, exports, catalog, settings, health,
+  goldsets, runs, analyses, evidence, reliability, report, exports, catalog, settings, health,
 };
 
 export default api;

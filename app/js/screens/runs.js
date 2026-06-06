@@ -1,11 +1,15 @@
-// Runs — #/p/:slug/runs[/:id] — the measurement actually happening. The list
-// opens into a preflight sheet (units × calls → tokens → dollars ±15%, ETA,
-// privacy check, budget remaining, hard cap) with ONE start button. A running
+// Runs — #/p/:slug/runs[/:id] — the measurement actually happening. The LIST
+// groups runs under the corpus they read (most recently measured corpus
+// first, runs newest-first within), each row wearing the run's name
+// (auto-named "<instrument> · <corpus>"; legacy runs derive the same shape).
+// The preflight sheet quotes units × calls → tokens → dollars ±15%, ETA,
+// privacy check, budget remaining, hard cap, with ONE start button. A running
 // run gets the live monitor: progress rule, running cost in mono, label
 // distribution accumulating as mini-bars, a warnings feed, the escalation
 // queue, the quarantined-units list ({unitId → code: message}, never silent),
-// and pause/resume/abort. The detail opens with the run's scope (corpus ·
-// text column · units). Completed runs hand off to the Explorer.
+// and pause/resume/abort. The detail's renameable title is the run's name;
+// the context line under it states ran <instrument> on <corpus> · measures
+// <construct>. Completed runs hand off to the Explorer.
 
 import { el, clear, frag } from "../dom.js";
 import api from "../api.js";
@@ -14,8 +18,10 @@ import * as toast from "../components/toast.js";
 import * as ladderC from "../components/ladder.js";
 import * as bar from "../components/charts/bar.js";
 import * as scopechip from "../components/scopechip.js";
+import * as renameable from "../components/renameable.js";
+import { contextLine, corpusText } from "../components/contextline.js";
 import { fmtCost, fmtCount, fmtStat, fmtDuration, fmtDateTime } from "../format.js";
-import { screenHead, section, asyncMount, ensureProject, refreshProject, emptyState, openSheet, kv, kvList, normalizeQuarantine } from "./_shared.js";
+import { screenHead, section, asyncMount, ensureProject, refreshProject, emptyState, openSheet, kv, kvList, normalizeQuarantine, runDisplayName } from "./_shared.js";
 
 export const route = "p/:slug/runs";
 export const routes = ["p/:slug/runs", "p/:slug/runs/:id"];
@@ -50,40 +56,70 @@ export function render(mount, params, query) {
         actions: [el("button", { class: "btn btn--primary", type: "button", onclick: () => preflightSheet(params, project, instruments, query.preflight) }, "Preflight a run")],
       }));
     } else {
-      // live run record: progress under checkpoint {done, total}; cost under
-      // cost {estUSD, actualUSD, inputTokens, outputTokens}
-      const list = el("div", { class: "runlist" });
-      for (const r of runs) {
-        const done = r.checkpoint?.done ?? 0;
-        const total = r.checkpoint?.total ?? 0;
-        const pct = total ? Math.round((done / total) * 100) : 0;
-        const qN = (r.quarantine ?? []).length;
-        list.append(el("a", { class: "runrow", href: `#/p/${params.slug}/runs/${r.id}` },
-          el("span", { class: "runrow__id data" }, r.id),
-          el("span", { class: "runrow__inst" },
-            instrumentName(instruments, r.instrumentId),
-            qN > 0
-              ? el("span", {
-                  class: "chip chip--signal runrow__quar data",
-                  title: `${fmtCount(qN)} unit${qN === 1 ? "" : "s"} produced no valid output — open the run for the reasons`,
-                }, `${fmtCount(qN)} quarantined`)
-              : null),
-          el("span", { class: `chip runrow__status runrow__status--${r.status}` }, r.status),
-          el("span", { class: "runrow__bar", aria: { hidden: "true" } },
-            el("span", { class: "runrow__fill", style: { width: pct + "%" } })),
-          el("span", { class: "data runrow__nums" }, `${fmtCount(done)}/${fmtCount(total)}`),
-          el("span", { class: "data runrow__cost" }, fmtCost(r.cost?.actualUSD ?? 0)),
-        ));
-      }
-      mount.append(section("All runs", list));
+      mount.append(runGroups(params, project, runs));
     }
 
     if (query.preflight) preflightSheet(params, project, instruments, query.preflight);
   }, "Listing runs…");
 }
 
-function instrumentName(instruments, id) {
-  return instruments.find((i) => i.id === id)?.name ?? id;
+/* The list, grouped under the corpus each run reads: most recently measured
+   corpus first, runs newest-first within a group. Runs whose corpusId no
+   longer matches a project corpus (or was never recorded) gather under
+   "Other" at the end — named, never dropped. */
+function runGroups(params, project, runs) {
+  const corpora = project.corpora ?? [];
+  const newestFirst = [...runs].sort((a, b) =>
+    String(b.createdAt ?? "").localeCompare(String(a.createdAt ?? "")));
+
+  const groups = new Map(); // corpusId | "__other__" → runs, insertion = newest run first
+  for (const r of newestFirst) {
+    const key = corpora.some((c) => c.id === r.corpusId) ? r.corpusId : "__other__";
+    if (!groups.has(key)) groups.set(key, []);
+    groups.get(key).push(r);
+  }
+  const ordered = [...groups.entries()].sort((a, b) =>
+    (a[0] === "__other__" ? 1 : 0) - (b[0] === "__other__" ? 1 : 0));
+
+  const out = frag();
+  for (const [key, groupRuns] of ordered) {
+    const corpus = key === "__other__" ? null : corpora.find((c) => c.id === key);
+    const head = el("div", { class: "rungroup__head" },
+      el("h3", { class: "overline rungroup__title" },
+        corpus ? scopechip.displayName(corpus) : "Other"),
+      corpus
+        ? scopechip.render(scopechip.fromCorpus(corpus, project))
+        : el("p", { class: "scopechip faint" }, "runs whose corpus is no longer in this project, or was never recorded"));
+
+    const list = el("div", { class: "runlist" });
+    for (const r of groupRuns) list.append(runRow(params, project, r));
+    out.append(el("section", { class: "screen__section rungroup" }, head, list));
+  }
+  return out;
+}
+
+// live run record: progress under checkpoint {done, total}; cost under
+// cost {estUSD, actualUSD, inputTokens, outputTokens}
+function runRow(params, project, r) {
+  const done = r.checkpoint?.done ?? 0;
+  const total = r.checkpoint?.total ?? 0;
+  const pct = total ? Math.round((done / total) * 100) : 0;
+  const qN = (r.quarantine ?? []).length;
+  return el("a", { class: "runrow", href: `#/p/${params.slug}/runs/${r.id}` },
+    el("span", { class: "runrow__name", title: r.id },
+      runDisplayName(project, r),
+      qN > 0
+        ? el("span", {
+            class: "chip chip--signal runrow__quar data",
+            title: `${fmtCount(qN)} unit${qN === 1 ? "" : "s"} produced no valid output — open the run for the reasons`,
+          }, `${fmtCount(qN)} quarantined`)
+        : null),
+    el("span", { class: `chip runrow__status runrow__status--${r.status}` }, r.status),
+    el("span", { class: "runrow__bar", aria: { hidden: "true" } },
+      el("span", { class: "runrow__fill", style: { width: pct + "%" } })),
+    el("span", { class: "data runrow__nums" }, `${fmtCount(done)}/${fmtCount(total)}`),
+    el("span", { class: "data runrow__cost" }, fmtCost(r.cost?.actualUSD ?? 0)),
+  );
 }
 
 /* ================= preflight ============================================================ */
@@ -249,7 +285,24 @@ function renderDetail(mount, params) {
     const hasOutputs = (run.checkpoint?.done ?? 0) > 0;
     mount.append(screenHead({
       overline: `Run · ${run.id}`,
-      title: instrumentName(project.instruments ?? [], run.instrumentId),
+      // the run's NAME is the title — renameable in place; legacy runs fall
+      // back to the instrument so the title never reads as a bare id
+      title: renameable.render({
+        value: run.name ?? null,
+        fallback: instrument?.name ?? run.instrumentId ?? run.id,
+        label: "Rename this run",
+        onSave: async (name) => {
+          try {
+            await api.runs.rename(params.slug, run.id, name);
+            run.name = name;
+            toast.success("Run renamed.", { detail: name, data: false });
+            refreshProject(params.slug).catch(() => {});
+          } catch (err) {
+            toast.error("Rename failed.", { detail: String(err.message ?? err) });
+            throw err;
+          }
+        },
+      }),
       lede: ledeFor[run.status] ?? `Status: ${run.status}.`,
       actions: run.status === "complete"
         ? [
@@ -272,20 +325,24 @@ function renderDetail(mount, params) {
             : [],
     }));
 
-    /* -- scope: which corpus and text column this run reads, at the top.
-       The run records corpusId; older records without one say nothing. -- */
+    /* -- context: what this run did, in one line — ran <instrument> on
+       <corpus — text: col · units> · measures <construct>. Older records
+       missing a relation say so quietly instead of guessing. -- */
     const runCorpus = (project.corpora ?? []).find((c) => c.id === run.corpusId) ?? null;
-    if (runCorpus) {
-      mount.append(el("div", { class: "scopebar" },
-        el("span", { class: "overline" }, "reading"),
-        el("span", { class: "data" }, scopechip.displayName(runCorpus)),
-        scopechip.render(scopechip.fromCorpus(runCorpus, project))));
-    } else if (run.corpusId) {
-      mount.append(el("div", { class: "scopebar" },
-        el("span", { class: "overline" }, "reading"),
-        el("span", { class: "data" }, run.corpusId),
-        el("span", { class: "faint" }, "— corpus no longer in this project")));
-    }
+    const runConstruct = instrument
+      ? (project.constructs ?? []).find((c) => c.id === instrument.constructId) ?? null
+      : null;
+    mount.append(contextLine([
+      instrument
+        ? { label: "ran", text: instrument.name, href: `#/p/${params.slug}/instruments/${instrument.id}` }
+        : { label: "ran", text: run.instrumentId ?? "instrument not recorded", faint: !run.instrumentId },
+      { label: "on", text: corpusText(runCorpus, project, run.corpusId), faint: !runCorpus },
+      runConstruct
+        ? { label: "measures", text: runConstruct.name, href: `#/p/${params.slug}/constructs/${runConstruct.id}` }
+        : instrument?.constructId
+          ? { label: "measures", text: instrument.constructId }
+          : null,
+    ]));
 
     /* -- monitor surface -- */
     const progFill = el("span", { class: "monitor__fill", style: { width: total0 ? `${(done0 / total0) * 100}%` : "0%" } });

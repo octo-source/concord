@@ -60,6 +60,10 @@ export default [
         } catch {
           throw new ConcordError("VALIDATION", "?layout= must be JSON-encoded", {});
         }
+      } else if ((project.report?.blocks ?? []).length > 0) {
+        // No explicit layout → render the persisted report canvas. The canvas
+        // is the researcher's curated layout; the exporter draws exactly it.
+        layout = project.report.blocks;
       } else {
         const ids = analysisIdsFrom(req, project);
         layout = [

@@ -329,6 +329,34 @@ test("objects: createGoldSet / createRun / createAnalysis defaults + enum valida
   assert.throws(() => createAnalysis({ kind: "model" }), (e) => e.code === "VALIDATION");
 });
 
+test("objects: names, report artifact and draftedFrom provenance ride the constructors", () => {
+  // runs + gold sets carry a name label, defaulting "" (routes auto-name)
+  const run = createRun({ instrumentId: "inst_1", versionHash: "h", corpusId: "co_1", provider: "mock", model: "mock-1" });
+  assert.equal(run.name, "");
+  const named = createRun({
+    instrumentId: "inst_1", versionHash: "h", corpusId: "co_1", provider: "mock", model: "mock-1",
+    name: "Pay judge · exit-survey.csv",
+  });
+  assert.equal(named.name, "Pay judge · exit-survey.csv");
+  assert.throws(
+    () => createRun({ instrumentId: "i", versionHash: "h", corpusId: "c", provider: "mock", model: "m", name: 7 }),
+    (e) => e.code === "VALIDATION");
+
+  assert.equal(createGoldSet({ constructId: "c_1" }).name, "");
+  assert.equal(createGoldSet({ constructId: "c_1", name: "Gold — Pay complaint" }).name, "Gold — Pay complaint");
+  assert.throws(() => createGoldSet({ constructId: "c_1", name: 7 }), (e) => e.code === "VALIDATION");
+
+  // the report is a persisted project artifact from birth
+  const p = createProject({ name: "Pilot Study" });
+  assert.deepEqual(p.report, { blocks: [], updatedAt: null });
+
+  // constructs carry where they were drafted from (optional string passthrough)
+  const c = createConstruct({ name: "Pay complaint", type: "binary", draftedFrom: "corp_a1" });
+  assert.equal(c.draftedFrom, "corp_a1");
+  assert.equal(createConstruct({ name: "X", type: "binary" }).draftedFrom, undefined, "no stamp without a source");
+  assert.throws(() => createConstruct({ name: "X", type: "binary", draftedFrom: 7 }), (e) => e.code === "VALIDATION");
+});
+
 // ---------------------------------------------------------------- server
 
 async function startTestServer(t, opts = {}) {

@@ -10,7 +10,7 @@ import path from "node:path";
 import { mkdtemp, writeFile, rm } from "node:fs/promises";
 import { ConcordError } from "../core/errors.js";
 import { createConstruct } from "../core/objects.js";
-import { updateProject, projectDir } from "../core/store.js";
+import { updateProject, projectDir, readNdjson } from "../core/store.js";
 import * as ledger from "../core/ledger.js";
 import { callDirector, readCorpusUnits, seededSample } from "./director.js";
 import {
@@ -19,7 +19,8 @@ import {
 } from "./prompts.js";
 
 // Director construct entry → validated Construct object (proposal).
-function toConstruct(entry) {
+// draftedFrom, when given, stamps the corpus whose sample fed the draft.
+function toConstruct(entry, draftedFrom) {
   return createConstruct({
     name: entry.name,
     type: entry.type,
@@ -29,9 +30,31 @@ function toConstruct(entry) {
     examples: entry.examples,
     ...(entry.categories !== undefined ? { categories: entry.categories } : {}),
     ...(entry.scale !== undefined ? { scale: entry.scale } : {}),
+    ...(draftedFrom !== undefined ? { draftedFrom } : {}),
     authoredBy: "director",
     humanTouched: false,
   });
+}
+
+// Which registered corpus did these sample units come from? Provenance is
+// stamped only when we can PROVE it: a corpus owns the sample when every
+// sample unit id appears in that corpus's units file. Ad-hoc units that
+// belong to no registered corpus return undefined — we never guess.
+async function inferDraftedFrom(project, sampleUnits) {
+  const ids = sampleUnits.map((u) => u?.id).filter((id) => typeof id === "string");
+  if (ids.length === 0) return undefined;
+  for (const corpus of project.corpora ?? []) {
+    const file = path.join(projectDir(project.slug), "corpora", corpus.id, "units.ndjson");
+    let owned;
+    try {
+      const rows = await readNdjson(file);
+      owned = new Set(rows.map((u) => u.id));
+    } catch {
+      continue; // a corpus whose units file is unreadable can't claim the sample
+    }
+    if (ids.every((id) => owned.has(id))) return corpus.id;
+  }
+  return undefined;
 }
 
 // draftConstructs(project, themesOrQuestion, sampleUnits) → Construct[]
@@ -51,7 +74,10 @@ export async function draftConstructs(project, themesOrQuestion, sampleUnits) {
     schema: CONSTRUCTS_SCHEMA,
     maxTokens: 4096,
   });
-  return res.json.constructs.map(toConstruct);
+  // Stamp the corpus that fed the worked-example sample, if it is one this
+  // project owns. A draft from ad-hoc units carries no provenance.
+  const draftedFrom = await inferDraftedFrom(project, sampleUnits);
+  return res.json.constructs.map((c) => toConstruct(c, draftedFrom));
 }
 
 // importCodebook(project, fileBuffer, kind) → proposed Construct[]
@@ -84,7 +110,10 @@ export async function importCodebook(project, fileBuffer, kind) {
     schema: CONSTRUCTS_SCHEMA,
     maxTokens: 4096,
   });
-  return res.json.constructs.map(toConstruct);
+  // an imported codebook has no corpus sample behind it → no draftedFrom.
+  // (arrow wrapper, never bare `.map(toConstruct)`: map's index argument would
+  // otherwise land in the draftedFrom slot.)
+  return res.json.constructs.map((c) => toConstruct(c));
 }
 
 // inductiveTaxonomy(project, corpusId, {n}) → taxonomy artifact, explicitly

@@ -20,9 +20,9 @@ import * as router from "../router.js";
 import * as bar from "../components/charts/bar.js";
 import * as heat from "../components/charts/heat.js";
 import * as smallmultiples from "../components/charts/smallmultiples.js";
-import * as scopechip from "../components/scopechip.js";
+import { contextLine, corpusText } from "../components/contextline.js";
 import { fmtStat, fmtCount, fmtPct } from "../format.js";
-import { screenHead, section, asyncMount, ensureProject, annotation, levelUpNudge, emptyState } from "./_shared.js";
+import { screenHead, section, asyncMount, ensureProject, annotation, levelUpNudge, emptyState, runDisplayName } from "./_shared.js";
 
 export const route = "p/:slug/explore/:runId";
 export const title = "Explorer";
@@ -62,13 +62,19 @@ export function render(mount, params) {
       ],
     }));
 
-    /* -- scope: which corpus/column these findings were computed over -- */
+    /* -- context: which run these findings read, over which corpus/column -- */
     const run = (project?.runs ?? []).find((r) => r.id === params.runId) ?? null;
     const scopeCorpusId = analysis?.spec?.corpusId ?? run?.corpusId ?? null;
     const corpusEntry = (project?.corpora ?? []).find((c) => c.id === scopeCorpusId)
       ?? project?.corpora?.[0] ?? null;
-    const scope = scopechip.fromCorpus(corpusEntry, project);
-    if (scope) mount.append(el("div", { class: "scopebar" }, scopechip.render(scope)));
+    mount.append(contextLine([
+      {
+        label: "reading run",
+        text: run ? runDisplayName(project, run) : params.runId,
+        href: `#/p/${params.slug}/runs/${params.runId}`,
+      },
+      corpusEntry ? { label: "over", text: corpusText(corpusEntry, project) } : null,
+    ]));
 
     /* -- prevalence: {label, count, share} -- */
     const totalLabels = explore.prevalence.reduce((s, p) => s + (p.count ?? 0), 0);

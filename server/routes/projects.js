@@ -1,9 +1,9 @@
 // Projects: list, create, full-graph get, and project-scoped settings (PUT).
 import { ConcordError } from "../core/errors.js";
 import { createProject } from "../core/objects.js";
-import { loadProject, saveProject, listProjects } from "../core/store.js";
+import { loadProject, saveProject, listProjects, updateProject } from "../core/store.js";
 import * as ledger from "../core/ledger.js";
-import { pdirOf, requireBody } from "./_shared.js";
+import { pdirOf, requireBody, validateReportBlock, validateReportBlocks } from "./_shared.js";
 import { applyProjectSettings } from "./settings.js";
 
 function summary(p) {
@@ -79,6 +79,46 @@ export default [
         ...(body.budget !== undefined ? { budget: body.budget } : {}),
         confirmDowngrade: body.confirmDowngrade,
       });
+    },
+  },
+  {
+    // The report canvas is a persisted project artifact. PUT replaces the whole
+    // layout (validating kinds, shape and the block budget) and stamps when it
+    // changed; the canvas is a researcher's working surface, not a scientific
+    // act, so nothing is ledgered.
+    method: "PUT",
+    pattern: "/api/projects/:p/report",
+    handler: async (req, res, params) => {
+      const body = requireBody(req, ["blocks"]);
+      const blocks = validateReportBlocks(body.blocks);
+      let report;
+      await updateProject(params.p, (p) => {
+        report = { blocks, updatedAt: new Date().toISOString() };
+        p.report = report;
+      });
+      return report;
+    },
+  },
+  {
+    // Append one block (the workbench "Add to report" action) → {blocks: n}.
+    // The appended block is timestamped so the canvas can show recency.
+    method: "POST",
+    pattern: "/api/projects/:p/report/blocks",
+    handler: async (req, res, params) => {
+      const body = requireBody(req, ["block"]);
+      const block = validateReportBlock(body.block, "block");
+      let count = 0;
+      await updateProject(params.p, (p) => {
+        const current = p.report ?? { blocks: [], updatedAt: null };
+        const blocks = Array.isArray(current.blocks) ? current.blocks : [];
+        if (blocks.length >= 100) {
+          throw new ConcordError("VALIDATION", "a report holds at most 100 blocks", { count: blocks.length });
+        }
+        blocks.push({ ...block, addedAt: new Date().toISOString() });
+        p.report = { blocks, updatedAt: new Date().toISOString() };
+        count = blocks.length;
+      });
+      return { blocks: count };
     },
   },
 ];
