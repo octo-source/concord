@@ -26,7 +26,7 @@ import { loadProject, updateProject } from "../core/store.js";
 import * as ledger from "../core/ledger.js";
 import * as engineMod from "../runs/engine.js";
 import {
-  findOr404, requireBody, pdirOf, readCorpusUnits, unitsById,
+  findOr404, requireBody, pdirOf, readCorpusUnits, unitsById, metaColumnNames,
   goldsetFile, readGoldset, goldLabelMap, agreementReport, statValue,
   finalsOf, addSpend, writeJsonAtomic, readNdjson, runOutputsFile, finalJurorOf,
 } from "./_shared.js";
@@ -335,12 +335,18 @@ export default [
     },
   },
   {
+    // The full artifact PLUS populationN — the corpus unit count behind the
+    // sample, so screens can state "you code n of N; inclusion probabilities
+    // make the statistics honest" instead of presenting the sample as the
+    // whole corpus.
     method: "GET",
     pattern: "/api/projects/:p/goldsets/:id",
     handler: async (req, res, params) => {
       const project = await loadProject(params.p);
       findOr404(project.goldsets, params.id, "gold set");
-      return readGoldset(params.p, params.id);
+      const gs = await readGoldset(params.p, params.id);
+      const corpus = (project.corpora ?? []).find((c) => c.id === gs.corpusId);
+      return { ...gs, populationN: corpus?.unitCount ?? null };
     },
   },
   {
@@ -405,6 +411,18 @@ export default [
       } else if (design === "stratified") {
         const by = body.strata?.by;
         if (!by) throw new ConcordError("VALIDATION", "stratified sampling requires strata: {by: <meta key>}", {});
+        // ANY real metadata column stratifies; a column the corpus does not
+        // have would silently collapse everything into one "" stratum (an
+        // SRS wearing a stratified label), so it is rejected by name with
+        // the real columns listed.
+        const known = metaColumnNames(units);
+        if (!known.includes(by)) {
+          throw new ConcordError(
+            "VALIDATION",
+            `"${by}" is not a metadata column of corpus '${corpusId}' — columns: ${known.join(", ") || "(none)"}`,
+            { column: by, known },
+          );
+        }
         sample = stratifiedSample(units, n, by, seed);
       } else {
         sample = await uncertaintySample(project, current, units, n, seed);

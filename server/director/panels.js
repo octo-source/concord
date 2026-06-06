@@ -8,13 +8,13 @@
 import { ConcordError } from "../core/errors.js";
 import { getAdapter } from "../providers/registry.js";
 import { callDirector } from "./director.js";
+// Juror budgets come from the compiler's CLASS_MAX_TOKENS (single owner — see
+// the reasoning-model thinking-token rationale there; a stale private copy
+// here is what truncated Gemini Flash juror calls in the field).
+import { CLASS_MAX_TOKENS } from "./compiler.js";
 import { panelPrompt, PANEL_SCHEMA, defaultTemplate, AGGREGATIONS } from "./prompts.js";
 
 const PROVIDER_NAMES = ["anthropic", "openai", "openrouter", "ollama", "mock"];
-// Keep in lockstep with compiler.js: budgets cover rationale-first JSON PLUS
-// reasoning-model thinking tokens, which bill against max_tokens on most
-// serving stacks (384 truncated most Gemini Flash juror calls in the field).
-const CLASS_MAX_TOKENS = { frontier: 2048, mid: 1536, small: 1024 };
 
 // Rough cost per 1k units for the candidate list (mean unit ~500 chars plus a
 // mid-class template, 256 output tokens/call) — enough signal for the

@@ -1134,3 +1134,60 @@ text.chart__heatvalue--deep { fill: var(--ground); }
 .empty-state--table .empty-state__title { font-size: var(--fs-section); margin-bottom: var(--s2); }
 
 .welcome { padding-top: clamp(var(--s7), 18vh, 10rem); }
+
+/* ---- citation chips — the source named at the point of use --------------------------------- */
+
+.cite {
+  line-height: 0; /* superscript must not stretch the line */
+  margin-left: 0.15em;
+}
+.cite__chip {
+  position: relative;
+  display: inline-block;
+  font-family: var(--font-mono);
+  font-size: var(--fs-micro);
+  line-height: 1.1;
+  color: var(--ink-faint);
+  border-bottom: 1px dotted var(--rule-color-strong);
+  cursor: help;
+  white-space: nowrap;
+  transition: color var(--t-fast) var(--ease);
+}
+.cite__chip:hover, .cite__chip:focus-visible { color: var(--accent-hover); outline: none; }
+.cite__pop {
+  position: absolute;
+  top: calc(100% + 6px);
+  left: 50%;
+  transform: translate(-50%, 2px);
+  z-index: var(--z-popover);
+  width: max-content;
+  max-width: 22rem;
+  padding: var(--s3);
+  border: var(--rule);
+  border-radius: var(--r-md);
+  background: var(--paper-raised);
+  box-shadow: var(--shadow-lift);
+  font-family: var(--font-sans);
+  font-size: var(--fs-caption);
+  line-height: 1.45;
+  color: var(--ink);
+  text-align: left;
+  white-space: normal;
+  opacity: 0;
+  visibility: hidden;
+  pointer-events: none;
+  transition: opacity var(--t-fast) var(--ease), transform var(--t-fast) var(--ease),
+              visibility 0s linear var(--t-fast);
+}
+.cite__chip:hover .cite__pop,
+.cite__chip:focus-visible .cite__pop {
+  opacity: 1;
+  visibility: visible;
+  transform: translate(-50%, 0);
+  transition-delay: 0s;
+}
+.cite--unknown { color: var(--signal-text); font-family: var(--font-mono); font-size: var(--fs-micro); }
+
+/* the pipeline's quiet companion door (e.g. "Reliability →") */
+.pipeline__go--companion { color: var(--ink-faint); }
+.pipeline__go--companion:hover { color: var(--accent-hover); }

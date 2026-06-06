@@ -1,0 +1,120 @@
+{
+  "corp_exit2025": {
+    "columns": [
+      {
+        "name": "dept",
+        "role": "categorical",
+        "distinct": 6,
+        "missing": 0,
+        "values": [
+          { "value": "Engineering", "n": 712 },
+          { "value": "Sales", "n": 489 },
+          { "value": "Operations", "n": 478 },
+          { "value": "Support", "n": 391 },
+          { "value": "Marketing", "n": 246 },
+          { "value": "HR", "n": 184 }
+        ]
+      },
+      {
+        "name": "region",
+        "role": "categorical",
+        "distinct": 4,
+        "missing": 4,
+        "values": [
+          { "value": "NA", "n": 1106 },
+          { "value": "EU", "n": 645 },
+          { "value": "APAC", "n": 465 },
+          { "value": "LATAM", "n": 280 }
+        ]
+      },
+      {
+        "name": "role_level",
+        "role": "categorical",
+        "distinct": 7,
+        "missing": 9,
+        "values": [
+          { "value": "IC1", "n": 218 },
+          { "value": "IC2", "n": 530 },
+          { "value": "IC3", "n": 687 },
+          { "value": "IC4", "n": 419 },
+          { "value": "IC5", "n": 216 },
+          { "value": "M1", "n": 276 },
+          { "value": "M2", "n": 145 }
+        ]
+      },
+      {
+        "name": "satisfaction",
+        "role": "numeric",
+        "distinct": 5,
+        "missing": 12,
+        "values": [
+          { "value": 1, "n": 512 },
+          { "value": 2, "n": 678 },
+          { "value": 3, "n": 589 },
+          { "value": 4, "n": 431 },
+          { "value": 5, "n": 278 }
+        ]
+      },
+      {
+        "name": "tenure_years",
+        "role": "numeric",
+        "distinct": 14,
+        "missing": 0
+      },
+      {
+        "name": "exit_date",
+        "role": "date",
+        "distinct": 214,
+        "missing": 0
+      }
+    ]
+  },
+  "corp_exit2025_mgrnote": {
+    "columns": [
+      {
+        "name": "dept",
+        "role": "categorical",
+        "distinct": 6,
+        "missing": 0,
+        "values": [
+          { "value": "Engineering", "n": 655 },
+          { "value": "Sales", "n": 448 },
+          { "value": "Operations", "n": 439 },
+          { "value": "Support", "n": 359 },
+          { "value": "Marketing", "n": 226 },
+          { "value": "HR", "n": 167 }
+        ]
+      },
+      {
+        "name": "region",
+        "role": "categorical",
+        "distinct": 4,
+        "missing": 3
+      },
+      {
+        "name": "role_level",
+        "role": "categorical",
+        "distinct": 7,
+        "missing": 8
+      },
+      {
+        "name": "satisfaction",
+        "role": "numeric",
+        "distinct": 5,
+        "missing": 11
+      },
+      {
+        "name": "tenure_years",
+        "role": "numeric",
+        "distinct": 14,
+        "missing": 0
+      },
+      {
+        "name": "exit_date",
+        "role": "date",
+        "distinct": 209,
+        "missing": 0
+      }
+    ]
+  }
+}

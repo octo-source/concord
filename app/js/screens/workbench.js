@@ -36,6 +36,7 @@
 import { el, clear, frag } from "../dom.js";
 import api from "../api.js";
 import * as toast from "../components/toast.js";
+import { cite } from "../components/cite.js";
 import * as ladderC from "../components/ladder.js";
 import * as bar from "../components/charts/bar.js";
 import * as scatter from "../components/charts/scatter.js";
@@ -69,8 +70,23 @@ export function render(mount, params, query = {}) {
       analysis = await api.analyses.get(params.slug, params.id).catch(() => null);
       if (!analysis) analysis = (project.analyses ?? []).find((a) => a.id === params.id) ?? null;
     }
-    return { project, analysis };
-  }, ({ project, analysis }) => {
+    // The variable pickers read the REAL columns of the corpus the analysis
+    // will compute over: the preset run's corpus when ?runId= rode in, else
+    // the most recent complete run's (what pickRun resolves to server-side),
+    // else the most recently created corpus.
+    const runs = project.runs ?? [];
+    const presetRun = query?.runId ? runs.find((r) => r.id === query.runId) ?? null : null;
+    const scopeRun = presetRun
+      ?? [...runs].reverse().find((r) => r.status === "complete")
+      ?? runs.at(-1) ?? null;
+    const columnsCorpusId = scopeRun?.corpusId ?? (project.corpora ?? []).at(-1)?.id ?? null;
+    const columns = columnsCorpusId
+      ? await api.corpora.columns(params.slug, columnsCorpusId)
+          .then((res) => res?.columns ?? [])
+          .catch(() => [])
+      : [];
+    return { project, analysis, columns, columnsCorpusId };
+  }, ({ project, analysis, columns, columnsCorpusId }) => {
     mount.append(screenHead({
       overline: "Workbench",
       title: "Analyze what the runs measured.",
@@ -90,7 +106,7 @@ export function render(mount, params, query = {}) {
     // ?runId= — the builder pins new analyses to that run's outputs
     const presetRunId = query?.runId && (project.runs ?? []).some((r) => r.id === query.runId)
       ? query.runId : null;
-    builderRail(rail, canvas, params, project, presetRunId);
+    builderRail(rail, canvas, params, project, presetRunId, { columns, columnsCorpusId });
 
     /* -- existing analyses (project summaries: {id, kind, level, createdAt}) -- */
     if (project.analyses?.length) {
@@ -128,18 +144,50 @@ export function render(mount, params, query = {}) {
 
 /* ================= builder ============================================================== */
 
-function builderRail(rail, canvas, params, project, presetRunId = null) {
+/** "dept — categorical · 6 values" — the option label every picker uses. */
+export function columnOptionLabel(col) {
+  const parts = [col.role ?? "column"];
+  if (col.distinct !== undefined && col.distinct !== null) {
+    parts.push(`${fmtCount(col.distinct)} value${col.distinct === 1 ? "" : "s"}`);
+  }
+  if (col.missing) parts.push(`${fmtCount(col.missing)} missing`);
+  return `${col.name} — ${parts.join(" · ")}`;
+}
+
+/** Columns whose role fits a picker. roles = ["categorical","numeric",…]. */
+export function columnsForRoles(columns, roles) {
+  return (columns ?? []).filter((c) => roles.includes(c.role));
+}
+
+function builderRail(rail, canvas, params, project, presetRunId = null, { columns = [], columnsCorpusId = null } = {}) {
   let kind = "crosstab";
   const constructs = project.constructs ?? [];
   const instruments = project.instruments ?? [];
-  // metadata keys come from the corpus's detected columns when the project
-  // carries them; otherwise offer the common demo keys
-  const metaKeys = ["dept", "region", "satisfaction", "tenure_years", "role_level"];
+
+  // Variable pickers list the corpus's REAL metadata columns — never a
+  // canned list. Discrete pickers (crosstab axes, subgroup splits) take
+  // categorical and numeric roles; model predictors take numeric only.
+  const discreteCols = columnsForRoles(columns, ["categorical", "numeric"]);
+  const numericCols = columnsForRoles(columns, ["numeric"]);
+  const columnsCorpus = (project.corpora ?? []).find((c) => c.id === columnsCorpusId) ?? null;
+
+  // a picker with no usable columns says so instead of inventing variables
+  const emptyOption = (why) => el("option", { value: "", disabled: true, selected: true }, why);
+  const columnSelect = (ariaLabel, cols, { lead = null, why = "no metadata columns detected" } = {}) => {
+    const options = [];
+    if (lead) options.push(el("option", { value: lead.value, selected: true }, lead.label));
+    if (cols.length) options.push(...cols.map((c, i) => el("option", { value: c.name, selected: !lead && i === 0 }, columnOptionLabel(c))));
+    else if (!lead) options.push(emptyOption(why));
+    return el("select", { class: "input", "aria-label": ariaLabel }, ...options);
+  };
 
   const constructSel = el("select", { class: "input", "aria-label": "Construct" },
     ...constructs.map((c) => el("option", { value: c.id }, c.name)));
-  const metaSel = el("select", { class: "input", "aria-label": "Metadata variable" },
-    ...metaKeys.map((k) => el("option", { value: k }, k)));
+  const rowSel = columnSelect("Crosstab rows", discreteCols,
+    { lead: { value: "label", label: "label — the construct's measured label" } });
+  const colSel = columnSelect("Crosstab columns", discreteCols);
+  const bySel = columnSelect("Subgroup split", discreteCols);
+  const xSel = columnSelect("Model predictor", numericCols, { why: "no numeric columns detected" });
   const instASel = el("select", { class: "input", "aria-label": "Instrument A" },
     ...instruments.map((i) => el("option", { value: i.id }, i.name)));
   const instBSel = el("select", { class: "input", "aria-label": "Instrument B" },
@@ -147,6 +195,17 @@ function builderRail(rail, canvas, params, project, presetRunId = null) {
 
   const instrumentForConstruct = () =>
     instruments.find((i) => i.constructId === constructSel.value)?.id;
+
+  // honesty about where the variables come from — and about their absence
+  const columnsLine = columnsCorpus && columns.length
+    ? el("p", { class: "screen__hint faint" },
+        "Variables are ", el("span", { class: "data" }, scopechip.displayName(columnsCorpus)),
+        "'s metadata columns — each option states its role and distinct values.")
+    : null;
+  const noColumnsHint = () => el("p", { class: "screen__hint faint" },
+    columns.length
+      ? "No column of the right role exists for this picker."
+      : `No metadata columns came back${columnsCorpus ? ` for ${scopechip.displayName(columnsCorpus)}` : columnsCorpusId ? ` for ${columnsCorpusId}` : " — run an instrument or import a corpus first"}. Re-import with metadata columns to slice by them.`);
 
   const variableHost = el("div", { class: "wb-vars" });
   const paintVars = () => {
@@ -158,14 +217,39 @@ function builderRail(rail, canvas, params, project, presetRunId = null) {
     } else if (kind === "subgroup") {
       variableHost.append(
         varField("instrument", instASel),
-        varField("split by", metaSel));
+        varField("split by", bySel),
+        discreteCols.length ? null : noColumnsHint());
     } else if (kind === "descriptive") {
       variableHost.append(varField("construct", constructSel));
+    } else if (kind === "model") {
+      variableHost.append(
+        varField("construct", constructSel),
+        varField("predictor (numeric column)", xSel),
+        numericCols.length ? null : noColumnsHint());
     } else {
       variableHost.append(
         varField("construct", constructSel),
-        varField(kind === "model" ? "predictor (numeric meta)" : "by", metaSel));
+        varField("rows", rowSel),
+        varField("columns", colSel),
+        discreteCols.length ? null : noColumnsHint());
     }
+    paintRunState();
+  };
+
+  // a kind whose required variable has no real column cannot run — say why
+  // on the button instead of letting the server 400
+  const missingVariable = () => {
+    if (kind === "crosstab" && !colSel.value) return "crosstab needs a metadata column";
+    if (kind === "subgroup" && !bySel.value) return "the subgroup audit needs a metadata column";
+    if (kind === "model" && !xSel.value) return "the model needs a numeric column";
+    if ((kind === "triangulation") && instruments.length < 2) return "triangulation needs two instruments";
+    if (kind !== "crosstab" && kind !== "triangulation" && constructs.length === 0) return "write a construct first";
+    return null;
+  };
+  const paintRunState = () => {
+    const missing = missingVariable();
+    runBtn.disabled = Boolean(missing);
+    runBtn.title = missing ?? "";
   };
 
   const kindList = el("div", { class: "choicelist", role: "radiogroup", aria: { label: "Analysis kind" } },
@@ -184,10 +268,10 @@ function builderRail(rail, canvas, params, project, presetRunId = null) {
   const withRun = (spec) => (presetRunId ? { runId: presetRunId, ...spec } : spec);
   const specFor = () => {
     if (kind === "triangulation") return { instrumentIds: [instASel.value, instBSel.value] };
-    if (kind === "subgroup") return withRun({ instrumentId: instASel.value, by: metaSel.value });
+    if (kind === "subgroup") return withRun({ instrumentId: instASel.value, by: bySel.value });
     const instrumentId = instrumentForConstruct();
-    if (kind === "model") return withRun({ x: [metaSel.value], family: "logit", ...(instrumentId ? { instrumentId } : {}) });
-    if (kind === "crosstab") return withRun({ rowKey: "label", colKey: metaSel.value, ...(instrumentId ? { instrumentId } : {}) });
+    if (kind === "model") return withRun({ x: [xSel.value], family: "logit", ...(instrumentId ? { instrumentId } : {}) });
+    if (kind === "crosstab") return withRun({ rowKey: rowSel.value || "label", colKey: colSel.value, ...(instrumentId ? { instrumentId } : {}) });
     return withRun(instrumentId ? { instrumentId } : {});
   };
 
@@ -215,6 +299,7 @@ function builderRail(rail, canvas, params, project, presetRunId = null) {
       ? el("p", { class: "screen__hint faint" },
           "Scoped to run ", el("span", { class: "data" }, presetRunId), " — new analyses read its outputs.")
       : null,
+    columnsLine,
     kindList,
     variableHost,
     runBtn,
@@ -322,7 +407,7 @@ function crosstabResult(canvas, analysis) {
       el("p", { class: "wb-chistats data" },
         `χ² = ${fmt(t.chi2, 1)} · df = ${t.df ?? "—"} · ${fmtP(t.p)} · min expected = ${fmt(t.minExpected, 1)}`,
         (t.minExpected ?? 99) < 5
-          ? el("span", { class: "chip chip--signal", title: "Chi-square is unreliable when expected cell counts fall below 5" }, "small-n warning")
+          ? el("span", { class: "chip chip--signal", title: "Expected cell counts under 5 degrade the χ² approximation — a standard rule of thumb (Cochran's), not a hard gate" }, "small-n warning")
           : null),
       ...(r.warnings ?? []).map((w) =>
         el("p", { class: "annotation annotation--still" },
@@ -333,7 +418,7 @@ function crosstabResult(canvas, analysis) {
 
   if (!(level === "corrected" && r.cells?.length)) {
     canvas.append(el("p", { class: "annotation annotation--still" },
-      "These cells are ", el("strong", {}, "uncorrected"), " (", ladderC.mark(level), " ", level, "). A gold sample with stored π would let DSL remove machine-error bias — the watermark travels into every export until then."));
+      "These cells are ", el("strong", {}, "uncorrected"), " (", ladderC.mark(level), " ", level, "). A gold sample with stored π would let design-based supervised learning (DSL", cite("egami2023"), ") remove machine-error bias — the watermark travels into every export until then."));
   }
 }
 
@@ -377,7 +462,9 @@ function correctedCellsBlock(canvas, analysis) {
       : null,
     el("p", { class: "wb-explainer" },
       el("span", { class: "chip chip--ghost" }, "◉"),
-      " Corrected for machine-labeling error using the gold sample (DSL). Machine accuracy buys precision, never validity."),
+      " Corrected for machine-labeling error using the gold sample — design-based supervised learning (DSL", cite("egami2023"),
+      "), of the prediction-powered-inference family", cite("angelopoulos2023"),
+      ". Machine accuracy buys precision, never validity."),
     ...(r.skippedGroups ?? []).map((s) =>
       el("p", { class: "annotation annotation--still faint" },
         el("span", { class: "chip chip--ghost" }, s.group), " ", s.reason))));

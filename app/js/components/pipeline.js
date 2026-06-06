@@ -15,15 +15,18 @@ export const STAGES = [
 ];
 
 /**
- * render({ current, states, action, secondary }) → <nav class="pipeline">
+ * render({ current, states, action, secondary, companion }) → <nav class="pipeline">
  *   current   stage key — stages before it default to "done", it to "current",
  *             after it to "next"
  *   states    per-stage overrides: {run: "done", calibrate: "locked", …}
  *   action    the ONE next step: {label, href} or {label, onclick}
  *   secondary an always-available side door (same shape) — levels never block
  *             action, so e.g. "Calibrate against gold" rides beside Preview/Run
+ *   companion a quiet reading door that travels with the Calibrate stage
+ *             (same shape) — e.g. "Reliability →", every agreement statistic
+ *             for the construct in one place
  */
-export function render({ current, states = {}, action = null, secondary = null } = {}) {
+export function render({ current, states = {}, action = null, secondary = null, companion = null } = {}) {
   const ci = STAGES.findIndex((s) => s.key === current);
   const items = STAGES.map((s, i) => {
     const state = states[s.key] ?? (i < ci ? "done" : i === ci ? "current" : "next");
@@ -37,12 +40,13 @@ export function render({ current, states = {}, action = null, secondary = null }
     );
   });
 
-  const goEl = (a) => {
+  const goEl = (a, extraClass = "") => {
+    const cls = `btn btn--quiet pipeline__go${extraClass}`;
     if (a?.href) {
-      return el("a", { class: "btn btn--quiet pipeline__go", href: a.href }, a.label);
+      return el("a", { class: cls, href: a.href, title: a.title ?? null }, a.label);
     }
     if (typeof a?.onclick === "function") {
-      return el("button", { class: "btn btn--quiet pipeline__go", type: "button", onclick: a.onclick }, a.label);
+      return el("button", { class: cls, type: "button", onclick: a.onclick, title: a.title ?? null }, a.label);
     }
     return null;
   };
@@ -51,5 +55,6 @@ export function render({ current, states = {}, action = null, secondary = null }
     el("ol", { class: "pipeline__stages", role: "list" }, ...items),
     goEl(action),
     goEl(secondary),
+    goEl(companion, " pipeline__go--companion"),
   );
 }

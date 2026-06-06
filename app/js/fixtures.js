@@ -19,7 +19,7 @@ import * as apiNs from "./api.js";
 const FILES = [
   "project", "units", "import", "instantread", "brief", "constructs",
   "instruments", "goldsets", "runs", "analyses", "plan", "settings",
-  "catalog", "evidence", "reports",
+  "catalog", "evidence", "reports", "columns", "reliability",
 ];
 
 let db = null; // in-memory clone of all fixture JSON, mutable for the session
@@ -284,6 +284,16 @@ function patch() {
       out.scope = scopeOf(corpus);
     }
     return out;
+  };
+  // live: GET corpora/:c/columns → {columns: [{name, role, distinct,
+  // missing, values?: [{value, n}]}]} — the unit-text column never appears.
+  // Re-unitized corpora fall back to their source corpus's columns.
+  apiNs.corpora.columns = async (p, c) => {
+    const corpus = P.corpora.find((x) => x.id === c);
+    const entry = db.columns[c]
+      ?? (corpus?.derivedFrom ? db.columns[corpus.derivedFrom] : null);
+    if (!entry) return notFound(`columns for corpus "${c}"`);
+    return clone(entry);
   };
   // live: POST corpora/:c/reunitize {textColumn} → {corpusId, unitCount,
   // junk, textColumn, skipped} — a NEW corpus entry; the original is kept.
@@ -567,13 +577,18 @@ function patch() {
     return g ? clone(g) : notFound(`gold set "${id}"`);
   };
   apiNs.goldsets.create = async (p, goldset) => {
+    // most recently created corpus — same default the run preflight and
+    // instrument previews use, so gold is coded on what instruments read
+    const corpusId = goldset.corpusId ?? P.corpora.at(-1)?.id;
+    const corpus = P.corpora.find((c) => c.id === corpusId) ?? null;
     const g = {
       id: newId("gs"), constructId: goldset.constructId,
       tier: goldset.tier ?? "gold", design: goldset.design ?? "srs",
       sample: [], coders: [], status: "sampling",
-      // most recently created corpus — same default the run preflight and
-      // instrument previews use, so gold is coded on what instruments read
-      corpusId: goldset.corpusId ?? P.corpora.at(-1)?.id,
+      corpusId,
+      // the live GET carries the corpus size so the Sample pane can say
+      // "you code n OF populationN"
+      populationN: corpus?.unitCount ?? null,
       createdAt: new Date().toISOString(),
     };
     gsList().push(g);
@@ -918,6 +933,22 @@ function patch() {
       goldLabels: extra.goldLabels ?? [],
       sourcePos: extra.sourcePos ?? unit.pos ?? null,
     });
+  };
+
+  /* -- reliability -- */
+  // live: GET reliability/:constructId?corpusId= → {constructId, corpusId,
+  // sources, pairs, notes, retestAvailable?} — a REAL construct with no
+  // readings yet gets the honest empty payload, exactly like the live route
+  apiNs.reliability.get = async (p, constructId) => {
+    const canned = db.reliability[constructId];
+    if (canned) return clone(canned);
+    const k = constructList().find((x) => x.id === constructId);
+    if (!k) return notFound(`construct "${constructId}"`);
+    return {
+      constructId,
+      corpusId: P.corpora.at(-1)?.id ?? null,
+      sources: [], pairs: [], notes: [], retestAvailable: false,
+    };
   };
 
   /* -- exports -- */

@@ -30,6 +30,7 @@ import * as calibrationScreen from "./screens/calibration.js";
 import * as runsScreen from "./screens/runs.js";
 import * as workbenchScreen from "./screens/workbench.js";
 import * as disagreementScreen from "./screens/disagreement.js";
+import * as reliabilityScreen from "./screens/reliability.js";
 import * as reportsScreen from "./screens/reports.js";
 import * as settingsScreen from "./screens/settings.js";
 import * as devScreens from "./screens/devscreens.js";
@@ -41,7 +42,8 @@ const $ = (id) => document.getElementById(id);
 const SCREENS = [
   homeScreen, importScreen, instantreadScreen, briefScreen, explorerScreen,
   constructsScreen, instrumentsScreen, calibrationScreen, runsScreen,
-  workbenchScreen, disagreementScreen, reportsScreen, settingsScreen, devScreens,
+  workbenchScreen, disagreementScreen, reliabilityScreen, reportsScreen,
+  settingsScreen, devScreens,
 ];
 
 function registerScreens() {

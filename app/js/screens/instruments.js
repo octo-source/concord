@@ -21,6 +21,7 @@ import { el, clear, frag } from "../dom.js";
 import api from "../api.js";
 import * as router from "../router.js";
 import * as toast from "../components/toast.js";
+import { cite } from "../components/cite.js";
 import * as glyph from "../components/glyph.js";
 import * as ladderC from "../components/ladder.js";
 import * as pipeline from "../components/pipeline.js";
@@ -197,9 +198,12 @@ export function render(mount, params, query = {}) {
       el("strong", {}, "panel"), " is several judges that vote. Most studies start by compiling a judge from a construct."));
 
     // ?construct=<id>&compile=1 with no instrument for that construct yet →
-    // open the compile flow directly, preselected (the one-click handoff)
-    if (!params.id && query?.compile === "1" && query?.construct
-        && !instruments.some((i) => i.constructId === query.construct)) {
+    // open the compile flow directly, preselected (the one-click handoff).
+    // compile=new opens it even when instruments exist — the "+ same
+    // construct, another model" door from the Reliability home.
+    if (!params.id && query?.construct
+        && (query?.compile === "new"
+          || (query?.compile === "1" && !instruments.some((i) => i.constructId === query.construct)))) {
       openCompile(query.construct);
     }
 
@@ -283,6 +287,9 @@ function instrumentEditor(main, params, instRaw, constructs, catalog, project = 
   const stripHost = el("div", {});
   main.append(stripHost);
   let actions = null; // set below; the strip's preview action drives it
+  // the Calibrate stage's companion reading door — every agreement statistic
+  // for this construct (humans, gold, instruments, retest) in one matrix
+  const reliabilityHref = `#/p/${params.slug}/reliability/${encodeURIComponent(inst.constructId)}`;
   const paintStrip = () => {
     const level = ladderC.levelKey(inst.level);
     const hasCompleteRun = (project?.runs ?? []).some((r) => r.instrumentId === inst.id && r.status === "complete");
@@ -290,6 +297,11 @@ function instrumentEditor(main, params, instRaw, constructs, catalog, project = 
     const calibrateAction = {
       label: "Calibrate against gold →",
       onclick: (e) => openGoldFlow(e, params, inst, project, previewScope),
+    };
+    const companion = {
+      label: "Reliability →",
+      href: reliabilityHref,
+      title: "Every reading of this construct and how much the readers agree — κ, α, and the gold anchor live here",
     };
     let action;
     let secondary = null;
@@ -312,7 +324,7 @@ function instrumentEditor(main, params, instRaw, constructs, catalog, project = 
       action = { label: "Preview on 5 units", onclick: () => actions?.clickPreview() };
       secondary = calibrateAction;
     }
-    clear(stripHost).append(pipeline.render({ current: "instrument", states, action, secondary }));
+    clear(stripHost).append(pipeline.render({ current: "instrument", states, action, secondary, companion }));
   };
 
   /* -- scope bar: what this editor reads — corpus, text column, unit count.
@@ -352,8 +364,11 @@ function instrumentEditor(main, params, instRaw, constructs, catalog, project = 
         el("span", { class: "chip data" }, `v${inst.version}`),
         el("span", { class: "chip chip--ghost data", title: "Content-addressed version hash" }, String(inst.versionHash ?? "").slice(0, 10)),
         inst.stability
-          ? el("span", { class: "chip data", title: `Test–retest stability: k = ${inst.stability.k} reruns on ${inst.stability.n} units` },
-              `stability α ${fmtStat(inst.stability.alpha)}`)
+          ? el("a", {
+              class: "chip data",
+              href: reliabilityHref,
+              title: `Test–retest stability: k = ${inst.stability.k} reruns on ${inst.stability.n} units — open the construct's reliability matrix`,
+            }, `stability α ${fmtStat(inst.stability.alpha)}`)
           : null,
         inst.frozen ? el("span", { class: "chip chip--gold" }, "frozen — edits fork") : null)),
     el("div", { class: "editor__headactions" }, saveBtn),
@@ -371,7 +386,7 @@ function instrumentEditor(main, params, instRaw, constructs, catalog, project = 
 
   /* -- certificate (frozen) -- */
   if (inst.certificate) {
-    main.append(section("Calibration certificate", certificateCard(inst.certificate)));
+    main.append(section("Calibration certificate", certificateCard(inst.certificate, { reliabilityHref })));
   }
 
   /* -- silver curve, if any -- */
@@ -812,7 +827,7 @@ function familyOf(j) {
 
 /* ================= shared cards ===================================================== */
 
-function certificateCard(cert) {
+function certificateCard(cert, { reliabilityHref = null } = {}) {
   const a = cert.agreement ?? {};
   return el("div", { class: "certificate" },
     el("p", { class: "certificate__seal", aria: { hidden: "true" } }, "●"),
@@ -820,12 +835,16 @@ function certificateCard(cert) {
       kv("Frozen", fmtDateTime(cert.frozenAt)),
       kv("Against gold", el("span", { class: "data" }, cert.goldsetId ?? "—")),
       kv("Agreement", markedValue(`κ = ${fmtStat(a.kappa)} · α = ${fmtStat(a.alpha)} · AC1 = ${fmtStat(a.ac1)}`, "calibrated"),
+        cite("gwet2014"),
         a.ci ? el("span", { class: "faint data" }, ` 95% CI [${fmtStat(a.ci.lo)}, ${fmtStat(a.ci.hi)}] · n = ${a.n}`) : null),
       kv("Human–human", cert.humanAgreement
         ? el("span", { class: "data" }, `κ = ${fmtStat(cert.humanAgreement.kappa)} · α = ${fmtStat(cert.humanAgreement.alpha)} (n = ${cert.humanAgreement.n})`)
         : "—"),
       kv("Version", el("span", { class: "data" }, String(cert.versionHash ?? "").slice(0, 16))),
       kv("Model pinned", cert.modelPinned ? "yes — snapshot recorded" : "no — stated plainly in methods"),
+      reliabilityHref
+        ? kv("All sources", el("a", { href: reliabilityHref }, "the construct's reliability matrix →"))
+        : null,
     ),
     a.perClass?.length
       ? el("table", { class: "table table--mini" },
@@ -951,7 +970,9 @@ function actionRow(main, params, inst, { onPreviewed, previewScope = null } = {}
         clear(out).append(el("p", { class: "screen__hint" },
           markedValue(`test–retest α = ${fmtStat(res.alpha)}`, res.pass ? "stabilized" : "exploratory"),
           " ",
-          res.pass ? el("span", {}, "— stable with itself. ", el("strong", {}, "◑ earned.")) : el("span", {}, "— below the .80 bar; the instrument wobbles on rereads.")));
+          res.pass
+            ? el("span", {}, "— stable with itself. ", el("strong", {}, "◑ earned."))
+            : el("span", {}, "— below the .80 bar (Krippendorff's reliable threshold", cite("krippendorff2004"), "); the instrument wobbles on rereads.")));
         if (res.pass) toast.success("Stability passed — instrument is ◑.", { detail: `α = ${fmtStat(res.alpha)}`, data: true });
         await refreshProject(params.slug).catch(() => {});
       } catch (err) {

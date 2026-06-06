@@ -944,6 +944,53 @@ test("panels: strict mode offers only local candidates to the Director", async (
   assert.equal(new Set(rec.families).size, 3, "local families still disjoint");
 });
 
+// Same June 2026 field bug as the compiler floor test above, panel edition:
+// recommendPanel builds REAL juror payloads, so juror budgets must tolerate
+// reasoning-model thinking tokens too. The budgets must be the compiler's
+// exported CLASS_MAX_TOKENS — a private copy in panels.js is how the bug
+// shipped (compiler raised, panels stale, Gemini Flash jurors truncated and
+// quarantined silently).
+test("panels: juror budgets are compiler's CLASS_MAX_TOKENS (small ≥1024, mid ≥1536, frontier ≥2048)", async () => {
+  const compiler = await import("../../server/director/compiler.js");
+  const canonical = compiler.CLASS_MAX_TOKENS;
+  assert.ok(canonical, "compiler.js must export CLASS_MAX_TOKENS — the single source juror budgets import");
+  const floors = { small: 1024, mid: 1536, frontier: 2048 };
+  for (const [workerClass, floor] of Object.entries(floors)) {
+    assert.ok(
+      canonical[workerClass] >= floor,
+      `canonical ${workerClass} budget ${canonical[workerClass]} must be ≥ ${floor}: thinking tokens bill against max_tokens`,
+    );
+  }
+
+  const project = await makeProject({ handler: "t-panel-budget" });
+  const construct = binaryConstruct();
+  getAdapter(project, "openrouter").adapter.catalog = async () => [];
+  getAdapter(project, "ollama").adapter.catalog = async () => [];
+  mock.setHandler("t-panel-budget", () => ({
+    jurors: [
+      { provider: "anthropic", model: "claude-sonnet-4-6", workerClass: "frontier" },
+      { provider: "openai", model: "gpt-5.2-mini", workerClass: "mid" },
+      { provider: "mock", model: "mock-1", workerClass: "small" },
+    ],
+    aggregation: "majority",
+    rationale: "one juror per worker class so every budget is pinned",
+  }));
+  const rec = await recommendPanel(project, construct, {
+    outputSchemaFor: () => ({ type: "binary", options: ["yes", "no"] }),
+  });
+  assert.equal(rec.payload.jurors.length, 3);
+  for (const j of rec.payload.jurors) {
+    assert.equal(
+      j.params.maxTokens, canonical[j.workerClass],
+      `${j.workerClass} juror budget must be the canonical CLASS_MAX_TOKENS.${j.workerClass}, not a stale private copy`,
+    );
+    assert.ok(
+      j.params.maxTokens >= floors[j.workerClass],
+      `${j.workerClass} juror budget ${j.params.maxTokens} must be ≥ ${floors[j.workerClass]}: thinking tokens bill against max_tokens`,
+    );
+  }
+});
+
 // ---------------------------------------------------------------- escalate.js
 
 test("escalate: Director disagreement produces a marked replacement with a one-line reason; agreement returns null", async () => {
@@ -1109,6 +1156,11 @@ test("questionbar: compileQuestion produces a persisted plan; approvePlan materi
   assert.ok(plan.estimate.usd >= 0);
   assert.ok(plan.estimate.etaMin > 0, "eta present");
   assert.equal(plan.estimate.calls, 40, "estimate covers every corpus unit");
+  // estimateRun outputTokens = calls × maxTokens: the plan must budget the
+  // canonical small-class floor (≥1024 — thinking tokens bill against
+  // max_tokens), not the pre-June-2026 256 that understated cost ~4x.
+  assert.ok(plan.estimate.outputTokens >= 40 * 1024,
+    `plan estimate must use the canonical small-class budget (≥1024/call); got ${plan.estimate.outputTokens} output tokens for 40 calls`);
   assert.equal(plan.analysis.kind, "crosstab");
   createAnalysis({ kind: plan.analysis.kind, spec: plan.analysis.spec }); // spec is materializable
 

@@ -59,6 +59,7 @@ export function render(mount, params, query) {
         actions: [el("button", { class: "btn btn--primary", type: "button", onclick: () => draftWithDirector(params) }, `${glyph.GLYPH} Draft with Director`)],
       }));
     } else {
+      const project = store.get("project");
       for (const k of constructs) {
         list.append(el("a", {
           class: `listitem${selected?.id === k.id ? " listitem--active" : ""}`,
@@ -70,6 +71,17 @@ export function render(mount, params, query) {
             el("span", { class: "chip" }, k.type),
             k.categories?.length ? el("span", { class: "chip chip--ghost data" }, `${k.categories.length} categories`) : null),
         ));
+        // once anything reads this construct — an instrument or a gold set —
+        // its agreement story has a home; the quiet door to it lives here
+        const hasReadings = (project?.instruments ?? []).some((i) => i.constructId === k.id)
+          || (project?.goldsets ?? []).some((g) => g.constructId === k.id);
+        if (hasReadings) {
+          list.append(el("a", {
+            class: "listitem__aux",
+            href: `#/p/${params.slug}/reliability/${encodeURIComponent(k.id)}`,
+            title: "Every reading of this construct — humans, gold, instruments — and how much they agree",
+          }, "reliability →"));
+        }
       }
     }
     split.append(list);

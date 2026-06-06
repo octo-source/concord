@@ -122,6 +122,24 @@ export async function readCorpusUnits(slug, corpusId, opts = {}) {
   return readNdjson(corpusUnitsFile(slug, corpusId), opts);
 }
 
+// The REAL metadata column names of a unit set (union of meta keys, first-
+// seen order). The single definition of "a real column" shared by the
+// corpora columns endpoint and stratified-sampling validation — never a
+// hardcoded demo list.
+export function metaColumnNames(units) {
+  const names = [];
+  const seen = new Set();
+  for (const u of units) {
+    for (const k of Object.keys(u.meta ?? {})) {
+      if (!seen.has(k)) {
+        seen.add(k);
+        names.push(k);
+      }
+    }
+  }
+  return names;
+}
+
 // Resolve units by id across one corpus (when known) or every corpus.
 export async function unitsById(project, ids, { corpusId } = {}) {
   const want = new Set(ids);

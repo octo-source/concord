@@ -32,7 +32,10 @@ import {
 // and the engine quarantined them silently (June 2026 field bug). judgeUnit's
 // per-call truncation retry (ONE doubling, capped at 8192) covers the tail of
 // unusually long thinking; these floors cover the typical case.
-const CLASS_MAX_TOKENS = { frontier: 2048, mid: 1536, small: 1024 };
+//
+// SINGLE OWNER: panels.js (real juror payloads) and questionbar.js (plan cost
+// estimates) import this — private copies are how the field bug shipped.
+export const CLASS_MAX_TOKENS = { frontier: 2048, mid: 1536, small: 1024 };
 
 // outputSchemaFor lives in the sibling server/instruments/judge.js (pinned:
 // outputSchemaFor(construct) → OutputSchema). It is injectable so Director

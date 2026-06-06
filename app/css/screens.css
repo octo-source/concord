@@ -1503,3 +1503,128 @@
 
 /* reduced motion: the few screen animations defer to the token-level kill switch
    in tokens.css (animation/transition forced to 1ms) — nothing extra needed. */
+
+/* ---- reliability home — where kappa lives --------------------------------------------------- */
+
+/* the small reliability door under a construct's list row */
+.listitem__aux {
+  display: block;
+  margin: -2px 0 var(--s1);
+  padding: 0 var(--s3) var(--s1);
+  font-family: var(--font-mono);
+  font-size: var(--fs-micro);
+  color: var(--ink-faint);
+  text-align: right;
+  text-decoration: none;
+  transition: color var(--t-fast) var(--ease);
+}
+.listitem__aux:hover { color: var(--accent-hover); text-decoration: none; }
+
+/* vs-gold headline rows */
+.vsgold { display: flex; flex-direction: column; gap: var(--s3); max-width: 46rem; }
+.vsgold__row {
+  display: grid;
+  grid-template-columns: minmax(10rem, 1.4fr) auto minmax(8rem, 1fr) auto;
+  align-items: center;
+  gap: var(--s3);
+  padding: var(--s2) 0;
+  border-bottom: var(--rule);
+}
+.vsgold__name { display: flex; align-items: baseline; gap: var(--s2); font-size: var(--fs-caption); color: var(--ink); flex-wrap: wrap; }
+.vsgold__runlink { font-size: var(--fs-micro); color: var(--ink-faint); }
+.vsgold__stat { font-size: 1.1rem; white-space: nowrap; }
+.vsgold__stat--high { color: var(--accent); }
+.vsgold__stat--mid { color: var(--gold-text); }
+.vsgold__stat--low { color: var(--signal-text); }
+.vsgold__band .band { max-width: 14rem; }
+.vsgold__band .band__ticks { height: 1em; }
+.vsgold__sub { white-space: nowrap; }
+@media (max-width: 760px) {
+  .vsgold__row { grid-template-columns: 1fr auto; }
+  .vsgold__band { display: none; }
+}
+
+/* matrix + side panel */
+.relsplit { display: grid; grid-template-columns: minmax(0, 1fr) minmax(16rem, 21rem); gap: var(--s5); align-items: start; }
+@media (max-width: 900px) { .relsplit { grid-template-columns: 1fr; } }
+.relsplit__main { min-width: 0; overflow-x: auto; }
+
+.relmatrix-wrap { margin: 0; display: inline-block; }
+.relmatrix { border-collapse: separate; border-spacing: 2px; }
+.relmatrix__corner { padding: 0; }
+.relmatrix__collabel, .relmatrix__rowlabel {
+  font-size: var(--fs-micro);
+  font-weight: 400;
+  color: var(--ink-muted);
+  padding: var(--s1) var(--s2);
+  vertical-align: bottom;
+}
+.relmatrix__collabel { text-align: center; max-width: 8.5rem; }
+.relmatrix__rowlabel { text-align: right; white-space: nowrap; }
+.relmatrix__collabel .chip, .relmatrix__rowlabel .chip { margin-left: 0.35em; }
+.relmatrix__label--gold { color: var(--gold-text); font-weight: 600; }
+.relmatrix__td { padding: 0; }
+.relcell {
+  display: grid;
+  place-items: center;
+  gap: 1px;
+  width: 72px;
+  height: 52px;
+  border-radius: var(--r-sm);
+  background: color-mix(in oklab, var(--machine) var(--tint, 0%), var(--paper-raised));
+  border: 1px solid var(--rule-color);
+  transition: box-shadow var(--t-fast) var(--ease), border-color var(--t-fast) var(--ease);
+}
+.relcell:hover { border-color: var(--accent); box-shadow: 0 0 0 1px var(--accent); }
+.relcell--gold {
+  background: color-mix(in oklab, var(--gold) var(--tint, 0%), var(--paper-raised));
+  border-color: color-mix(in oklab, var(--gold) 55%, var(--rule-color));
+}
+.relcell--gold:hover { border-color: var(--gold); box-shadow: 0 0 0 1px var(--gold); }
+.relcell--empty {
+  border: 1px dashed var(--rule-color);
+  background: transparent;
+  cursor: default;
+  color: var(--ink-ghost);
+}
+.relcell__value { font-size: var(--fs-data); color: var(--ink); font-weight: 500; }
+.relcell__sub { font-size: 0.625rem; color: var(--ink-faint); }
+.relmatrix__caption { display: flex; flex-direction: column; gap: 2px; margin-top: var(--s2); font-size: var(--fs-micro); }
+.relmatrix__legend { margin-top: var(--s3); font-size: var(--fs-caption); max-width: 60ch; }
+
+.relpanel {
+  padding: var(--s4);
+  border: var(--rule);
+  border-radius: var(--r-md);
+  background: var(--paper-raised);
+  position: sticky;
+  top: var(--s4);
+}
+.relpanel__title { font-family: var(--font-serif); font-size: var(--fs-section); font-weight: 600; margin-bottom: var(--s3); }
+.relpanel__hint { font-size: var(--fs-caption); }
+.relpanel__link { margin-top: var(--s3); font-size: var(--fs-caption); }
+.relpanel__note { margin-top: var(--s3); font-size: var(--fs-micro); }
+.relpanel .band { max-width: 100%; margin-top: var(--s3); }
+
+.relteach { display: flex; align-items: center; gap: var(--s3); font-size: var(--fs-caption); flex-wrap: wrap; }
+.relteach--quiet { font-size: var(--fs-caption); }
+
+/* calibration sample pane: planning-precision reference rows */
+.planrows { display: flex; flex-direction: column; gap: 2px; max-width: 30rem; margin: var(--s2) 0; }
+.planrow {
+  display: grid;
+  grid-template-columns: 6rem 5rem 1fr;
+  gap: var(--s3);
+  padding: var(--s1) 0;
+  border-bottom: var(--rule);
+  font-size: var(--fs-caption);
+}
+.planrow__hw { color: var(--ink); font-weight: 500; }
+.planrow__note { font-size: var(--fs-micro); }
+
+/* a design choice that cannot apply yet (e.g. stratified without categorical columns) */
+.choice--disabled { opacity: 0.55; }
+.choice--disabled .choice__hint { color: var(--ink-faint); }
+
+/* the test pane's door to the construct-wide reliability matrix */
+.testpane__allsources { display: flex; align-items: baseline; gap: var(--s2); flex-wrap: wrap; }

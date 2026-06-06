@@ -195,6 +195,13 @@ export const corpora = {
   units: (p, c, params = {}) => get_(`${P(p)}/corpora/${encodeURIComponent(c)}/units`, { query: params }),
   instantRead: (p, c) => get_(`${P(p)}/corpora/${encodeURIComponent(c)}/instantread`),
   /**
+   * The corpus's real metadata columns → {columns: [{name, role, distinct,
+   * missing, values?: [{value, n}]}]} (the unit-text column is excluded).
+   * Every variable picker (crosstab, model, subgroup, stratify) reads THIS,
+   * never a hardcoded list.
+   */
+  columns: (p, c) => get_(`${P(p)}/corpora/${encodeURIComponent(c)}/columns`),
+  /**
    * Re-unitize from a different column → {corpusId, unitCount, junk,
    * textColumn, skipped}. Builds a NEW corpus (the original is kept);
    * `skipped` counts source rows empty in the chosen column.
@@ -356,6 +363,18 @@ export const evidence = {
   get: (p, unitId) => get_(`${P(p)}/evidence/${encodeURIComponent(unitId)}`),
 };
 
+export const reliability = {
+  /**
+   * Every way one construct has been read, and how much the readers agree:
+   * {constructId, corpusId, sources: [{key, label, kind: instrument|gold|
+   * coder|retest, n, runId?, level?}], pairs: [{a, b, n, percent, kappa,
+   * alpha}], notes: [string], retestAvailable?: false}. Backs the
+   * Reliability home (#/p/:slug/reliability/:cid).
+   */
+  get: (p, constructId, { corpusId } = {}) =>
+    get_(`${P(p)}/reliability/${encodeURIComponent(constructId)}`, { query: { corpusId } }),
+};
+
 export const exports = {
   methods: (p) => get_(`${P(p)}/exports/methods`),
   /** Raw-stream endpoints (zip / standalone HTML) — link or download directly. */
@@ -385,7 +404,7 @@ export const health = () => get_("/api/health");
 
 export const api = {
   projects, imports, corpora, brief, questionbar, constructs, instruments,
-  goldsets, runs, analyses, evidence, exports, catalog, settings, health,
+  goldsets, runs, analyses, evidence, reliability, exports, catalog, settings, health,
 };
 
 export default api;

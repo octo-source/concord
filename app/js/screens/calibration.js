@@ -13,6 +13,7 @@
 import { el, clear } from "../dom.js";
 import api from "../api.js";
 import * as toast from "../components/toast.js";
+import { cite } from "../components/cite.js";
 import * as confusion from "../components/confusion.js";
 import * as quotecard from "../components/quotecard.js";
 import * as ladderC from "../components/ladder.js";
@@ -84,8 +85,15 @@ export function render(mount, params, query) {
       api.goldsets.get(params.slug, params.gid),
       api.constructs.list(params.slug).catch(() => []),
     ]);
-    return { project, goldset, construct: constructs.find((c) => c.id === goldset.constructId) };
-  }, ({ project, goldset, construct }) => {
+    // the Sample pane's stratify picker lists the corpus's REAL categorical
+    // columns — fetched here so the pane never invents variables
+    const columns = goldset.corpusId
+      ? await api.corpora.columns(params.slug, goldset.corpusId)
+          .then((res) => res?.columns ?? [])
+          .catch(() => [])
+      : [];
+    return { project, goldset, construct: constructs.find((c) => c.id === goldset.constructId), columns };
+  }, ({ project, goldset, construct, columns }) => {
     if (!state.pane) {
       state.pane = goldset.status === "sampling" || !goldset.sample?.length ? "sample"
         : goldset.status === "coding" ? "code"
@@ -125,7 +133,7 @@ export function render(mount, params, query) {
         btn.setAttribute("aria-selected", btn.dataset.pane === state.pane ? "true" : "false");
         btn.classList.toggle("panetab--active", btn.dataset.pane === state.pane);
       }
-      if (state.pane === "sample") samplePane(paneHost, params, goldset, construct);
+      if (state.pane === "sample") samplePane(paneHost, params, goldset, construct, { columns, project });
       else if (state.pane === "code") codePane(paneHost, params, goldset, construct);
       else if (state.pane === "test") testPane(paneHost, params, goldset);
       else adjudicatePane(paneHost, params, goldset, construct, disagreements);
@@ -165,10 +173,67 @@ export function render(mount, params, query) {
 
 /* ================= Sample ============================================================ */
 
-function samplePane(host, params, goldset, construct) {
+/**
+ * Planning half-width on κ at 95% — the LARGE-SAMPLE approximation (Cohen
+ * 1960 SE; Donner & Eliasziw 1992 for design): hw = 1.96·√(po(1−po)) /
+ * (√n·(1−pe)), with po = κ·(1−pe)+pe at the planning κ. Pure and exported so
+ * the numbers are probeable under node. Returns null when undefined.
+ */
+export function planningHalfWidth(n, pe, kappa = 0.75) {
+  if (!Number.isFinite(n) || n <= 0 || !Number.isFinite(pe) || pe < 0 || pe >= 1) return null;
+  const po = kappa * (1 - pe) + pe;
+  return (1.96 * Math.sqrt(po * (1 - po))) / (Math.sqrt(n) * (1 - pe));
+}
+
+/**
+ * Chance agreement pe for the planning approximation. Label shares from the
+ * construct's latest run when one carries them (pe = Σp̂ᵢ²); else binary
+ * defaults to p̂ = .5 (pe = .5) and k categories to uniform shares (pe = 1/k).
+ * → {pe, source: "run"|"default"|"uniform", k, runId?}
+ */
+export function planningPe(construct, run = null) {
+  const k = Math.max(2, construct?.categories?.length ?? 2);
+  const dist = run?.labelDist ?? run?.checkpoint?.labelDist ?? null;
+  if (dist && typeof dist === "object") {
+    const counts = Object.values(dist).map((x) => Number(x) || 0);
+    const total = counts.reduce((s, x) => s + x, 0);
+    if (total > 0) {
+      const pe = counts.reduce((s, x) => s + (x / total) ** 2, 0);
+      return { pe, source: "run", k, runId: run?.id };
+    }
+  }
+  return k === 2 ? { pe: 0.5, source: "default", k } : { pe: 1 / k, source: "uniform", k };
+}
+
+/** The construct's most recent run (complete preferred) — for label shares. */
+function latestRunForConstruct(project, constructId) {
+  const instIds = new Set((project?.instruments ?? [])
+    .filter((i) => i.constructId === constructId).map((i) => i.id));
+  const runs = (project?.runs ?? []).filter((r) => instIds.has(r.instrumentId));
+  return [...runs].reverse().find((r) => r.status === "complete") ?? runs.at(-1) ?? null;
+}
+
+function samplePane(host, params, goldset, construct, { columns = [], project = null } = {}) {
   let design = goldset.design ?? "srs";
   let n = goldset.sample?.length || 150;
-  let strata = "dept";
+  const categoricalCols = (columns ?? []).filter((c) => c.role === "categorical");
+  let strata = categoricalCols[0]?.name ?? null;
+
+  const goldCorpus = (project?.corpora ?? []).find((c) => c.id === goldset.corpusId) ?? null;
+  const populationN = goldset.populationN ?? goldCorpus?.unitCount ?? null;
+
+  /* -- why a sample is enough — the contract, with live numbers -- */
+  const nOfPop = el("strong", { class: "data" });
+  const paintScale = () => {
+    nOfPop.textContent = populationN !== null && populationN !== undefined
+      ? `${fmtCount(n)} of ${fmtCount(populationN)}`
+      : `${fmtCount(n)}`;
+  };
+  paintScale();
+  host.append(section("Why a sample is enough",
+    el("p", { class: "screen__hint" },
+      "You code a ", el("strong", {}, "sample"), ", not the corpus: ", nOfPop,
+      " units. Because the sample is drawn with known inclusion probabilities (π), agreement statistics and corrected estimates from it are honest about the whole corpus.")));
 
   if (goldset.sample?.length) {
     host.append(section("Current sample",
@@ -178,41 +243,86 @@ function samplePane(host, params, goldset, construct) {
       el("p", { class: "faint screen__hint" }, goldset.piNote ?? "Inclusion probabilities are stored at sampling time — they are what make design-based correction (◉) possible later.")));
   }
 
-  const guidance = el("p", { class: "screen__hint" },
-    "Guidance: ~100–200 units for a binary construct at moderate prevalence; more for many categories or rare classes. The price is stated where the level-up is offered, never demanded.");
+  /* -- planning precision: what this n buys, recomputed as n changes -- */
+  const run = latestRunForConstruct(project, goldset.constructId);
+  const { pe, source, k, runId } = planningPe(construct, run);
+  const hwText = (size) => {
+    const hw = planningHalfWidth(size, pe);
+    return hw === null ? "—" : `±${fmtStat(hw)}`;
+  };
+  const precisionLive = el("p", { class: "screen__hint", aria: { live: "polite" } });
+  const paintPrecision = () => {
+    clear(precisionLive).append(
+      "At n = ", el("span", { class: "data" }, fmtCount(n)),
+      ", a κ of .75 measured on this sample lands within ",
+      el("strong", { class: "data" }, hwText(n)),
+      " of the corpus truth (95%).");
+  };
+  paintPrecision();
+  const peLine = source === "run"
+    ? el("p", { class: "screen__hint faint" },
+        "Label shares from run ", el("span", { class: "data" }, runId ?? "—"),
+        ` set the chance-agreement term (pe = ${fmtStat(pe)}).`)
+    : el("p", { class: "screen__hint faint" },
+        k === 2
+          ? `No run has measured this construct yet — assuming a 50/50 label split (pe = ${fmtStat(pe)}).`
+          : `No run has measured this construct yet — assuming uniform shares over ${k} categories (pe = ${fmtStat(pe)}).`);
 
+  host.append(section("What a given n buys",
+    precisionLive,
+    el("ul", { class: "planrows", role: "list" },
+      ...[100, 150, 300].map((size) => el("li", { class: "planrow" },
+        el("span", { class: "data planrow__n" }, `n = ${size}`),
+        el("span", { class: "data planrow__hw" }, hwText(size)),
+        el("span", { class: "planrow__note faint" },
+          size === 150 ? "the usual gold-set size" : size === 300 ? "rare classes, many categories" : "quick anchor")))),
+    peLine,
+    el("p", { class: "screen__hint faint" },
+      "Planning approximation (Cohen 1960 large-sample SE", cite("cohen1960"), cite("donner1992"),
+      "); the Test pane reports exact bootstrap CIs after coding.")));
+
+  /* -- design — all three code a subset; π is recorded in every case -- */
+  const strataExample = categoricalCols[0]?.name ?? "group";
   const designs = [
-    { value: "srs", label: "Simple random", hint: "every unit equally likely — the default, and the cleanest π" },
-    { value: "stratified", label: "Stratified", hint: "guarantee coverage across a metadata split (π varies by stratum, stored per unit)" },
-    { value: "uncertainty", label: "Uncertainty", hint: "oversample where the current instrument is least sure — efficient, π still recorded" },
+    { value: "srs", label: "Simple random", hint: "every unit equally likely — the cleanest π" },
+    { value: "stratified", label: "Stratified", hint: `guarantees coverage across a metadata split (e.g., every ${strataExample} appears); π varies by stratum, stored per unit`, needsColumns: true },
+    { value: "uncertainty", label: "Uncertainty", hint: "oversamples units the instrument is least sure about — efficient for finding failure modes; π still recorded" },
   ];
   const strataSelect = el("select", {
-    class: "input input--inline", "aria-label": "Stratify by", disabled: design !== "stratified",
+    class: "input input--inline", "aria-label": "Stratify by — the corpus's categorical columns",
+    disabled: design !== "stratified" || !categoricalCols.length,
     onchange: (e) => { strata = e.target.value; },
-  }, ...["dept", "region", "satisfaction", "tenure_years"].map((k) => el("option", { value: k }, k)));
+  }, ...(categoricalCols.length
+    ? categoricalCols.map((c, i) => el("option", { value: c.name, selected: i === 0 },
+        `${c.name} — categorical · ${fmtCount(c.distinct)} values`))
+    : [el("option", { value: "", disabled: true, selected: true }, "no categorical columns detected")]));
 
   host.append(section("Design",
+    el("p", { class: "screen__hint faint" }, "All three designs code a subset."),
     el("div", { class: "choicelist", role: "radiogroup", aria: { label: "Sampling design" } },
-      ...designs.map((d) =>
-        el("label", { class: "choice" },
+      ...designs.map((d) => {
+        const blocked = d.needsColumns && !categoricalCols.length;
+        return el("label", { class: `choice${blocked ? " choice--disabled" : ""}` },
           el("input", {
             type: "radio", name: "design", value: d.value, checked: design === d.value,
-            onchange: () => { design = d.value; strataSelect.disabled = design !== "stratified"; },
+            disabled: blocked,
+            title: blocked ? "needs a categorical metadata column — none detected on this corpus" : null,
+            onchange: () => { design = d.value; strataSelect.disabled = design !== "stratified" || !categoricalCols.length; },
           }),
           el("span", { class: "choice__text" },
             el("span", { class: "choice__label" }, d.label),
-            el("span", { class: "choice__hint" }, d.hint))))),
+            el("span", { class: "choice__hint" }, blocked ? `${d.hint} — needs a categorical column; none detected` : d.hint)));
+      })),
     el("div", { class: "controlrow" },
       el("label", { class: "controlrow__item" },
         el("span", { class: "overline" }, "n"),
         el("input", {
           class: "input input--num", type: "number", min: 20, max: 2000, value: n,
           "aria-label": "Sample size",
-          onchange: (e) => { n = Number(e.target.value); },
+          oninput: (e) => { n = Number(e.target.value); paintScale(); paintPrecision(); },
         })),
       el("label", { class: "controlrow__item" },
         el("span", { class: "overline" }, "stratify by"), strataSelect)),
-    guidance,
     el("p", { class: "screen__hint faint" },
       "π note: every sampled unit records its inclusion probability. DSL consumes π; the methods section reports the design verbatim."),
     el("button", {
@@ -221,8 +331,8 @@ function samplePane(host, params, goldset, construct) {
         e.target.disabled = true;
         try {
           // live response: {goldsetId, design, n, sample: [{unitId, pi}]}
-          const res = await api.goldsets.sample(params.slug, goldset.id, { design, n, strata: design === "stratified" ? { by: strata } : undefined });
-          toast.success(`Sampled ${fmtCount(res.n ?? n)} units with π stored.`, { detail: `${res.design ?? design}${design === "stratified" ? ` by ${strata}` : ""}`, data: true });
+          const res = await api.goldsets.sample(params.slug, goldset.id, { design, n, strata: design === "stratified" && strata ? { by: strata } : undefined });
+          toast.success(`Sampled ${fmtCount(res.n ?? n)} units with π stored.`, { detail: `${res.design ?? design}${design === "stratified" && strata ? ` by ${strata}` : ""}`, data: true });
           window.dispatchEvent(new HashChangeEvent("hashchange"));
         } catch (err) {
           e.target.disabled = false;
@@ -526,6 +636,12 @@ function testPane(host, params, goldset) {
     .then((report) => {
       clear(wrap);
 
+      /* -- where κ lives for the whole construct: the Reliability home -- */
+      wrap.append(el("p", { class: "screen__hint testpane__allsources" },
+        el("a", { href: `#/p/${params.slug}/reliability/${encodeURIComponent(goldset.constructId)}` },
+          "all sources →"),
+        el("span", { class: "faint" }, " every reading of this construct — humans, gold, instruments — in one agreement matrix")));
+
       /* -- human first, always -- */
       const h = report.humanAgreement ?? {};
       wrap.append(el("div", { class: "humanbanner" },
@@ -585,6 +701,8 @@ function testPane(host, params, goldset) {
         cols.append(col);
       }
       wrap.append(section("Instruments against gold", cols,
+        el("p", { class: "screen__hint faint" },
+          "AC1 rides beside κ and α because it stays stable under prevalence paradoxes — skewed label shares that crater κ", cite("gwet2014"), "."),
         report.goldLabeled !== undefined
           ? el("p", { class: "faint screen__hint data" }, `${fmtCount(report.goldLabeled)} gold units (adjudicated or consensus) backed this comparison`)
           : null));
@@ -597,21 +715,40 @@ function testPane(host, params, goldset) {
     });
 }
 
-/** The benchmark band — context, never verdict. */
-function benchmarkBand(alpha, ci) {
-  if (alpha === undefined || alpha === null) return null;
+/**
+ * The benchmark band — context, never verdict. stat picks the convention:
+ *   "α" (default) — Krippendorff's working bands: .667 tentative, .800 reliable;
+ *   "κ" — Landis & Koch: .61–.80 substantial, .81–1.00 almost perfect.
+ * legend: false suppresses the per-band legend (the reliability matrix
+ * carries ONE cited legend for the whole surface instead). Exported — the
+ * Reliability home composes the same band.
+ */
+export function benchmarkBand(value, ci, { stat = "α", legend = true } = {}) {
+  if (value === undefined || value === null) return null;
+  const kappaBands = stat === "κ";
+  const lo = kappaBands ? 0.61 : 0.67;
+  const hi = kappaBands ? 0.81 : 0.8;
+  const loTick = kappaBands ? ".61" : ".67";
+  const hiTick = kappaBands ? ".81" : ".80";
+  const legendLine = kappaBands
+    ? ["Landis & Koch's bands — κ .61–.80 substantial · .81–1.00 almost perfect", cite("landiskoch1977"), ". Context, never a gate."]
+    : ["Krippendorff's working bands — α ≥ .800 reliable · .667–.800 tentative", cite("krippendorff2004"), ". Context, never a gate."];
   const pct = (x) => `${Math.max(0, Math.min(100, x * 100))}%`;
-  return el("div", { class: "band", role: "img", aria: { label: `Alpha ${fmtStat(alpha)} against Krippendorff's working bands: .67 tentative, .80 reliable.` } },
+  return el("div", { class: "band", role: "img", aria: {
+    label: kappaBands
+      ? `Kappa ${fmtStat(value)} against Landis & Koch's bands: .61 substantial, .81 almost perfect.`
+      : `Alpha ${fmtStat(value)} against Krippendorff's working bands: .67 tentative, .80 reliable.`,
+  } },
     el("div", { class: "band__track" },
-      el("span", { class: "band__zone band__zone--low", style: { left: 0, width: pct(0.67) } }),
-      el("span", { class: "band__zone band__zone--mid", style: { left: pct(0.67), width: pct(0.13) } }),
-      el("span", { class: "band__zone band__zone--high", style: { left: pct(0.8), width: pct(0.2) } }),
+      el("span", { class: "band__zone band__zone--low", style: { left: 0, width: pct(lo) } }),
+      el("span", { class: "band__zone band__zone--mid", style: { left: pct(lo), width: pct(hi - lo) } }),
+      el("span", { class: "band__zone band__zone--high", style: { left: pct(hi), width: pct(1 - hi) } }),
       ci ? el("span", { class: "band__ci", style: { left: pct(ci.lo), width: pct(Math.max(0.005, ci.hi - ci.lo)) } }) : null,
-      el("span", { class: "band__needle", style: { left: pct(alpha) } })),
+      el("span", { class: "band__needle", style: { left: pct(value) } })),
     el("div", { class: "band__ticks data" },
-      el("span", { style: { left: pct(0.67) }, class: "band__tick" }, ".67"),
-      el("span", { style: { left: pct(0.8) }, class: "band__tick" }, ".80")),
-    el("p", { class: "band__legend faint" }, "Krippendorff's working bands — α ≥ .80 reliable · .67–.80 tentative. Context, never a gate."));
+      el("span", { style: { left: pct(lo) }, class: "band__tick" }, loTick),
+      el("span", { style: { left: pct(hi) }, class: "band__tick" }, hiTick)),
+    legend ? el("p", { class: "band__legend faint" }, ...legendLine) : null);
 }
 
 /* ================= Adjudicate ========================================================== */

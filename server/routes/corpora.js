@@ -241,6 +241,48 @@ async function computeInstantRead(slug, corpusId) {
   };
 }
 
+// ----------------------------------------------------------------- columns
+
+// The corpus's REAL variable list (contract for pickers, stratification and
+// the workbench): mapping.detect over the units' metadata, sampled at most
+// COLUMNS_SAMPLE_LIMIT units for speed, cached on the corpus entry like
+// instantread (recomputed only on absence). The corpus's text column is NOT
+// in the list — it is the unit text, not a variable. Categorical columns
+// carry their top values [{value, n}] so the UI never invents demo columns.
+const COLUMNS_SAMPLE_LIMIT = 2000;
+const COLUMNS_TOP_VALUES = 8;
+
+const isBlankMetaValue = (v) => v === null || v === undefined || String(v).trim() === "";
+
+async function computeColumns(slug, corpusId, corpus) {
+  const units = await readCorpusUnits(slug, corpusId, { limit: COLUMNS_SAMPLE_LIMIT });
+  if (units.length === 0) {
+    throw new ConcordError("VALIDATION", `corpus '${corpusId}' has no units`, { corpusId });
+  }
+  const textColumn = scopeOf(corpus).textColumn;
+  const { columns } = detect(units.map((u) => u.meta ?? {}));
+  const out = [];
+  for (const c of columns) {
+    if (c.name === textColumn) continue; // the unit text is not a variable
+    const entry = { name: c.name, role: c.role, distinct: c.stats.distinct, missing: c.stats.missing };
+    if (c.role === "categorical") {
+      const counts = new Map();
+      for (const u of units) {
+        const v = u.meta?.[c.name];
+        if (isBlankMetaValue(v)) continue;
+        const key = String(v);
+        counts.set(key, (counts.get(key) ?? 0) + 1);
+      }
+      entry.values = [...counts.entries()]
+        .sort((a, b) => b[1] - a[1] || (a[0] < b[0] ? -1 : 1))
+        .slice(0, COLUMNS_TOP_VALUES)
+        .map(([value, n]) => ({ value, n }));
+    }
+    out.push(entry);
+  }
+  return { columns: out, sampledUnits: units.length, computedAt: new Date().toISOString() };
+}
+
 // ----------------------------------------------------- the brief's price tag
 
 // Design §6.1: the level-up affordance always states its price. The Instant
@@ -318,6 +360,23 @@ export default [
       const units = await readCorpusUnits(params.p, params.c, { offset, limit, ...(filter ? { filter } : {}) });
       const total = (await readCorpusUnits(params.p, params.c, filter ? { filter } : {})).length;
       return { units, total, offset, limit };
+    },
+  },
+  {
+    method: "GET",
+    pattern: "/api/projects/:p/corpora/:c/columns",
+    handler: async (req, res, params) => {
+      const project = await loadProject(params.p);
+      const corpus = findOr404(project.corpora, params.c, "corpus");
+      let cached = corpus.columns; // cached in corpus meta, like instantread
+      if (!cached) {
+        cached = await computeColumns(params.p, params.c, corpus);
+        await updateProject(params.p, (p) => {
+          const c = p.corpora.find((x) => x.id === params.c);
+          if (c) c.columns = cached;
+        });
+      }
+      return { columns: cached.columns };
     },
   },
   {

@@ -18,10 +18,11 @@ import { estimateRun } from "../providers/costs.js";
 import { callDirector, readCorpusUnits, seededSample } from "./director.js";
 import { detect } from "../ingest/mapping.js";
 import { questionPrompt, QUESTION_PLAN_SCHEMA, defaultTemplate } from "./prompts.js";
-import { compileInstrument, acceptInstrument } from "./compiler.js";
+// CLASS_MAX_TOKENS (single owner: compiler.js — reasoning-model thinking
+// tokens bill against max_tokens) keeps plan cost estimates honest about the
+// output budget the compiled instruments will actually carry.
+import { compileInstrument, acceptInstrument, CLASS_MAX_TOKENS } from "./compiler.js";
 import { gatherCandidates } from "./panels.js";
-
-const CLASS_MAX_TOKENS = { frontier: 512, mid: 384, small: 256 };
 
 // compileQuestion(project, corpusId, question) → plan artifact
 export async function compileQuestion(project, corpusId, question) {

@@ -21,6 +21,7 @@ import * as ledger from "../../server/core/ledger.js";
 import { sha256 } from "../../server/core/ids.js";
 import { parse as parseCsv } from "../../server/ingest/csv.js";
 import { ConcordError } from "../../server/core/errors.js";
+import { cohenKappa, krippendorffAlpha, percentAgreement } from "../../server/stats/agreement.js";
 
 // ---------------------------------------------------------------- harness
 
@@ -566,6 +567,46 @@ test("corpora: instant read scope — derived corpus carries lineage; legacy ent
 });
 
 // =========================================================================
+// columns: the REAL variable list (no hardcoded demo names anywhere)
+// =========================================================================
+
+test("corpora: columns lists real variables with roles/distinct/missing/top values; text column absent; cached like instantread", async () => {
+  const r = await ok("GET", `/api/projects/${S.slug}/corpora/${S.corpusA}/columns`);
+  assert.ok(Array.isArray(r.columns) && r.columns.length > 0);
+  const names = r.columns.map((c) => c.name);
+  assert.ok(!names.includes("response"), "the unit-text column is NOT a variable");
+
+  const dept = r.columns.find((c) => c.name === "dept");
+  assert.ok(dept, `dept column present (got ${names.join(", ")})`);
+  assert.equal(dept.role, "categorical");
+  assert.equal(dept.distinct, 2);
+  assert.equal(dept.missing, 0);
+  assert.deepEqual(dept.values, [{ value: "ops", n: 32 }, { value: "sales", n: 32 }],
+    "top values (count desc, value asc) ride categorical columns");
+
+  const tenure = r.columns.find((c) => c.name === "tenure");
+  assert.equal(tenure.role, "numeric");
+  assert.equal(tenure.distinct, 5);
+  assert.equal(tenure.values, undefined, "values ride ONLY categorical columns");
+
+  const rid = r.columns.find((c) => c.name === "respondent_id");
+  assert.equal(rid.role, "id");
+  assert.equal(rid.distinct, 64);
+
+  // cached on the corpus entry (like instantread): the second call serves the
+  // cache instead of recomputing
+  const cached = (await getProject()).corpora.find((c) => c.id === S.corpusA).columns;
+  assert.ok(cached && Array.isArray(cached.columns), "columns cached into the corpus meta");
+  assert.equal(typeof cached.computedAt, "string");
+  const again = await ok("GET", `/api/projects/${S.slug}/corpora/${S.corpusA}/columns`);
+  assert.deepEqual(again.columns, r.columns);
+  const cached2 = (await getProject()).corpora.find((c) => c.id === S.corpusA).columns;
+  assert.equal(cached2.computedAt, cached.computedAt, "second call did not recompute");
+
+  await fail("GET", `/api/projects/${S.slug}/corpora/corp_missing00000/columns`, undefined, 404, "NOT_FOUND");
+});
+
+// =========================================================================
 // brief (SSE) + question bar
 // =========================================================================
 
@@ -926,6 +967,35 @@ test("goldsets: stratified sampling allocates proportionally with per-stratum pi
   assert.ok(pis.every((pi) => Math.abs(pi - 10 / 120) < 1e-12), `per-stratum pi (got ${pis})`);
   await ok("DELETE", `/api/projects/${S.slug}/goldsets/${gs2.id}`);
   await fail("GET", `/api/projects/${S.slug}/goldsets/${gs2.id}`, undefined, 404, "NOT_FOUND");
+});
+
+test("goldsets: stratified sampling takes ANY real meta column and 400s a bogus one, listing the real columns", async () => {
+  const gs = await ok("POST", `/api/projects/${S.slug}/goldsets`, {
+    constructId: S.constructId, tier: "gold", corpusId: S.corpusB,
+  });
+  // any REAL column works — tenure here, never a hardcoded demo name
+  const sampled = await ok("POST", `/api/projects/${S.slug}/goldsets/${gs.id}/sample`, {
+    design: "stratified", n: 20, strata: { by: "tenure" },
+  });
+  assert.equal(sampled.n, 20);
+  // tenure splits 24×10 → 2 per stratum at pi 2/24
+  const pis = [...new Set(sampled.sample.map((s) => s.pi))];
+  assert.ok(pis.every((pi) => Math.abs(pi - 2 / 24) < 1e-12), `per-stratum pi over tenure (got ${pis})`);
+
+  const err = await fail("POST", `/api/projects/${S.slug}/goldsets/${gs.id}/sample`, {
+    design: "stratified", n: 20, strata: { by: "sentiment_bucket" },
+  }, 400, "VALIDATION");
+  assert.match(err.message, /sentiment_bucket/, "the bad column is named");
+  for (const real of ["respondent_id", "dept", "tenure"]) {
+    assert.match(err.message, new RegExp(real), `real column ${real} listed`);
+  }
+  await ok("DELETE", `/api/projects/${S.slug}/goldsets/${gs.id}`);
+});
+
+test("goldsets: GET carries populationN — the corpus unit count behind the sample", async () => {
+  const gs = await ok("GET", `/api/projects/${S.slug}/goldsets/${S.goldsetId}`);
+  assert.equal(gs.populationN, 240, "you code 24 of 240 — the population is disclosed beside the sample");
+  assert.equal(gs.sample.length, 24);
 });
 
 test("freeze BEFORE agreement → 400 (human agreement comes first)", async () => {
@@ -1303,6 +1373,158 @@ test("goldsets: uncertainty sampling ranks by cached run outputs", async () => {
   assert.ok(sampled.sample.every((s) => s.pi === 10 / 240));
   await ok("PUT", `/api/projects/${S.slug}/goldsets/${gs3.id}`, { status: "coding" });
   await ok("DELETE", `/api/projects/${S.slug}/goldsets/${gs3.id}`);
+});
+
+// =========================================================================
+// reliability: the pairwise agreement matrix over every label source
+// =========================================================================
+
+test("reliability: pairwise matrix across instruments, gold and coders — κ/α/percent match direct stats computations", async () => {
+  armMock();
+  // a second instrument with a DIFFERENT oracle: agrees with inst1 on the
+  // salary class, inverts the office class → measurable, deterministic
+  // disagreement between the two model sources
+  const ORACLE2 = (text) => (String(text).includes("salary conversation") ? "no" : "yes");
+  mock().setOracle(ORACLE2);
+  const r2 = await ok("POST", `/api/projects/${S.slug}/instruments`, {
+    constructId: S.constructId,
+    kind: "judge",
+    name: "Contrarian judge",
+    payload: judgePayload("Contrarian reading. {{definition}} {{criteria}} {{examples}} {{unit}}"),
+  });
+  const { runId: runB } = await ok("POST", `/api/projects/${S.slug}/runs`, { instrumentId: r2.id, corpusId: S.corpusB });
+  const { events: evs } = await readSse(`/api/projects/${S.slug}/runs/${runB}/monitor`);
+  assert.equal(evs.find((e) => e.event === "done")?.data.status, "complete");
+  armMock(); // restore the shared ORACLE for everything downstream
+
+  // a third coder on a DISJOINT 12-unit slice (via the human queue): a
+  // qualifying source (≥10 labels) whose overlap with coder-A is 0
+  const gsC = await ok("POST", `/api/projects/${S.slug}/goldsets`, {
+    constructId: S.constructId, tier: "gold", corpusId: S.corpusB,
+  });
+  const gs1 = await ok("GET", `/api/projects/${S.slug}/goldsets/${S.goldsetId}`);
+  const inGs1 = new Set(gs1.sample.map((s) => s.unitId));
+  const slice = S.unitsB.filter((u) => !inGs1.has(u.id)).slice(0, 12);
+  for (const u of slice) {
+    await ok("POST", `/api/projects/${S.slug}/goldsets/${gsC.id}/queue`, { unitId: u.id });
+    await ok("POST", `/api/projects/${S.slug}/goldsets/${gsC.id}/label`, {
+      coder: "coder-C", unitId: u.id, label: ORACLE(u.text),
+    });
+  }
+
+  const ledgerBefore = (await events()).length;
+  const rel = await ok("GET", `/api/projects/${S.slug}/reliability/${S.constructId}?corpusId=${S.corpusB}`);
+  assert.equal((await events()).length, ledgerBefore, "reliability is a PURE read — no ledger writes");
+
+  assert.equal(rel.constructId, S.constructId);
+  assert.equal(rel.corpusId, S.corpusB);
+
+  // every comparable source is present
+  const keys = rel.sources.map((s) => s.key);
+  for (const want of [`inst:${S.inst1}`, `inst:${r2.id}`, "gold", "coder:coder-A", "coder:coder-B", "coder:coder-C"]) {
+    assert.ok(keys.includes(want), `source ${want} present (got ${keys.join(", ")})`);
+  }
+  const sInst1 = rel.sources.find((s) => s.key === `inst:${S.inst1}`);
+  assert.equal(sInst1.kind, "instrument");
+  assert.equal(sInst1.runId, S.runId, "the LATEST complete run backs the instrument source");
+  assert.equal(sInst1.n, 240);
+  assert.equal(sInst1.level, "calibrated");
+  const sGold = rel.sources.find((s) => s.key === "gold");
+  assert.equal(sGold.kind, "gold");
+  assert.equal(sGold.n, 36, "24 adjudicated/consensus + 12 single-coder consensus units");
+  assert.equal(rel.sources.find((s) => s.key === "coder:coder-C").n, 12);
+
+  // every source combination appears exactly once
+  const k = rel.sources.length;
+  assert.equal(rel.pairs.length, (k * (k - 1)) / 2, "pairs cover every source combination");
+
+  // the two instruments: κ/α/percent EQUAL a direct stats/agreement
+  // computation over the same joined labels
+  const proj = await getProject();
+  const hashA = proj.instruments.find((i) => i.id === S.inst1).versionHash;
+  const hashB = proj.instruments.find((i) => i.id === r2.id).versionHash;
+  const outA = await readNdjson(path.join(pdir(), "runs", S.runId, "outputs.ndjson"), {
+    filter: (o) => o.juror === hashA && o.label !== undefined,
+  });
+  const outB = await readNdjson(path.join(pdir(), "runs", runB, "outputs.ndjson"), {
+    filter: (o) => o.juror === hashB && o.label !== undefined,
+  });
+  const mapB = new Map(outB.map((o) => [o.unitId, o.label]));
+  const joined = [];
+  for (const o of outA) {
+    const vb = mapB.get(o.unitId);
+    if (vb === undefined) continue;
+    joined.push({ unitId: o.unitId, coder: "a", value: o.label }, { unitId: o.unitId, coder: "b", value: vb });
+  }
+  const instPair = rel.pairs.find((x) =>
+    [x.a, x.b].includes(`inst:${S.inst1}`) && [x.a, x.b].includes(`inst:${r2.id}`));
+  assert.ok(instPair, "inst1 × contrarian pair present");
+  assert.equal(instPair.n, joined.length / 2);
+  assert.equal(instPair.percent, percentAgreement(joined), "percent matches the direct computation");
+  assert.equal(instPair.kappa, cohenKappa(joined), "κ matches the direct computation exactly");
+  assert.equal(instPair.alpha, krippendorffAlpha(joined, { level: "nominal" }), "α matches the direct computation exactly");
+  assert.ok(instPair.percent < 1 && instPair.kappa < 1, "the two instruments disagree measurably");
+
+  // coder vs gold
+  const coderGold = rel.pairs.find((x) => [x.a, x.b].includes("coder:coder-A") && [x.a, x.b].includes("gold"));
+  assert.ok(coderGold, "coder-vs-gold pair present");
+  assert.equal(coderGold.n, 24);
+  assert.equal(coderGold.percent, 1, "coder-A matches the gold it produced");
+  // κ accumulates 24 × (1/24) → po lands within one ulp of 1, not exactly on it
+  assert.ok(Math.abs(coderGold.kappa - 1) < 1e-9, `κ ≈ 1 for a perfectly agreeing coder (got ${coderGold.kappa})`);
+
+  // below the overlap floor: stats are withheld as null, with a note
+  const low = rel.pairs.find((x) => [x.a, x.b].includes("coder:coder-A") && [x.a, x.b].includes("coder:coder-C"));
+  assert.ok(low, "the under-overlap pair is still listed");
+  assert.equal(low.n, 0);
+  assert.equal(low.percent, null);
+  assert.equal(low.kappa, null);
+  assert.equal(low.alpha, null);
+  assert.ok(rel.notes.some((note) => note.includes("coder:coder-A") && note.includes("coder:coder-C")),
+    `a note names the under-overlap pair (got ${JSON.stringify(rel.notes)})`);
+
+  // test–retest: stability reruns are not persisted, and the response says so
+  assert.equal(rel.retestAvailable, false);
+  assert.ok(!keys.some((key) => key.startsWith("retest:")), "no fabricated retest sources");
+  assert.ok(rel.notes.some((note) => /stability|retest/i.test(note)), "a note explains why retest is unavailable");
+});
+
+test("reliability: ordinal constructs pass the declared category order into κ/α", async () => {
+  const SCALE = ["low", "medium", "high"];
+  const c = await ok("POST", `/api/projects/${S.slug}/constructs`, {
+    name: "Severity",
+    type: "ordinal",
+    definition: "How severe the complaint reads.",
+    categories: SCALE.map((v) => ({ value: v, label: v[0].toUpperCase() + v.slice(1) })),
+  });
+  const gs = await ok("POST", `/api/projects/${S.slug}/goldsets`, {
+    constructId: c.id, tier: "gold", corpusId: S.corpusB,
+  });
+  const units = S.unitsB.slice(0, 12);
+  const rows = [];
+  for (let i = 0; i < units.length; i++) {
+    const u = units[i];
+    await ok("POST", `/api/projects/${S.slug}/goldsets/${gs.id}/queue`, { unitId: u.id });
+    const d = SCALE[i % 3];
+    const e = i < 2 ? SCALE[(i + 1) % 3] : d; // two planted disagreements
+    await ok("POST", `/api/projects/${S.slug}/goldsets/${gs.id}/label`, { coder: "coder-D", unitId: u.id, label: d });
+    await ok("POST", `/api/projects/${S.slug}/goldsets/${gs.id}/label`, { coder: "coder-E", unitId: u.id, label: e });
+    rows.push({ unitId: u.id, coder: "coder-D", value: d }, { unitId: u.id, coder: "coder-E", value: e });
+  }
+
+  const rel = await ok("GET", `/api/projects/${S.slug}/reliability/${c.id}?corpusId=${S.corpusB}`);
+  assert.equal(rel.constructId, c.id);
+  const pair = rel.pairs.find((x) => [x.a, x.b].includes("coder:coder-D") && [x.a, x.b].includes("coder:coder-E"));
+  assert.ok(pair, "coder-D × coder-E pair present");
+  assert.equal(pair.n, 12);
+  // string ordinal categories make order-sensitive statistics IMPOSSIBLE
+  // without the declared order — a number here proves the order was passed,
+  // and equality proves it was THE declared order, not alphabetical
+  assert.equal(pair.kappa, cohenKappa(rows, { weighted: "linear", order: SCALE }),
+    "weighted κ over the DECLARED scale order");
+  assert.equal(pair.alpha, krippendorffAlpha(rows, { level: "ordinal", order: SCALE }),
+    "ordinal α over the DECLARED scale order");
+  assert.equal(pair.percent, percentAgreement(rows));
 });
 
 // =========================================================================

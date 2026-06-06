@@ -1,0 +1,41 @@
+{
+  "k_theme": {
+    "constructId": "k_theme",
+    "corpusId": "corp_exit2025",
+    "sources": [
+      { "key": "coder:pat", "label": "pat", "kind": "coder", "n": 20 },
+      { "key": "coder:sam", "label": "sam", "kind": "coder", "n": 20 },
+      { "key": "gold:g_theme1", "label": "adjudicated gold", "kind": "gold", "n": 18 },
+      { "key": "inst_judge_f", "label": "exit-theme · judge v4", "kind": "instrument", "n": 18, "level": "calibrated" },
+      { "key": "inst_judge_s", "label": "exit-theme · judge v3 (tuned)", "kind": "instrument", "n": 18, "level": "stabilized" },
+      { "key": "inst_panel", "label": "exit-theme · panel ×3", "kind": "instrument", "n": 2500, "level": "exploratory", "runId": "run_panel_full" },
+      { "key": "retest:inst_judge_s", "label": "judge v3 — rerun ×3", "kind": "retest", "n": 100 }
+    ],
+    "pairs": [
+      { "a": "coder:pat", "b": "coder:sam", "n": 14, "percent": 0.786, "kappa": 0.72, "alpha": 0.71 },
+      { "a": "gold:g_theme1", "b": "coder:pat", "n": 18, "percent": 0.889, "kappa": 0.86, "alpha": 0.85 },
+      { "a": "gold:g_theme1", "b": "coder:sam", "n": 18, "percent": 0.833, "kappa": 0.8, "alpha": 0.79 },
+      { "a": "gold:g_theme1", "b": "inst_judge_f", "n": 18, "percent": 0.833, "kappa": 0.79, "alpha": 0.78 },
+      { "a": "gold:g_theme1", "b": "inst_judge_s", "n": 18, "percent": 0.778, "kappa": 0.72, "alpha": 0.71 },
+      { "a": "gold:g_theme1", "b": "inst_panel", "n": 18, "percent": 0.778, "kappa": 0.73, "alpha": 0.72 },
+      { "a": "inst_judge_f", "b": "inst_judge_s", "n": 18, "percent": 0.833, "kappa": 0.77, "alpha": 0.76 },
+      { "a": "inst_judge_f", "b": "inst_panel", "n": 18, "percent": 0.778, "kappa": 0.74, "alpha": 0.72 },
+      { "a": "inst_judge_s", "b": "inst_panel", "n": 18, "percent": 0.722, "kappa": 0.67, "alpha": 0.66 },
+      { "a": "coder:pat", "b": "inst_judge_f", "n": 14, "percent": 0.786, "kappa": 0.73, "alpha": 0.72 },
+      { "a": "inst_judge_s", "b": "retest:inst_judge_s", "n": 100, "percent": 0.94, "kappa": 0.91, "alpha": 0.91 }
+    ],
+    "notes": [
+      "Judges read the 18-unit adjudicated gold sample during calibration; the panel's full-corpus run overlaps it on the same 18 units.",
+      "Test–retest pairs an instrument with its own rerun on 100 units — self-consistency, not validity."
+    ],
+    "retestAvailable": true
+  },
+  "k_burnout": {
+    "constructId": "k_burnout",
+    "corpusId": "corp_exit2025",
+    "sources": [],
+    "pairs": [],
+    "notes": [],
+    "retestAvailable": false
+  }
+}

@@ -7,6 +7,7 @@
       "design": "srs",
       "status": "adjudicating",
       "corpusId": "corp_exit2025",
+      "populationN": 2500,
       "createdAt": "2026-06-03T09:00:00Z",
       "sample": [
         { "unitId": "u_2847f1a09c3d55b2", "pi": 0.008 },
