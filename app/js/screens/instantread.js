@@ -23,7 +23,7 @@ import * as smallmultiples from "../components/charts/smallmultiples.js";
 import * as scopechip from "../components/scopechip.js";
 import * as toast from "../components/toast.js";
 import { fmtCost, fmtCount, fmtDuration, fmtPct, fmtStat } from "../format.js";
-import { screenHead, section, asyncMount, ensureProject, refreshProject, emptyState, openSheet } from "./_shared.js";
+import { screenHead, section, asyncMount, ensureProject, refreshProject, emptyState, openSheet, sheetBusy } from "./_shared.js";
 
 export const route = "p/:slug/corpus/:cid/instant";
 export const title = "Instant Read";
@@ -48,7 +48,7 @@ export function render(mount, params) {
     mount.append(screenHead({
       overline: "Instant read",
       title: "What the corpus looks like before anyone reads it.",
-      lede: "Counted, not interpreted. Every bar opens onto the units beneath it.",
+      lede: "Local counts only — lengths, languages, distinctive terms, metadata. Click any bar to read its units; generate the Brief below for the first interpreted pass.",
       actions: [
         el("span", { class: "chip chip--ghost localbadge", title: "Computed from bundled lexicons and local statistics" },
           "⌂ all local — no API calls",
@@ -202,10 +202,13 @@ function changeTextColumn(params, project, currentCol) {
     class: "btn btn--primary", type: "button", disabled: true,
     onclick: async () => {
       if (!chosen) return;
-      confirmBtn.disabled = true;
-      confirmBtn.textContent = `Re-unitizing from ${chosen}…`;
+      const stop = sheetBusy(s, confirmBtn, {
+        label: (sec) => `Re-unitizing from ${chosen} · ${sec}s`,
+        hint: "building a new corpus from that column — the original is kept",
+      });
       try {
         const res = await api.corpora.reunitize(params.slug, params.cid, { textColumn: chosen });
+        stop();
         s.close();
         toast.success(`Re-unitized — ${fmtCount(res.unitCount)} units now read from “${res.textColumn}”.`, {
           detail: `${fmtCount(res.skipped ?? 0)} rows skipped (empty in that column) · the original corpus is kept`,
@@ -214,16 +217,17 @@ function changeTextColumn(params, project, currentCol) {
         await refreshProject(params.slug).catch(() => {});
         router.navigate(`p/${params.slug}/corpus/${res.corpusId}/instant`);
       } catch (err) {
-        confirmBtn.disabled = false;
-        confirmBtn.textContent = `Re-unitize — unit text from ${chosen}`;
+        stop();
+        paintFoot();
         toast.error("Re-unitize failed.", { detail: String(err.message ?? err) });
       }
     },
   }, "Re-unitize");
-  s.foot.append(
+  const paintFoot = () => s.foot.replaceChildren(
     el("button", { class: "btn btn--quiet", type: "button", onclick: () => s.close() }, "Cancel"),
     confirmBtn,
   );
+  paintFoot();
 
   (async () => {
     let candidates = [];

@@ -30,8 +30,8 @@ export function render(mount, params) {
   }, ({ project, methods, replication }) => {
     mount.append(screenHead({
       overline: "Reports",
-      title: "What leaves the room.",
-      lede: "The methods section cites the ledger, the archive reproduces every number outside Concord, and the report carries its drill-downs with it.",
+      title: "Export the study.",
+      lede: "Three exports: a methods section generated from the ledger, a replication archive that recomputes every number outside Concord, and a standalone HTML report you assemble from blocks.",
     }));
 
     /* ================= methods preview ================= */
@@ -144,8 +144,8 @@ function reportCanvas(host, params, project) {
     if (!current.length) {
       listEl.append(el("li", { class: "blocklist__empty" },
         emptyState({
-          title: "An empty page, on purpose.",
-          body: "Add blocks from the project's artifacts — workbench results carry an “Add to report” button too.",
+          title: "No blocks yet.",
+          body: "Use “+ Add block” below to pull in charts, tables, quotes, and methods excerpts — Workbench results carry an “Add to report” button too.",
         })));
     }
     current.forEach((b, i) => {

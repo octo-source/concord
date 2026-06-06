@@ -52,7 +52,7 @@ export function render(mount, params) {
     mount.append(screenHead({
       overline: `Explorer · ${params.runId}`,
       title: "What the run found.",
-      lede: "Exploratory readings — every number wears its mark, and the mark is the door to making it stronger.",
+      lede: "Label counts, metadata splits, and co-occurrence from this run. Click any bar to read the units behind it; the numbers stay exploratory (◌) until the instrument is calibrated against human gold.",
     }));
 
     /* -- scope: which corpus/column these findings were computed over -- */

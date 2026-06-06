@@ -39,6 +39,13 @@
 }
 .screen__section { margin-bottom: var(--s6); }
 .screen__section-label { display: block; margin-bottom: var(--s3); }
+/* the orientation line directly under a screen head — what the nouns mean */
+.screen__intro {
+  margin: calc(-1 * var(--s4)) 0 var(--s5);
+  max-width: 46rem;
+  font-size: var(--fs-caption);
+  color: var(--ink-muted);
+}
 .screen__hint { font-size: var(--fs-caption); color: var(--ink-muted); margin-bottom: var(--s3); }
 .screen__footnote { margin-top: var(--s7); font-size: var(--fs-caption); }
 
@@ -151,8 +158,9 @@
 }
 .sheet__foot:empty { display: none; }
 
-/* in-flight Director calls: a sweeping rule + elapsed seconds where the
-   footer buttons were — the action button stays visible, disabled */
+/* in-flight Director calls: a sweeping rule + the static context line where
+   the footer buttons were — the action button stays visible, disabled, and
+   carries the present-tense label with the elapsed timer (buttonBusy) */
 .busyline {
   display: flex;
   align-items: center;

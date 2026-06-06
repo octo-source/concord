@@ -8,16 +8,23 @@
 //                family-disjointness warning, aggregation in plain language.
 // Actions: Compile (Director), Silver-tune (SSE iteration cards + sparkline),
 // Stability check, Preview on 5 sample units, Freeze (→ certificate sheet).
+//
+// The construct → instrument handoff is ONE click: arriving with
+// ?construct=<id>&compile=1 and no instrument for that construct opens the
+// compile sheet directly — construct preselected, model defaulted to the
+// project Director's provider/model — so the user lands IN the action.
 
 import { el, clear } from "../dom.js";
 import api from "../api.js";
+import * as router from "../router.js";
 import * as toast from "../components/toast.js";
 import * as glyph from "../components/glyph.js";
 import * as ladderC from "../components/ladder.js";
+import * as pipeline from "../components/pipeline.js";
 import * as quotecard from "../components/quotecard.js";
 import * as line from "../components/charts/line.js";
 import { fmt, fmtStat, fmtCost, fmtCount, fmtDateTime } from "../format.js";
-import { screenHead, section, asyncMount, ensureProject, refreshProject, emptyState, openSheet, kv, kvList, markedValue } from "./_shared.js";
+import { screenHead, section, asyncMount, ensureProject, refreshProject, emptyState, openSheet, sheetBusy, buttonBusy, kv, kvList, markedValue } from "./_shared.js";
 
 export const route = "p/:slug/instruments";
 export const routes = ["p/:slug/instruments", "p/:slug/instruments/:id"];
@@ -50,7 +57,7 @@ export function render(mount, params, query = {}) {
     ]);
     // live catalog envelope: {providers: {name: [models]}, cachedAt}
     return { project, instruments, constructs, catalog: catalogRes?.providers ?? {} };
-  }, ({ instruments, constructs, catalog }) => {
+  }, ({ project, instruments, constructs, catalog }) => {
     let selected = params.id ? instruments.find((i) => i.id === params.id) : null;
     // the constructs editor links here as instruments?construct=<id> after a
     // save — preselect that construct's first instrument when one exists
@@ -58,11 +65,29 @@ export function render(mount, params, query = {}) {
       selected = instruments.find((i) => i.constructId === query.construct) ?? null;
     }
 
+    const openCompile = (presetConstructId = null) =>
+      compileSheet(params, { project, constructs, catalog, presetConstructId });
+
     mount.append(screenHead({
       overline: "Instruments",
       title: "How the constructs get measured.",
-      lede: "A dictionary, a judge, or a panel — each carries its evidence mark, and each mark states what it would take to climb.",
+      lede: "An instrument is a concrete way of measuring one construct: compile it, preview it on a few units, then run it over the corpus.",
+      actions: [
+        el("button", { class: "btn btn--primary", type: "button", onclick: () => openCompile(query?.construct ?? null) }, "New instrument…"),
+      ],
     }));
+
+    mount.append(el("p", { class: "screen__intro" },
+      "A ", el("strong", {}, "judge"), " is a model given your codebook as instructions. A ",
+      el("strong", {}, "dictionary"), " is a transparent term list — instant and free. A ",
+      el("strong", {}, "panel"), " is several judges that vote. Most studies start by compiling a judge from a construct."));
+
+    // ?construct=<id>&compile=1 with no instrument for that construct yet →
+    // open the compile flow directly, preselected (the one-click handoff)
+    if (!params.id && query?.compile === "1" && query?.construct
+        && !instruments.some((i) => i.constructId === query.construct)) {
+      openCompile(query.construct);
+    }
 
     const split = el("div", { class: "split" });
     mount.append(split);
@@ -72,7 +97,12 @@ export function render(mount, params, query = {}) {
     if (!instruments.length) {
       list.append(emptyState({
         title: "No instruments yet.",
-        body: "Instruments compile from constructs. Open a construct and ask the Director to compile, or build a dictionary by hand.",
+        body: "Pick a construct and compile a judge from it — the Director turns the codebook into a prompt you review before anything runs.",
+        actions: [
+          constructs.length
+            ? el("button", { class: "btn btn--primary", type: "button", onclick: () => openCompile(query?.construct ?? null) }, "Compile a judge…")
+            : el("a", { class: "btn btn--primary", href: `#/p/${params.slug}/constructs` }, "Write a construct first"),
+        ],
       }));
     } else {
       const byConstruct = new Map();
@@ -111,24 +141,59 @@ export function render(mount, params, query = {}) {
       main.append(emptyState(wanted
         ? {
             title: `No instrument measures “${wanted.name}” yet.`,
-            body: "Instruments for it will appear in this list once compiled. The fastest route: ask the Question Bar (press /) to plan the measurement — the plan drafts and compiles an instrument you review before anything runs.",
+            body: "Compile a judge from it — the Director turns the construct's definition, criteria, and examples into a prompt you review before anything runs.",
+            actions: [el("button", { class: "btn btn--primary", type: "button", onclick: () => openCompile(wanted.id) }, `Compile a judge for “${wanted.name}”`)],
           }
         : {
-            title: instruments.length ? "Pick an instrument." : "Nothing to edit yet.",
-            body: "Dictionaries run locally and free. Judges compile a codebook into a prompt. Panels put disjoint model families on the same bench.",
+            title: instruments.length ? "Pick an instrument from the list." : "Nothing to edit yet.",
+            body: "Each instrument measures one construct. Open one to edit and test it, or compile a new one from a construct.",
           }));
       return;
     }
-    instrumentEditor(main, params, selected, constructs, catalog);
+    instrumentEditor(main, params, selected, constructs, catalog, project);
   }, "Opening the instrument bench…");
 }
 
 /* ================= editor ========================================================= */
 
-function instrumentEditor(main, params, instRaw, constructs, catalog) {
+function instrumentEditor(main, params, instRaw, constructs, catalog, project = null) {
   const inst = JSON.parse(JSON.stringify(instRaw));
   const construct = constructs.find((c) => c.id === inst.constructId);
   let dirty = false;
+
+  /* -- pipeline strip: where this instrument sits, and the ONE next step.
+     Preview is ephemeral (never persisted), so "previewed" is session truth:
+     the strip advances the moment the preview action runs. -- */
+  let previewed = false;
+  const stripHost = el("div", {});
+  main.append(stripHost);
+  let actions = null; // set below; the strip's preview action drives it
+  const paintStrip = () => {
+    const level = ladderC.levelKey(inst.level);
+    const hasCompleteRun = (project?.runs ?? []).some((r) => r.instrumentId === inst.id && r.status === "complete");
+    const states = { construct: "done" };
+    let action;
+    if (inst.frozen || level === "calibrated" || level === "corrected") {
+      states.instrument = "done";
+      states.calibrate = "done";
+      if (hasCompleteRun) states.run = "done";
+      action = hasCompleteRun
+        ? { label: "Correct in the Workbench →", href: `#/p/${params.slug}/analyses` }
+        : { label: "Run on the corpus →", href: `#/p/${params.slug}/runs?preflight=${encodeURIComponent(inst.id)}` };
+    } else if (level === "stabilized") {
+      states.instrument = "done";
+      if (hasCompleteRun) states.run = "done";
+      action = {
+        label: "Calibrate against gold →",
+        onclick: (e) => openGoldFlow(e, params, inst, project),
+      };
+    } else if (previewed) {
+      action = { label: "Run on the corpus →", href: `#/p/${params.slug}/runs?preflight=${encodeURIComponent(inst.id)}` };
+    } else {
+      action = { label: "Preview on 5 units", onclick: () => actions?.clickPreview() };
+    }
+    clear(stripHost).append(pipeline.render({ current: "instrument", states, action }));
+  };
 
   const saveBtn = el("button", {
     class: "btn btn--primary", type: "button", disabled: true,
@@ -191,7 +256,33 @@ function instrumentEditor(main, params, instRaw, constructs, catalog) {
   }
 
   /* -- actions -- */
-  main.append(section("Actions", actionRow(main, params, inst)));
+  actions = actionRow(main, params, inst, {
+    onPreviewed: () => { previewed = true; paintStrip(); },
+  });
+  main.append(section("Actions", actions.el));
+  paintStrip();
+}
+
+/* The stabilized → calibrated step: open the construct's gold set, creating
+   one (status: sampling) when none exists, so the click lands in the studio's
+   Sample pane rather than on advice. */
+async function openGoldFlow(e, params, inst, project) {
+  const existing = (project?.goldsets ?? []).find((g) => g.constructId === inst.constructId);
+  if (existing) {
+    router.navigate(`p/${params.slug}/goldsets/${existing.id}`);
+    return;
+  }
+  const btn = e?.target;
+  if (btn) btn.disabled = true;
+  try {
+    const created = await api.goldsets.create(params.slug, { constructId: inst.constructId });
+    toast.success("Gold set created.", { detail: "draw the sample, then code it blind", data: false });
+    await refreshProject(params.slug).catch(() => {});
+    router.navigate(`p/${params.slug}/goldsets/${created.id}`);
+  } catch (err) {
+    if (btn) btn.disabled = false;
+    toast.error("Could not open the calibration flow.", { detail: String(err.message ?? err) });
+  }
 }
 
 /* ================= dictionary ====================================================== */
@@ -610,22 +701,23 @@ function silverCurve(iterations) {
 
 /* ================= actions =========================================================== */
 
-function actionRow(main, params, inst) {
+function actionRow(main, params, inst, { onPreviewed } = {}) {
   const out = el("div", { class: "actionout" });
   const row = el("div", { class: "actionrow" });
 
   const compile = el("button", {
     class: "btn", type: "button",
     onclick: async () => {
-      compile.disabled = true;
-      clear(out).append(el("p", { class: "faint", role: "status" }, `${glyph.GLYPH} the Director is compiling…`));
+      const stop = buttonBusy(compile, (sec) => `${glyph.GLYPH} Compiling · ${sec}s`);
+      clear(out).append(el("p", { class: "faint", role: "status" }, `${glyph.GLYPH} the Director is writing the prompt from the construct — ~30–60 s`));
       try {
         const next = await api.instruments.compile(params.slug, inst.id);
+        stop();
         toast.success(`Compiled v${next.version}.`, { detail: "Director-compiled — review the prompt below and edit to make it yours", data: false });
         await refreshProject(params.slug).catch(() => {});
         window.dispatchEvent(new HashChangeEvent("hashchange"));
       } catch (err) {
-        compile.disabled = false;
+        stop();
         clear(out);
         toast.error("Compile failed.", { detail: String(err.message ?? err) });
       }
@@ -635,7 +727,7 @@ function actionRow(main, params, inst) {
   const silver = el("button", {
     class: "btn", type: "button",
     onclick: () => {
-      silver.disabled = true;
+      const stop = buttonBusy(silver, (sec) => `Silver-tuning · ${sec}s`);
       clear(out).append(el("p", { class: "overline" }, "Silver-tuning — Director labels a sample, the worker iterates"));
       const list = el("ol", { class: "itercards", role: "list", aria: { live: "polite" } });
       out.append(list);
@@ -663,7 +755,7 @@ function actionRow(main, params, inst) {
         onDone(final) {
           // live done payload: {instrumentId, level, versionHash, stability,
           // curve, cost, stoppedBy?}
-          silver.disabled = false;
+          stop();
           const last = final?.curve?.at?.(-1)?.agreement ?? pts[pts.length - 1]?.y;
           out.append(el("p", { class: "screen__hint" },
             `Plateaued at α = ${fmtStat(last)} on silver`,
@@ -673,7 +765,7 @@ function actionRow(main, params, inst) {
           refreshProject(params.slug).catch(() => {});
         },
         onError(err) {
-          silver.disabled = false;
+          stop();
           out.append(el("p", { class: "faint" }, "Tuning stream failed: ", String(err.message ?? err)));
         },
       });
@@ -683,7 +775,7 @@ function actionRow(main, params, inst) {
   const stability = el("button", {
     class: "btn", type: "button",
     onclick: async () => {
-      stability.disabled = true;
+      const stop = buttonBusy(stability, (sec) => `Checking stability · ${sec}s`);
       clear(out).append(el("p", { class: "faint", role: "status" }, "re-running k = 3 on a 100-unit subsample…"));
       try {
         // live response: {alpha, pass} (k/n persist onto instrument.stability)
@@ -697,14 +789,14 @@ function actionRow(main, params, inst) {
       } catch (err) {
         toast.error("Stability check failed.", { detail: String(err.message ?? err) });
       }
-      stability.disabled = false;
+      stop();
     },
   }, "Stability check");
 
   const preview = el("button", {
     class: "btn", type: "button",
     onclick: async () => {
-      preview.disabled = true;
+      const stop = buttonBusy(preview, (sec) => `Previewing · ${sec}s`);
       clear(out).append(el("p", { class: "faint", role: "status" }, "previewing on 5 sample units (nothing persists)…"));
       try {
         const project = window.concord?.store?.get?.("project");
@@ -724,10 +816,11 @@ function actionRow(main, params, inst) {
               el("td", {}, el("span", { class: "chip chip--machine" }, String(o.label))),
               el("td", { class: "table__num data" }, o.confidence !== undefined ? fmtStat(o.confidence) : "—"),
               el("td", { class: "previewrationale" }, o.rationale ?? "—"))))));
+        onPreviewed?.();
       } catch (err) {
         clear(out).append(el("p", { class: "faint" }, "Preview failed: ", String(err.message ?? err)));
       }
-      preview.disabled = false;
+      stop();
     },
   }, "Preview on 5 units");
 
@@ -737,7 +830,13 @@ function actionRow(main, params, inst) {
   }, inst.frozen ? "Frozen ●" : "Freeze → ●");
 
   row.append(compile, silver, stability, preview, freeze);
-  return el("div", {}, row, out);
+  return {
+    el: el("div", {}, row, out),
+    clickPreview: () => {
+      row.scrollIntoView({ behavior: "smooth", block: "center" });
+      if (!preview.disabled) preview.click();
+    },
+  };
 }
 
 function freezeSheet(params, inst) {
@@ -755,24 +854,189 @@ function freezeSheet(params, inst) {
     el("p", {}, "Freezing stamps the version hash into a calibration certificate with its agreement-vs-gold numbers. The instrument becomes read-only; any future edit forks a new ◌ version."),
     el("label", { class: "field" }, el("span", { class: "field__label overline" }, "Certify against"), select),
   );
-  s.foot.append(
+  const freezeBtn = el("button", {
+    class: "btn btn--primary", type: "button",
+    onclick: async () => {
+      if (!goldsetId) { select.focus(); return; }
+      const stop = sheetBusy(s, freezeBtn, {
+        label: (sec) => `Calibrating against gold · ${sec}s`,
+        hint: "judging the gold units with this instrument — one pass, then the certificate",
+      });
+      try {
+        const cert = await api.instruments.freeze(params.slug, inst.id, { goldsetId });
+        stop();
+        s.close();
+        toast.success("Instrument frozen at ●.", { detail: `κ = ${fmtStat(cert?.agreement?.kappa)} vs gold · certificate written`, data: true });
+        await refreshProject(params.slug).catch(() => {});
+        window.dispatchEvent(new HashChangeEvent("hashchange"));
+      } catch (err) {
+        stop();
+        paintFoot();
+        toast.error("Freeze failed.", { detail: String(err.message ?? err) });
+      }
+    },
+  }, "Freeze");
+  const paintFoot = () => s.foot.replaceChildren(
     el("button", { class: "btn btn--quiet", type: "button", onclick: () => s.close() }, "Cancel"),
-    el("button", {
-      class: "btn btn--primary", type: "button",
-      onclick: async (e) => {
-        if (!goldsetId) { select.focus(); return; }
-        e.target.disabled = true;
-        try {
-          const cert = await api.instruments.freeze(params.slug, inst.id, { goldsetId });
-          s.close();
-          toast.success("Instrument frozen at ●.", { detail: `κ = ${fmtStat(cert?.agreement?.kappa)} vs gold · certificate written`, data: true });
-          await refreshProject(params.slug).catch(() => {});
-          window.dispatchEvent(new HashChangeEvent("hashchange"));
-        } catch (err) {
-          e.target.disabled = false;
-          toast.error("Freeze failed.", { detail: String(err.message ?? err) });
-        }
-      },
-    }, "Freeze"),
+    freezeBtn,
   );
+  paintFoot();
+}
+
+/* ================= create / compile — the construct → instrument handoff ============ */
+
+const KIND_LINES = {
+  judge: "A model given your codebook as instructions — the Director compiles the prompt from the construct.",
+  dictionary: "A transparent term list — instant, free, fully auditable. You edit the terms; no model involved.",
+  panel: "Several judges from disjoint model families that vote — catches any one model's blind spots.",
+};
+
+/**
+ * One sheet from construct to working instrument. Judge (advised): the
+ * Director compiles immediately, model defaulted to the project Director's
+ * provider/model; dictionary/panel: created empty and opened in the editor.
+ */
+function compileSheet(params, { project, constructs, catalog, presetConstructId = null } = {}) {
+  if (!constructs?.length) {
+    toast.info("Write a construct first.", { detail: "instruments compile from the codebook — opening Constructs" });
+    router.navigate(`p/${params.slug}/constructs`);
+    return;
+  }
+
+  let inFlight = false;
+  const s = openSheet({
+    title: "New instrument", overline: "Construct → instrument",
+    onClose: () => {
+      if (inFlight) {
+        toast.info("Hidden — the compile keeps running.", {
+          detail: "the new instrument opens the moment the Director answers",
+        });
+      }
+    },
+  });
+
+  let constructId = (presetConstructId && constructs.some((c) => c.id === presetConstructId))
+    ? presetConstructId : constructs[0].id;
+  let kind = "judge";
+
+  /* construct picker */
+  const constructSelect = el("select", { class: "input", "aria-label": "Construct to measure" },
+    ...constructs.map((c) => el("option", { value: c.id, selected: c.id === constructId }, c.name)));
+  constructSelect.addEventListener("change", () => { constructId = constructSelect.value; });
+
+  /* model slot — defaults to the project Director's provider/model */
+  const providers = Object.keys(catalog ?? {});
+  let provider = (project?.director?.provider && catalog?.[project.director.provider]?.length)
+    ? project.director.provider : providers[0];
+  let model = null;
+  const modelSelect = el("select", { class: "input input--inline", "aria-label": "Worker model" });
+  const fillModels = (prov) => {
+    clear(modelSelect);
+    const models = catalog?.[prov] ?? [];
+    const preferred = models.find((m) => m.id === project?.director?.model) ?? models[0];
+    model = preferred?.id ?? null;
+    for (const m of models) {
+      modelSelect.append(el("option", { value: m.id, selected: m.id === model },
+        `${m.name} · $${m.pricing.inUSDper1M}/${m.pricing.outUSDper1M} per 1M`));
+    }
+  };
+  fillModels(provider);
+  modelSelect.addEventListener("change", () => { model = modelSelect.value; });
+  const providerSelect = el("select", { class: "input input--inline", "aria-label": "Provider" },
+    ...providers.map((p) => el("option", { value: p, selected: p === provider }, p)));
+  providerSelect.addEventListener("change", () => { provider = providerSelect.value; fillModels(provider); });
+
+  const judgeOnly = el("div", { class: "field" },
+    el("span", { class: "field__label overline" }, "Worker model"),
+    el("div", { class: "controlrow" },
+      el("label", { class: "controlrow__item" }, el("span", { class: "overline" }, "provider"), providerSelect),
+      el("label", { class: "controlrow__item" }, el("span", { class: "overline" }, "model"), modelSelect)),
+    el("p", { class: "field__hint" }, "Defaulted to this project's Director model — change it freely; the run preflight quotes the cost either way."));
+
+  const GO_LABELS = { judge: "Compile the judge", dictionary: "Create the dictionary", panel: "Create the panel" };
+  const kindList = el("div", { class: "choicelist", role: "radiogroup", aria: { label: "Instrument kind" } },
+    ...["judge", "dictionary", "panel"].map((k) =>
+      el("label", { class: "choice" },
+        el("input", {
+          type: "radio", name: "inst-kind", value: k, checked: k === kind,
+          onchange: () => {
+            kind = k;
+            judgeOnly.hidden = k !== "judge";
+            goBtn.textContent = GO_LABELS[k];
+          },
+        }),
+        el("span", { class: "choice__text" },
+          el("span", { class: "choice__label" },
+            k,
+            k === "judge" ? el("span", { class: "chip chip--ghost choice__advised" }, "most studies start here") : null),
+          el("span", { class: "choice__hint" }, KIND_LINES[k])))));
+
+  s.body.append(
+    el("label", { class: "field" }, el("span", { class: "field__label overline" }, "Construct"), constructSelect),
+    el("div", { class: "field" }, el("span", { class: "field__label overline" }, "Kind"), kindList),
+    judgeOnly,
+  );
+
+  const goBtn = el("button", {
+    class: "btn btn--primary", type: "button",
+    onclick: async () => {
+      const construct = constructs.find((c) => c.id === constructId);
+      const name = `${construct?.name ?? constructId} · ${kind}`;
+      let stop = null;
+      try {
+        if (kind === "judge") {
+          inFlight = true;
+          stop = sheetBusy(s, goBtn, {
+            label: (sec) => `Compiling the judge · ${sec}s`,
+            hint: "one Director call writes the prompt from the construct — ~30–60 s",
+          });
+          const mdl = (catalog?.[provider] ?? []).find((m) => m.id === model);
+          const created = await api.instruments.create(params.slug, {
+            constructId, kind: "judge", name,
+            payload: {
+              provider, model,
+              snapshot: mdl?.snapshot ?? null,
+              workerClass: mdl?.class ?? "mid",
+              params: { temperature: 0, maxTokens: 400 },
+              promptTemplate: "",
+            },
+          });
+          const compiled = await api.instruments.compile(params.slug, created.id);
+          inFlight = false;
+          stop();
+          toast.success(`Compiled “${name}” v${compiled.version ?? 2}.`, { detail: "review the prompt — edit it to make it yours", data: false });
+          await refreshProject(params.slug).catch(() => {});
+          s.close();
+          router.navigate(`p/${params.slug}/instruments/${created.id}`);
+        } else {
+          goBtn.disabled = true;
+          const payload = kind === "dictionary"
+            ? { categories: [], negation: { enabled: false, window: 3 }, scoring: "percentOfWords" }
+            : { jurors: [], aggregation: "majority" };
+          const created = await api.instruments.create(params.slug, { constructId, kind, name, payload });
+          toast.success(`Created “${name}”.`, {
+            detail: kind === "dictionary"
+              ? `add terms by hand, or ${glyph.GLYPH} Compile to have the Director seed them`
+              : "add 3–5 jurors from disjoint model families",
+            data: false,
+          });
+          await refreshProject(params.slug).catch(() => {});
+          s.close();
+          router.navigate(`p/${params.slug}/instruments/${created.id}`);
+        }
+      } catch (err) {
+        inFlight = false;
+        stop?.();
+        paintFoot();
+        toast.error("Could not create the instrument.", { detail: String(err.message ?? err) });
+      }
+    },
+  }, GO_LABELS.judge);
+  const paintFoot = () => {
+    goBtn.disabled = false;
+    s.foot.replaceChildren(
+      el("button", { class: "btn btn--quiet", type: "button", onclick: () => s.close() }, "Cancel"),
+      goBtn);
+  };
+  paintFoot();
 }

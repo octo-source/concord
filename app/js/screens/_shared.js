@@ -109,14 +109,25 @@ export async function refreshProject(slug) {
 /* ---- sheets — the sliding work surface ------------------------------------------ */
 
 /**
- * sheet({ title, overline, wide, onClose }) → { el, body, foot, close }
+ * sheet({ title, overline, wide, onClose }) → { el, body, foot, close, setLocked }
  * A paper sheet that slides up over a scrim. Escape and the scrim close it;
  * focus moves in on open and returns to the opener on close.
+ *
+ * setLocked(true) — for the duration of a paid in-flight call: Escape and the
+ * scrim STOP closing the sheet (a stray click must not read as a cancel), and
+ * the × relabels to "Hide (keeps running)". × always works: hiding is allowed,
+ * accidental dismissal is not. setLocked(false) restores normal closing.
  */
 export function openSheet({ title, overline, wide = false, onClose } = {}) {
   const opener = document.activeElement;
   const body = el("div", { class: "sheet__body" });
   const foot = el("div", { class: "sheet__foot" });
+  let locked = false;
+
+  const closeBtn = el("button", {
+    class: "sheet__close", type: "button", title: "Close",
+    aria: { label: "Close" }, onclick: () => close(),
+  }, "×");
 
   const panel = el("div", {
     class: `sheet__panel${wide ? " sheet__panel--wide" : ""}`,
@@ -129,21 +140,29 @@ export function openSheet({ title, overline, wide = false, onClose } = {}) {
         overline ? el("p", { class: "overline" }, overline) : null,
         el("h2", { class: "sheet__title" }, title ?? ""),
       ),
-      el("button", { class: "sheet__close", type: "button", aria: { label: "Close" }, onclick: () => close() }, "×"),
+      closeBtn,
     ),
     body,
     foot,
   );
 
   const root = el("div", { class: "sheet" },
-    el("div", { class: "sheet__scrim", onclick: () => close() }),
+    el("div", { class: "sheet__scrim", onclick: () => { if (!locked) close(); } }),
     panel,
   );
+
+  function setLocked(on) {
+    locked = Boolean(on);
+    const label = locked ? "Hide (keeps running)" : "Close";
+    closeBtn.setAttribute("aria-label", label);
+    closeBtn.title = label;
+    root.classList.toggle("sheet--locked", locked);
+  }
 
   function onKey(e) {
     if (e.key === "Escape") {
       e.stopPropagation();
-      close();
+      if (!locked) close();
     } else if (e.key === "Tab") {
       // soft focus trap — wrap within the panel
       const focusables = panel.querySelectorAll("button, [href], input, select, textarea, [tabindex]:not([tabindex='-1'])");
@@ -176,7 +195,52 @@ export function openSheet({ title, overline, wide = false, onClose } = {}) {
   setTimeout(() => root.classList.add("sheet--in"), 20);
   setTimeout(() => panel.querySelector("input, select, textarea, button:not(.sheet__close)")?.focus(), 240);
 
-  return { el: root, body, foot, close };
+  return { el: root, body, foot, close, setLocked };
+}
+
+/**
+ * buttonBusy(btn, label) → stop()
+ * A running action says so ON the button: disabled, aria-busy, and the
+ * present-tense label with a live elapsed timer ("Compiling · 14s"). stop()
+ * restores the idle label and re-enables. label(seconds) → string.
+ */
+export function buttonBusy(btn, label) {
+  const idleLabel = btn.textContent;
+  btn.disabled = true;
+  btn.setAttribute("aria-busy", "true");
+  btn.textContent = label(0);
+  const started = Date.now();
+  const timer = setInterval(() => {
+    btn.textContent = label(Math.round((Date.now() - started) / 1000));
+  }, 1000);
+  return () => {
+    clearInterval(timer);
+    btn.removeAttribute("aria-busy");
+    btn.textContent = idleLabel;
+    btn.disabled = false;
+  };
+}
+
+/**
+ * sheetBusy(s, actionBtn, { label, hint }) → stop()
+ * The in-flight state of a sheet's one paid action. The BUTTON carries the
+ * present-tense label with the live elapsed timer ("Running the inductive
+ * pass · 14s"), disabled and aria-busy; the foot keeps a sweeping rule with
+ * the static context line (`hint`); the sheet locks — Escape and the scrim
+ * no longer close it, and × relabels to "Hide (keeps running)". stop()
+ * restores the idle label, re-enables the button, and unlocks the sheet.
+ */
+export function sheetBusy(s, actionBtn, { label, hint } = {}) {
+  const stopBtn = buttonBusy(actionBtn, label);
+  const line = el("span", { class: "busyline", role: "status" },
+    el("span", { class: "busyline__rule", aria: { hidden: "true" } }),
+    hint ? el("span", { class: "busyline__text" }, hint) : null);
+  s.foot.replaceChildren(line, actionBtn);
+  s.setLocked?.(true);
+  return () => {
+    stopBtn();
+    s.setLocked?.(false);
+  };
 }
 
 /* ---- chips & lines ----------------------------------------------------------------- */

@@ -28,7 +28,7 @@ export function render(mount, params) {
     mount.append(screenHead({
       overline: `Run · ${params.rid}`,
       title: "Where the jurors split.",
-      lede: "Disagreement is information. Where humans agreed it is an instrument problem; where humans split too it is the construct asking for a sharper edge.",
+      lede: "Units the panel could not agree on, ranked by how evenly the votes split. For each one: send it to the human gold queue, or treat it as a codebook defect and tighten the construct.",
     }));
 
     if (!data?.byEntropy?.length) {

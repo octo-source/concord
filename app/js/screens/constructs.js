@@ -5,17 +5,22 @@
 // the attribution mark until the first human edit lands (humanTouched PUT).
 // Draft with Director formalizes the USER's concepts (POST constructs/draft);
 // Inductive mode asks the Director to propose themes FROM the corpus and is
-// labeled hypothesis generation. Both Director sheets show elapsed-time busy
-// states, and a module-level in-flight guard keeps repeat header clicks from
-// stacking sheets or double-spending a call.
+// labeled hypothesis generation. Both Director sheets run their one paid
+// action through sheetBusy: the button itself shows the present-tense label
+// with the elapsed timer, and the sheet locks (Escape/scrim stop closing; ×
+// becomes "Hide (keeps running)") so a stray click cannot read as a cancel.
+// A module-level in-flight guard keeps repeat header clicks from stacking
+// sheets or double-spending a call.
 
 import { el, clear } from "../dom.js";
 import api from "../api.js";
 import * as router from "../router.js";
+import { store } from "../state.js";
 import * as toast from "../components/toast.js";
 import * as glyph from "../components/glyph.js";
+import * as pipeline from "../components/pipeline.js";
 import * as quotecard from "../components/quotecard.js";
-import { screenHead, section, asyncMount, ensureProject, emptyState, openSheet } from "./_shared.js";
+import { screenHead, section, asyncMount, ensureProject, emptyState, openSheet, sheetBusy } from "./_shared.js";
 
 export const route = "p/:slug/constructs";
 export const routes = ["p/:slug/constructs", "p/:slug/constructs/:id"];
@@ -34,7 +39,7 @@ export function render(mount, params, query) {
     mount.append(screenHead({
       overline: "Codebook",
       title: "Constructs",
-      lede: "What you are measuring, stated precisely enough that a stranger — or a model — could apply it.",
+      lede: "Define each thing you want to measure, precisely enough that a stranger — or a model — could apply it. Every instrument compiles from a construct.",
       actions: [
         el("button", { class: "btn", type: "button", onclick: () => draftWithDirector(params) }, `${glyph.GLYPH} Draft with Director`),
         el("button", { class: "btn", type: "button", onclick: () => importCodebook(params) }, "Import codebook"),
@@ -51,6 +56,7 @@ export function render(mount, params, query) {
       list.append(emptyState({
         title: "No constructs yet.",
         body: "What do you want to measure? Draft one with the Director, import a legacy codebook, or write your own.",
+        actions: [el("button", { class: "btn btn--primary", type: "button", onclick: () => draftWithDirector(params) }, `${glyph.GLYPH} Draft with Director`)],
       }));
     } else {
       for (const k of constructs) {
@@ -109,6 +115,10 @@ function editor(pane, params, construct, query = {}) {
   // nothing visible reads as a save that failed
   const nextStep = el("p", { class: "editor__next", hidden: true });
 
+  // the one-click handoff: instruments?construct=<id>&compile=1 opens the
+  // compile sheet over there, preselected on this construct
+  const compileHref = `#/p/${params.slug}/instruments?construct=${encodeURIComponent(k.id)}&compile=1`;
+
   const saveBtn = el("button", {
     class: "btn btn--primary", type: "button", disabled: !dirty,
     onclick: async () => {
@@ -121,14 +131,23 @@ function editor(pane, params, construct, query = {}) {
         nextStep.hidden = false;
         clear(nextStep).append(
           "Saved. Next: ",
-          el("a", { href: `#/p/${params.slug}/instruments?construct=${encodeURIComponent(k.id)}` },
-            "compile an instrument for this construct →"));
+          el("a", { href: compileHref }, "compile a judge instrument for this construct →"));
       } catch (err) {
         saveBtn.disabled = false;
         toast.error("Save failed.", { detail: String(err.message ?? err) });
       }
     },
   }, "Save");
+
+  // where this construct sits in the pipeline, and the ONE next step
+  const hasInstrument = (store.get("project")?.instruments ?? []).some((i) => i.constructId === k.id);
+  pane.append(pipeline.render({
+    current: "construct",
+    states: hasInstrument ? { instrument: "done" } : {},
+    action: hasInstrument
+      ? { label: "Open its instrument →", href: `#/p/${params.slug}/instruments?construct=${encodeURIComponent(k.id)}` }
+      : { label: "Compile a judge instrument →", href: compileHref },
+  }));
 
   pane.append(el("header", { class: "editor__head" },
     el("h3", { class: "editor__title" },
@@ -350,22 +369,6 @@ function guardDirector(kind) {
   return false;
 }
 
-/** Footer busy state: a sweeping rule + elapsed seconds beside the disabled
-    action button. Returns stop(). */
-function sheetBusy(s, actionBtn, lineFor) {
-  actionBtn.disabled = true;
-  const text = el("span", { class: "busyline__text" }, lineFor(0));
-  const line = el("span", { class: "busyline", role: "status" },
-    el("span", { class: "busyline__rule", aria: { hidden: "true" } }),
-    text);
-  const started = Date.now();
-  const timer = setInterval(() => {
-    text.textContent = lineFor(Math.round((Date.now() - started) / 1000));
-  }, 1000);
-  s.foot.replaceChildren(line, actionBtn);
-  return () => clearInterval(timer);
-}
-
 /** Re-resolve the route so newly accepted constructs appear in the list. */
 function repaintConstructs() {
   window.dispatchEvent(new HashChangeEvent("hashchange"));
@@ -382,7 +385,11 @@ function draftWithDirector(params) {
     onClose: () => {
       sheetOpen = false;
       stopBusy?.();
-      if (!inFlight && activeDirector?.kind === "draft") activeDirector = null;
+      if (inFlight) {
+        toast.info("Hidden — the draft keeps running.", {
+          detail: "the proposals sheet opens the moment the Director answers; no need to click again",
+        });
+      } else if (activeDirector?.kind === "draft") activeDirector = null;
     },
   });
 
@@ -413,8 +420,10 @@ function draftWithDirector(params) {
       const text = input.value.trim();
       if (!text) { input.focus(); return; }
       inFlight = true;
-      stopBusy = sheetBusy(s, runBtn, (sec) =>
-        `Drafting from a 60-unit sample · ${sec}s — one Director call, ~30–60 s on flash-class models`);
+      stopBusy = sheetBusy(s, runBtn, {
+        label: (sec) => `Drafting constructs · ${sec}s`,
+        hint: "reading a 60-unit sample — one Director call, ~30–60 s on flash-class models",
+      });
       try {
         const res = await api.constructs.draft(params.slug, { input: text });
         inFlight = false;
@@ -474,7 +483,11 @@ function inductiveMode(params) {
     onClose: () => {
       sheetOpen = false;
       stopBusy?.();
-      if (!inFlight && activeDirector?.kind === "inductive") activeDirector = null;
+      if (inFlight) {
+        toast.info("Hidden — the inductive pass keeps running.", {
+          detail: "the proposals sheet opens the moment the Director answers; no need to click again",
+        });
+      } else if (activeDirector?.kind === "inductive") activeDirector = null;
     },
   });
 
@@ -496,8 +509,10 @@ function inductiveMode(params) {
     class: "btn btn--primary", type: "button",
     onclick: async () => {
       inFlight = true;
-      stopBusy = sheetBusy(s, runBtn, (sec) =>
-        `Reading a 200-unit sample · ${sec}s — one Director call, ~30–90 s on flash-class models`);
+      stopBusy = sheetBusy(s, runBtn, {
+        label: (sec) => `Running the inductive pass · ${sec}s`,
+        hint: "reading a 200-unit sample — one Director call, ~30–90 s on flash-class models",
+      });
       try {
         const taxonomy = await api.constructs.inductive(params.slug, { n: 200 });
         inFlight = false;

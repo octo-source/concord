@@ -24,7 +24,7 @@ export function render(mount) {
     mount.append(
       screenHead({
         overline: "Concord",
-        title: "The reading room",
+        title: "Projects",
         lede: "Each project is a portable folder: corpus, codebook, instruments, gold, ledger. Copy the folder, copy the study.",
         actions: [
           el("button", { class: "btn btn--primary", type: "button", onclick: () => newProjectSheet() }, "New project"),
@@ -36,8 +36,8 @@ export function render(mount) {
       mount.append(emptyState({
         mark: "◌ ◑ ● ◉",
         title: "No projects yet.",
-        body: "Bring a corpus — survey open-ends, interviews, reviews — and Concord will set it in type you can question.",
-        hint: "Create a project, then drop a file anywhere.",
+        body: "Create a project, then drop in a corpus — survey open-ends, interview transcripts, reviews — and measure it with instruments you can audit.",
+        hint: "After creating, drop a file anywhere to import.",
         actions: [el("button", { class: "btn btn--primary", type: "button", onclick: () => newProjectSheet() }, "New project")],
       }));
       return;

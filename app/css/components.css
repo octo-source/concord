@@ -121,6 +121,12 @@
 }
 .btn--quiet:hover { background: var(--accent-wash); color: var(--accent-hover); border-color: transparent; }
 
+/* a running action says so on the button itself — present-tense label + timer */
+.btn[aria-busy="true"] {
+  cursor: progress;
+  font-variant-numeric: tabular-nums;
+}
+
 /* ---- inputs ----------------------------------------------------------------- */
 
 .input {
@@ -386,6 +392,53 @@ svg [data-evidence]:focus-visible {
   transform: translate(-50%, 0);
   transition-delay: 0s;
 }
+
+/* ---- pipeline strip — construct → instrument → run → calibrate → corrected -------
+   One quiet overline-sized line saying where this artifact sits, plus ONE
+   wired next action. Guidance, not chrome. ----------------------------------------- */
+
+.pipeline {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--s2) var(--s4);
+  margin-bottom: var(--s4);
+  padding-bottom: var(--s2);
+  border-bottom: var(--rule);
+}
+.pipeline__stages {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: var(--s2);
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  font-size: var(--fs-micro);
+  font-weight: 600;
+  letter-spacing: var(--track-caps);
+  text-transform: uppercase;
+  color: var(--ink-ghost);
+}
+.pipeline__stage {
+  display: inline-flex;
+  align-items: baseline;
+  gap: 0.35em;
+  white-space: nowrap;
+}
+.pipeline__stage + .pipeline__stage::before {
+  content: "→";
+  margin-right: var(--s2);
+  color: var(--ink-ghost);
+  font-weight: 400;
+}
+.pipeline__stage--done { color: var(--ink-faint); }
+.pipeline__stage--current { color: var(--ink); }
+.pipeline__stage--locked { opacity: 0.55; }
+.pipeline__tick { color: var(--accent); font-weight: 400; }
+.pipeline__mark { font-weight: 400; }
+.pipeline__go { flex: 0 0 auto; text-decoration: none; }
 
 /* ---- quote card — the human voice ------------------------------------------------ */
 

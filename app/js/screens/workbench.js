@@ -73,8 +73,8 @@ export function render(mount, params) {
   }, ({ project, analysis }) => {
     mount.append(screenHead({
       overline: "Workbench",
-      title: "Ask, compute, and show the correction.",
-      lede: "Corrected estimates are solid; what you would have naively believed stays visible, hatched, beside them.",
+      title: "Analyze what the runs measured.",
+      lede: "Pick an analysis kind on the left, choose variables, and run it over a measured corpus. Where a gold sample exists, estimates arrive bias-corrected (◉) with the naive number hatched beside them.",
     }));
 
     const split = el("div", { class: "split split--workbench" });
@@ -112,8 +112,8 @@ export function render(mount, params) {
       }));
     } else if (!params.id) {
       canvas.append(emptyState({
-        title: "The bench is clear.",
-        body: "Pick a kind on the left, choose variables, and run. Results land here with their evidence marks and their doors.",
+        title: "No analysis selected.",
+        body: "Pick a kind on the left, choose variables, and run. Results land here; every number stays clickable down to its units.",
         hint: "Where a gold sample with π exists, estimates arrive corrected (◉) with the naive number beside them.",
       }));
     } else {

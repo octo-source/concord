@@ -65,7 +65,7 @@ export function render(mount, params, query) {
     mount.append(screenHead({
       overline: `Calibration studio · ${goldset.id}`,
       title: construct ? `Gold for “${construct.name}”` : "Gold standard",
-      lede: "Human judgment is the standard machines are measured against — never the other way around.",
+      lede: "Draw a sample, code it blind by hand, then compare: human–human agreement first, every instrument against the adjudicated gold after. This is what turns ◌ numbers into ● numbers.",
       actions: [coderLauncherBtn(params, goldset)],
     }));
 

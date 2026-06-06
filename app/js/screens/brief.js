@@ -133,7 +133,7 @@ async function renderStored(column, params, project) {
   }
   if (!brief) {
     column.append(emptyState({
-      title: "This brief is not on the shelf.",
+      title: "This brief was not found.",
       body: "It may not exist, or it was generated on another machine and the artifact never synced.",
       actions: [el("a", { class: "btn", href: `#/p/${params.slug}/brief/new` }, "Draft a new brief")],
     }));

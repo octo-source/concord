@@ -30,8 +30,8 @@ export function render(mount, params, query) {
   }, ({ project, runs, instruments }) => {
     mount.append(screenHead({
       overline: "Runs",
-      title: "Measurement, metered.",
-      lede: "Every run states its price before it starts and its cost while it goes. Checkpointed — a crash resumes, never repays.",
+      title: "Measure the corpus.",
+      lede: "A run applies one instrument to the whole corpus. You see the estimated cost before starting and the running total while it goes; an interrupted run resumes where it stopped without paying again for finished units.",
       actions: [
         el("button", {
           class: "btn btn--primary", type: "button",
@@ -42,8 +42,8 @@ export function render(mount, params, query) {
 
     if (!runs.length) {
       mount.append(emptyState({
-        title: "Nothing has been measured yet.",
-        body: "Pick an instrument, preflight the cost, and let it read the corpus.",
+        title: "No runs yet.",
+        body: "Pick an instrument, check the cost estimate, and start it reading the corpus.",
         actions: [el("button", { class: "btn btn--primary", type: "button", onclick: () => preflightSheet(params, project, instruments, query.preflight) }, "Preflight a run")],
       }));
     } else {
