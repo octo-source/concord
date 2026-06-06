@@ -6,6 +6,9 @@
 //                picker from the catalog, params, "Edit raw" escape hatch;
 //   panel      — juror cards with family chips, live cost-per-1k, the
 //                family-disjointness warning, aggregation in plain language.
+// A scope bar under the pipeline strip states what the editor reads (corpus ·
+// text column · units) and, with several corpora, carries the selector that
+// every preview/check obeys.
 // Actions: Compile (Director), Silver-tune (SSE iteration cards + sparkline),
 // Stability check, Preview on 5 sample units, Freeze (→ certificate sheet).
 //
@@ -26,7 +29,7 @@ import * as modelpicker from "../components/modelpicker.js";
 import * as scopechip from "../components/scopechip.js";
 import * as line from "../components/charts/line.js";
 import { fmt, fmtStat, fmtCost, fmtCount, fmtDateTime } from "../format.js";
-import { screenHead, section, asyncMount, ensureProject, refreshProject, emptyState, openSheet, sheetBusy, buttonBusy, kv, kvList, markedValue } from "./_shared.js";
+import { screenHead, section, asyncMount, ensureProject, refreshProject, emptyState, openSheet, sheetBusy, buttonBusy, kv, kvList, markedValue, normalizeQuarantine } from "./_shared.js";
 
 export const route = "p/:slug/instruments";
 export const routes = ["p/:slug/instruments", "p/:slug/instruments/:id"];
@@ -50,9 +53,9 @@ async function sampleUnits(slug, corpus, n = 5) {
 
 /* Which corpus previews read. Default: the MOST RECENTLY CREATED one —
    re-unitized variants ("… · text=<col>") append to project.corpora, so a
-   fresh re-unitization is what previews pick up unless changed in the picker.
-   One scope per editor: the dictionary live preview and the Preview action
-   read the same corpus, and both say so. */
+   fresh re-unitization is what previews pick up unless changed in the scope
+   bar at the top of the editor. One scope per editor: the dictionary live
+   preview, Preview, Silver-tune, and Stability all read the bar's selection. */
 function makePreviewScope(project) {
   const corpora = project?.corpora ?? [];
   const listeners = new Set();
@@ -69,12 +72,93 @@ function textColumnOf(corpus) {
   return corpus?.textColumn ?? corpus?.unitization?.textColumn ?? null;
 }
 
+/* The scope bar — the FIRST line of the editor, directly under the pipeline
+   strip: `Reading: <corpus> · text: <col> · 1,234 units`. With several
+   corpora the corpus is a select (its option labels carry the same facts);
+   with one it is plain text. Everything that reads units — the dictionary
+   live preview, Preview, Silver-tune, Stability — reads this selection. */
+function scopeBar(previewScope) {
+  const corpora = previewScope?.corpora ?? [];
+  const corpus = previewScope?.corpus() ?? null;
+  const col = textColumnOf(corpus);
+  const bar = el("p", { class: "readscope__bar", role: "note", aria: { label: "Corpus this instrument reads" } },
+    el("span", { class: "overline readscope__label" }, "Reading"));
+  if (corpora.length > 1) {
+    // the select's option labels state text column + units, so the bar says nothing twice
+    bar.append(el("select", {
+      class: "input input--inline readscope__select",
+      "aria-label": "Corpus the previews and checks read — picking a corpus picks the text column",
+      onchange: (e) => previewScope.set(e.target.value),
+    }, ...corpora.map((c) =>
+      el("option", { value: c.id, selected: c.id === previewScope.corpusId }, scopechip.optionLabel(c)))));
+  } else if (corpus) {
+    bar.append(
+      el("span", { class: "data readscope__name" }, scopechip.displayName(corpus)),
+      el("span", { class: "readscope__seg" }, "text: ", el("span", { class: "data" }, col ?? "not recorded")),
+      corpus.unitCount !== null && corpus.unitCount !== undefined
+        ? el("span", { class: "readscope__seg" }, el("span", { class: "data" }, fmtCount(corpus.unitCount)), " units")
+        : null);
+  } else {
+    bar.append(el("span", { class: "faint" }, "no corpus yet — import one to preview"));
+  }
+  return el("div", { class: "readscope" }, bar,
+    el("p", { class: "screen__hint faint readscope__hint" },
+      "An instrument reads a corpus's unit text — previews and checks below read this one. To measure a different column, re-unitize the corpus on that column (Instant Read → change)."));
+}
+
 /* The one line every preview result opens with — what was read, from where. */
 function readLine(corpus, n) {
   return el("p", { class: "screen__hint faint" },
     "Read ", el("span", { class: "data" }, fmtCount(n)),
-    " units from ", el("span", { class: "data" }, corpus?.name ?? corpus?.id ?? "—"),
+    " units from ", el("span", { class: "data" }, corpus ? scopechip.displayName(corpus) : "—"),
     " (text: ", el("span", { class: "data" }, textColumnOf(corpus) ?? "not recorded"), ").");
+}
+
+/* Failed units are never an empty space. The preview envelope's quarantine
+   ({unitId, code, message}; bare ids from older servers) renders as a signal
+   panel ABOVE any successful rows — identical code+message pairs group, each
+   distinct reason shows once with its count, and when EVERY unit failed this
+   panel IS the result. Returns null when nothing failed. Exported (like
+   localHits) so the copy stays testable. */
+export function failurePanel(quarantine, total) {
+  const entries = normalizeQuarantine(quarantine);
+  if (!entries.length) return null;
+  const n = entries.length;
+
+  const groups = new Map();
+  for (const e of entries) {
+    const key = `${e.code ?? ""}|${e.message ?? ""}`;
+    const g = groups.get(key) ?? { code: e.code, message: e.message, count: 0 };
+    g.count += 1;
+    groups.set(key, g);
+  }
+  const reasons = [...groups.values()];
+  const reasonText = (g) => [g.code, g.message].filter(Boolean).join(": ");
+
+  const head = el("p", { class: "failpanel__head" },
+    el("strong", {}, total !== null && total !== undefined
+      ? `${fmtCount(n)} of ${fmtCount(total)} units failed`
+      : `${fmtCount(n)} unit${n === 1 ? "" : "s"} failed`));
+  // one reason → it joins the headline; several → one line each, with counts
+  if (reasons.length === 1 && reasonText(reasons[0])) {
+    head.append(" — ", reasonText(reasons[0]));
+  } else if (reasons.length === 1) {
+    head.append(" — ", el("span", { class: "faint" }, "no failure reasons recorded (older server)"));
+  }
+
+  return el("div", { class: "failpanel", role: "alert" },
+    head,
+    reasons.length > 1
+      ? el("ul", { class: "failpanel__lines", role: "list" },
+          ...reasons.map((g) => el("li", { class: "failpanel__line" },
+            el("span", { class: "data failpanel__count" }, `×${fmtCount(g.count)}`),
+            " ",
+            reasonText(g) || el("span", { class: "faint" }, "no failure reason recorded (older server)"))))
+      : null,
+    entries.some((e) => e.code === "TRUNCATED")
+      ? el("p", { class: "failpanel__hint" },
+          "Raise max tokens in the Worker parameters — reasoning models spend thinking tokens against the same budget.")
+      : null);
 }
 
 export function render(mount, params, query = {}) {
@@ -225,6 +309,10 @@ function instrumentEditor(main, params, instRaw, constructs, catalog, project = 
     }
     clear(stripHost).append(pipeline.render({ current: "instrument", states, action }));
   };
+
+  /* -- scope bar: what this editor reads — corpus, text column, unit count.
+     First thing under the strip; every preview/check below obeys it. -- */
+  main.append(scopeBar(previewScope));
 
   const saveBtn = el("button", {
     class: "btn btn--primary", type: "button", disabled: true,
@@ -414,7 +502,7 @@ function dictionaryEditor(main, params, inst, touch, isDirty = () => false, prev
     clearTimeout(previewTimer);
     previewTimer = setTimeout(runPreview, 350);
   }
-  previewScope?.onChange(schedulePreview); // the Actions corpus picker re-aims this preview too
+  previewScope?.onChange(schedulePreview); // the scope bar's corpus selection re-aims this preview too
   async function runPreview() {
     // Saved instruments preview server-side — POST instruments/:i/preview →
     // {outputs, cost, quarantine, missing}; dictionary outputs carry hit
@@ -428,21 +516,27 @@ function dictionaryEditor(main, params, inst, touch, isDirty = () => false, prev
       const units = await sampleUnits(params.slug, corpus, 5);
       const res = draft || units.length === 0
         ? null
-        : await api.instruments.preview(params.slug, inst.id, { unitIds: units.map((u) => u.id) }).catch(() => null);
+        : await api.instruments.preview(params.slug, inst.id, { unitIds: units.map((u) => u.id), corpusId: corpus?.id ?? undefined }).catch(() => null);
       const outputs = res?.outputs ?? [];
       clear(previewWrap);
       if (!units.length) {
         previewWrap.append(el("p", { class: "faint" },
-          `No sample units available${corpus ? ` in ${corpus.name ?? corpus.id}` : ""}.`));
+          `No sample units available${corpus ? ` in ${scopechip.displayName(corpus)}` : ""}.`));
         return;
       }
       previewWrap.append(readLine(corpus, units.length));
+      // failures above any successful rows; quarantined units leave the row
+      // list — when all of them failed, the panel is the whole result
+      const failed = draft ? null : failurePanel(res?.quarantine, units.length);
+      if (failed) previewWrap.append(failed);
+      const quarantined = new Set(draft ? [] : normalizeQuarantine(res?.quarantine).map((q) => q.unitId));
       if (draft) {
         previewWrap.append(el("p", { class: "dictpreview__draftnote faint" },
           el("span", { class: "chip chip--ghost" }, "draft preview"),
           " local matcher over unsaved edits — save to preview the server's scoring"));
       }
       for (const unit of units) {
+        if (quarantined.has(unit.id)) continue;
         const out = draft ? null : outputs.find((o) => o.unitId === unit.id && o.label !== undefined);
         const hits = draft ? localHits(unit.text, inst.payload) : out?.hits ?? [];
         previewWrap.append(el("div", { class: "dictpreview__row" },
@@ -796,7 +890,7 @@ function actionRow(main, params, inst, { onPreviewed, previewScope = null } = {}
       out.append(list);
       const pts = [];
       let chart = null;
-      api.instruments.silverTune(params.slug, inst.id, {}, {
+      api.instruments.silverTune(params.slug, inst.id, { corpusId: previewScope?.corpusId ?? undefined }, {
         onIteration(it) {
           pts.push({ x: pts.length + 1, y: it.agreement });
           const prev = pts.length > 1 ? pts[pts.length - 2].y : null;
@@ -842,7 +936,7 @@ function actionRow(main, params, inst, { onPreviewed, previewScope = null } = {}
       clear(out).append(el("p", { class: "faint", role: "status" }, "re-running k = 3 on a 100-unit subsample…"));
       try {
         // live response: {alpha, pass} (k/n persist onto instrument.stability)
-        const res = await api.instruments.stability(params.slug, inst.id);
+        const res = await api.instruments.stability(params.slug, inst.id, { corpusId: previewScope?.corpusId ?? undefined });
         clear(out).append(el("p", { class: "screen__hint" },
           markedValue(`test–retest α = ${fmtStat(res.alpha)}`, res.pass ? "stabilized" : "exploratory"),
           " ",
@@ -864,23 +958,29 @@ function actionRow(main, params, inst, { onPreviewed, previewScope = null } = {}
       try {
         const corpus = previewScope?.corpus() ?? null;
         const units = await sampleUnits(params.slug, corpus, 5);
-        if (units.length === 0) throw new Error(corpus ? `no units to preview on in ${corpus.name ?? corpus.id}` : "no corpus units to preview on");
-        // live envelope: {outputs, cost, quarantine, missing}
-        const res = await api.instruments.preview(params.slug, inst.id, { unitIds: units.map((u) => u.id) });
+        if (units.length === 0) throw new Error(corpus ? `no units to preview on in ${scopechip.displayName(corpus)}` : "no corpus units to preview on");
+        // live envelope: {outputs, cost, quarantine, missing} — quarantine
+        // entries are {unitId, code, message} (older servers: bare unit ids)
+        const res = await api.instruments.preview(params.slug, inst.id, { unitIds: units.map((u) => u.id), corpusId: corpus?.id ?? undefined });
         const outputs = (res?.outputs ?? []).filter((o) => o.label !== undefined);
+        // failures first — when every unit failed, the panel IS the result
+        const failed = failurePanel(res?.quarantine, units.length);
         clear(out).append(
           readLine(corpus, units.length),
-          el("table", { class: "table table--mini" },
-          el("caption", { class: "sr-only" }, "Preview outputs"),
-          el("thead", {}, el("tr", {},
-            el("th", { scope: "col" }, "unit"), el("th", { scope: "col" }, "label"),
-            el("th", { scope: "col", class: "table__num data" }, "conf"), el("th", { scope: "col" }, "rationale"))),
-          el("tbody", {},
-            ...outputs.map((o) => el("tr", {},
-              el("td", {}, el("button", { class: "refchip data evidence-door", type: "button", dataset: { evidence: o.unitId } }, String(o.unitId).slice(0, 8) + "…")),
-              el("td", {}, el("span", { class: "chip chip--machine" }, String(o.label))),
-              el("td", { class: "table__num data" }, o.confidence !== undefined ? fmtStat(o.confidence) : "—"),
-              el("td", { class: "previewrationale" }, o.rationale ?? "—"))))));
+          failed,
+          outputs.length
+            ? el("table", { class: "table table--mini" },
+                el("caption", { class: "sr-only" }, "Preview outputs"),
+                el("thead", {}, el("tr", {},
+                  el("th", { scope: "col" }, "unit"), el("th", { scope: "col" }, "label"),
+                  el("th", { scope: "col", class: "table__num data" }, "conf"), el("th", { scope: "col" }, "rationale"))),
+                el("tbody", {},
+                  ...outputs.map((o) => el("tr", {},
+                    el("td", {}, el("button", { class: "refchip data evidence-door", type: "button", dataset: { evidence: o.unitId } }, String(o.unitId).slice(0, 8) + "…")),
+                    el("td", {}, el("span", { class: "chip chip--machine" }, String(o.label))),
+                    el("td", { class: "table__num data" }, o.confidence !== undefined ? fmtStat(o.confidence) : "—"),
+                    el("td", { class: "previewrationale" }, o.rationale ?? "—")))))
+            : failed ? null : el("p", { class: "faint" }, "No outputs came back for these units — and none were quarantined; the server may not know these unit ids."));
         onPreviewed?.();
       } catch (err) {
         clear(out).append(el("p", { class: "faint" }, "Preview failed: ", String(err.message ?? err)));
@@ -894,23 +994,11 @@ function actionRow(main, params, inst, { onPreviewed, previewScope = null } = {}
     onclick: () => freezeSheet(params, inst),
   }, inst.frozen ? "Frozen ●" : "Freeze → ●");
 
-  row.append(compile, silver, stability, preview);
-  // More than one corpus → say (and choose) which one previews read. With a
-  // single corpus the readLine on every preview result still names it.
-  const corpora = previewScope?.corpora ?? [];
-  if (corpora.length > 1) {
-    row.append(el("select", {
-      class: "input input--inline", "aria-label": "Corpus the preview reads",
-      onchange: (e) => previewScope.set(e.target.value),
-    }, ...corpora.map((c) => el("option", { value: c.id, selected: c.id === previewScope.corpusId }, scopechip.optionLabel(c)))));
-  }
-  row.append(freeze);
+  // Which corpus these actions read lives in the scope bar at the TOP of the
+  // editor (scopeBar); the readLine on every preview result still names it.
+  row.append(compile, silver, stability, preview, freeze);
   return {
-    el: el("div", {},
-      row,
-      el("p", { class: "screen__hint faint" },
-        "An instrument reads a corpus's unit text. To measure a different column, re-unitize the corpus on that column (Instant Read → change)."),
-      out),
+    el: el("div", {}, row, out),
     clickPreview: () => {
       row.scrollIntoView({ behavior: "smooth", block: "center" });
       if (!preview.disabled) preview.click();

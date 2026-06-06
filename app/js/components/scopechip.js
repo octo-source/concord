@@ -14,16 +14,35 @@
 //   fromCorpus(corpusEntry, project) → props | null — normalizes both the
 //     new corpus shape ({textColumn, scheme, junk, metaColumns, sourceName,
 //     derivedFrom?}) and older entries (unitization.{textColumn, scheme}).
+//   displayName(corpus) → the corpus name WITHOUT a trailing "· text=<col>"
+//     when that column is the corpus's own text column — re-unitized names
+//     carry the suffix, and every structured label here states the column
+//     again, so keeping both would say the same thing twice.
 
 import { el } from "../dom.js";
 import { fmtCount } from "../format.js";
+
+/** Display name for a corpus entry. Re-unitization names a derived corpus
+    `<source name> · text=<col>`; when that col IS the entry's text column the
+    suffix is redundant beside any structured `text: <col>` segment, so it is
+    stripped for display. The stored name is never touched. */
+export function displayName(corpus) {
+  if (!corpus) return "";
+  const name = String(corpus.name ?? corpus.id ?? "");
+  const textColumn = corpus.textColumn ?? corpus.unitization?.textColumn ?? null;
+  if (!textColumn) return name;
+  const m = name.match(/^(.*?)\s*·\s*text=(.+)$/);
+  if (m && m[2].trim() === String(textColumn) && m[1].trim()) return m[1].trim();
+  return name;
+}
 
 /** Resolve a derivedFrom ref ({id, name} | corpusId string) to a display name. */
 export function resolveDerived(ref, project = null) {
   if (!ref) return null;
   if (typeof ref === "object") return ref.name ?? ref.id ?? null;
   const src = (project?.corpora ?? []).find((c) => c.id === ref);
-  return src?.sourceName ?? src?.name ?? String(ref);
+  if (!src) return String(ref);
+  return src.sourceName ?? (displayName(src) || String(ref));
 }
 
 /** One-line corpus label for pickers: `name — text: <col> · 1,234 units`. */
@@ -32,7 +51,7 @@ export function optionLabel(corpus, project = null) {
   const p = fromCorpus(corpus, project);
   const units = p.unitCount !== null && p.unitCount !== undefined
     ? ` · ${fmtCount(p.unitCount)} units` : "";
-  return `${corpus.name ?? corpus.id} — text: ${p.textColumn ?? "not recorded"}${units}`;
+  return `${displayName(corpus)} — text: ${p.textColumn ?? "not recorded"}${units}`;
 }
 
 /** Normalize a project corpus entry (new or old shape) into render() props. */
@@ -45,7 +64,7 @@ export function fromCorpus(corpus, project = null) {
     junk: corpus.junk ?? null,
     metaColumns: corpus.metaColumns ?? null,
     derivedFrom: resolveDerived(corpus.derivedFrom, project),
-    sourceName: corpus.sourceName ?? corpus.name ?? null,
+    sourceName: corpus.sourceName ?? (displayName(corpus) || null),
   };
 }
 

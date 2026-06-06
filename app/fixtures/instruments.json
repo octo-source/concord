@@ -169,7 +169,14 @@
       { "unitId": "u_91b3c07d2e8f4a16", "juror": "3c52e9f1a8b7d604c5d6e7f80901a2b3", "label": "pay", "confidence": 0.91, "rationale": "“El salario nunca alcanzó” states compensation inadequacy directly; the affection for the team is valence, not theme." },
       { "unitId": "u_a8f04c6e3b92d715", "juror": "3c52e9f1a8b7d604c5d6e7f80901a2b3", "label": "remote-policy", "confidence": 0.93, "rationale": "“The return-to-office mandate was the end for me” names the decisive grievance in its first sentence." },
       { "unitId": "u_16d9a4e7f2c50b38", "juror": "3c52e9f1a8b7d604c5d6e7f80901a2b3", "label": "growth", "confidence": 0.88, "rationale": "No path, no ladder, external hires over internal candidates — blocked advancement is the operative complaint." }
-    ]
+    ],
+    "quarantine": {
+      "inst_dict": [],
+      "judge": [
+        { "unitId": "u_55e0a9d4b7c2f311", "code": "TRUNCATED", "message": "structured output truncated at the token limit; raise maxTokens (currently 400)" },
+        { "unitId": "u_03d7e8a1f4b2c690", "code": "TRUNCATED", "message": "structured output truncated at the token limit; raise maxTokens (currently 400)" }
+      ]
+    }
   },
   "silverTune": {
     "iterations": [

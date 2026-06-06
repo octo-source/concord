@@ -331,6 +331,63 @@ test("judgeUnit: PROVIDER_REFUSAL propagates untouched (no repair loop)", async 
   assert.equal(adapter.calls, 1);
 });
 
+// ------------------------------------------- judgeUnit truncation retry
+// Field failure (June 2026): reasoning-class workers (Gemini Flash via
+// OpenRouter) bill thinking tokens against max_tokens, so a class budget that
+// fits the rationale-first JSON alone truncates nondeterministically and the
+// engine quarantined most units. judgeUnit now retries ONCE at
+// min(2 × maxTokens, 8192) — same policy the Director already had.
+
+// Throws TRUNCATED for the first `failures` calls, then returns `good`.
+function truncatingAdapter(failures, good) {
+  let i = 0;
+  const calls = [];
+  return {
+    calls,
+    complete: async (req) => {
+      calls.push(req);
+      if (i++ < failures) throw new ConcordError("TRUNCATED", "structured output hit maxTokens; response is not valid JSON");
+      return { text: JSON.stringify(good), usage: { inputTokens: 10, outputTokens: 5 }, finishReason: "stop", raw: {} };
+    },
+  };
+}
+
+test("judgeUnit: TRUNCATED once → ONE retry at exactly 2× the budget; both maxTokens observed", async () => {
+  const adapter = truncatingAdapter(1, { rationale: "mentions salary", label: "yes", confidence: 0.9 });
+  const payload = { ...judgePayload, params: { temperature: 0, maxTokens: 384 } };
+  const out = await judgeUnit(adapter, binaryConstruct, payload, unit);
+  assert.equal(out.label, "yes");
+  assert.equal(adapter.calls.length, 2);
+  assert.equal(adapter.calls[0].maxTokens, 384, "first attempt at the instrument's budget");
+  assert.equal(adapter.calls[1].maxTokens, 768, "retry at exactly the doubled budget");
+});
+
+test("judgeUnit: retry budget is capped at 8192 (workers are high-volume)", async () => {
+  const adapter = truncatingAdapter(1, { rationale: "r", label: "no" });
+  const payload = { ...judgePayload, params: { temperature: 0, maxTokens: 6000 } };
+  const out = await judgeUnit(adapter, binaryConstruct, payload, unit);
+  assert.equal(out.label, "no");
+  assert.deepEqual(adapter.calls.map((c) => c.maxTokens), [6000, 8192], "min(2×6000, 8192) = 8192");
+});
+
+test("judgeUnit: TRUNCATED twice propagates (the engine quarantines with the reason)", async () => {
+  const adapter = truncatingAdapter(2, { rationale: "r", label: "yes" });
+  await assert.rejects(
+    () => judgeUnit(adapter, binaryConstruct, { ...judgePayload, params: { temperature: 0, maxTokens: 384 } }, unit),
+    (e) => e instanceof ConcordError && e.code === "TRUNCATED",
+  );
+  assert.equal(adapter.calls.length, 2, "ONE retry, then propagate — never an unbounded loop");
+});
+
+test("judgeUnit: already at the 8192 worker cap → no second call, TRUNCATED propagates", async () => {
+  const adapter = truncatingAdapter(1, { rationale: "r", label: "yes" });
+  await assert.rejects(
+    () => judgeUnit(adapter, binaryConstruct, { ...judgePayload, params: { temperature: 0, maxTokens: 8192 } }, unit),
+    (e) => e.code === "TRUNCATED",
+  );
+  assert.equal(adapter.calls.length, 1, "nothing larger to try under the cap");
+});
+
 test("judgeUnit: params.seed threads into the request (mock varies by seed)", async () => {
   const adapter = new MockAdapter({ accuracy: 0.5 });
   adapter.setOracle(() => "pay");

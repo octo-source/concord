@@ -537,17 +537,25 @@ function patch() {
     };
     return clone(inst.certificate);
   };
-  // live: → {outputs, cost, quarantine, missing}
+  // live: → {outputs, cost, quarantine, missing} — quarantine carries the
+  // reason ({unitId, code, message}); quarantined units get NO output line,
+  // exactly like the engine (previews.quarantine banks per instrument kind)
   apiNs.instruments.preview = async (p, id, { unitIds } = {}) => {
     await sleep(900);
     const inst = instList().find((x) => x.id === id);
-    const bank = inst?.kind === "dictionary" ? db.instruments.previews.inst_dict : db.instruments.previews.judge;
+    const kindKey = inst?.kind === "dictionary" ? "inst_dict" : "judge";
+    const bank = db.instruments.previews[kindKey];
     const wanted = unitIds?.length ? unitIds : bank.map((b) => b.unitId);
+    const quarantine = (db.instruments.previews.quarantine?.[kindKey] ?? [])
+      .filter((q) => wanted.includes(q.unitId))
+      .map(clone);
+    const quarantined = new Set(quarantine.map((q) => q.unitId));
     const outputs = wanted
+      .filter((uid) => !quarantined.has(uid))
       .map((uid) => clone(bank.find((b) => b.unitId === uid))
         ?? { unitId: uid, juror: inst?.versionHash ?? "fixture", label: "other", confidence: 0.5, rationale: "(no fixture preview for this unit)" })
       .filter(Boolean);
-    return { outputs, cost: { actualUSD: 0, inputTokens: 0, outputTokens: 0 }, quarantine: [], missing: [] };
+    return { outputs, cost: { actualUSD: 0, inputTokens: 0, outputTokens: 0 }, quarantine, missing: [] };
   };
 
   /* -- goldsets -- */

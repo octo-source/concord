@@ -30,7 +30,7 @@
 // extracts and seeds from the last user message). Template text after
 // {{unit}} follows the unit in the user message.
 import { ConcordError } from "../core/errors.js";
-import { completeWithRepair } from "../providers/base.js";
+import { completeWithRepair, withTruncationRetry } from "../providers/base.js";
 
 export const DEFAULT_TEMPLATE = [
   "You are coding one text unit against a construct.",
@@ -242,10 +242,23 @@ export function assemble(construct, judgePayload, unit) {
 // judgeUnit: one unit, one call (+ ≤2 schema repairs)
 // ---------------------------------------------------------------------------
 
+// Worker truncation cap (June 2026 field bug): reasoning-class workers
+// (Gemini Flash via OpenRouter) bill thinking tokens against max_tokens, so
+// the instrument's class budget can vanish before any JSON lands and the call
+// dies TRUNCATED — nondeterministically, because thinking length varies per
+// unit. judgeUnit therefore retries ONCE at min(2 × maxTokens, 8192), the
+// same policy the Director already had. The cap is far below the Director's
+// 32768 because workers are HIGH-VOLUME (one call per unit per juror): a
+// pathological prompt must not be allowed to burn 32k output tokens per unit
+// across a whole corpus. A second truncation propagates and the engine
+// quarantines the unit with its reason.
+const WORKER_TRUNCATION_CAP = 8192;
+
 // → {label, confidence, rationale, raw, repairs, usage}. Throws
 // ConcordError("SCHEMA_INVALID") when the response still fails the schema
 // after the repair budget (the run engine quarantines the unit), and lets
-// PROVIDER_* / TRUNCATED errors propagate untouched.
+// PROVIDER_* errors propagate untouched. TRUNCATED gets ONE doubled-budget
+// retry (see WORKER_TRUNCATION_CAP above) before propagating.
 export async function judgeUnit(adapter, construct, judgePayload, unit) {
   const outputSchema = judgePayload?.schema ?? outputSchemaFor(construct);
   const schema = jsonSchemaFor(outputSchema);
@@ -260,7 +273,10 @@ export async function judgeUnit(adapter, construct, judgePayload, unit) {
   };
   if (params.seed !== undefined) req.seed = params.seed;
 
-  const res = await completeWithRepair(adapter, req, { maxRepairs: 2 });
+  const res = await withTruncationRetry(
+    (budget) => completeWithRepair(adapter, { ...req, maxTokens: budget }, { maxRepairs: 2 }),
+    { maxTokens: req.maxTokens, cap: WORKER_TRUNCATION_CAP },
+  );
   const json = res.json;
   const label = outputSchema.type === "extraction" ? json.spans : json.label;
   return {

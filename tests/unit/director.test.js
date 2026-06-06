@@ -572,6 +572,28 @@ test("compiler: workerClass scaffolding is enforced on the compiled template", a
   assert.equal(events[0].refs.constructId, construct.id);
 });
 
+// June 2026 field bug: reasoning-class workers (Gemini Flash via OpenRouter)
+// bill thinking tokens against max_tokens. The old class budgets (frontier
+// 512 / mid 384 / small 256) fit the rationale-first JSON alone, so MOST
+// judge calls truncated nondeterministically and quarantined. Budgets must
+// cover JSON + thinking; the per-call truncation retry covers the tail.
+test("compiler: class budgets tolerate reasoning-model thinking tokens (small ≥1024, mid ≥1536, frontier ≥2048)", async () => {
+  const project = await makeProject();
+  const construct = binaryConstruct();
+  const floors = { small: 1024, mid: 1536, frontier: 2048 };
+  for (const [workerClass, floor] of Object.entries(floors)) {
+    const inst = await compileInstrument(project, construct, {
+      workerClass, provider: "mock", model: "mock-1", snapshot: "mock-1",
+      promptTemplate: "T {{definition}} {{criteria}} {{examples}} {{unit}}", // escape hatch: no Director call
+      outputSchemaFor: () => ({ type: "binary", options: ["yes", "no"] }),
+    });
+    assert.ok(
+      inst.payload.params.maxTokens >= floor,
+      `${workerClass} budget ${inst.payload.params.maxTokens} must be ≥ ${floor}: thinking tokens bill against max_tokens`,
+    );
+  }
+});
+
 test("compiler: seedDictionary validates the proposed term list through dictionary.compile and drops invalid terms with a note", async () => {
   const project = await makeProject({ handler: "t-dict" });
   const construct = binaryConstruct({ name: "Pay language" });

@@ -731,6 +731,32 @@
    Instruments
    ========================================================================= */
 
+/* the editor's scope bar — first line under the pipeline strip: what the
+   previews and checks read (corpus · text column · units) */
+.readscope { margin: var(--s2) 0 var(--s4); }
+.readscope__bar {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: var(--s1) 0;
+  margin: 0;
+  font-family: var(--font-mono);
+  font-size: var(--fs-micro);
+  color: var(--ink-muted);
+  font-variant-numeric: tabular-nums;
+}
+.readscope__label { margin-right: 0.7em; }
+.readscope__select { font-size: var(--fs-micro); max-width: 100%; }
+.readscope__name { color: var(--ink); font-weight: 500; }
+.readscope__seg { white-space: nowrap; }
+.readscope__name + .readscope__seg::before,
+.readscope__seg + .readscope__seg::before {
+  content: "·";
+  margin: 0 0.55em;
+  color: var(--ink-ghost);
+}
+.readscope__hint { margin-top: var(--s1); }
+
 .dictcats { display: flex; flex-direction: column; gap: var(--s4); }
 .dictcat { border: var(--rule); border-radius: var(--r-md); background: var(--paper-raised); padding: var(--s3); }
 .dictcat__head { display: flex; align-items: baseline; gap: var(--s2); margin-bottom: var(--s2); }
@@ -753,6 +779,29 @@
 .dictpreview__row { border-bottom: var(--rule); padding-bottom: var(--s3); }
 .dictpreview__row:last-child { border-bottom: none; }
 .dictpreview__scores { margin: var(--s1) 0 0 var(--s5); color: var(--ink-muted); font-size: var(--fs-micro); }
+
+/* preview failure panel — quarantined units, stated before any success */
+.failpanel {
+  border-left: 2px solid var(--signal);
+  background: var(--signal-wash);
+  border-radius: 0 var(--r-sm) var(--r-sm) 0;
+  padding: var(--s3) var(--s4);
+  margin: var(--s3) 0;
+  font-size: var(--fs-caption);
+  color: var(--ink);
+}
+.failpanel__head { margin: 0; }
+.failpanel__head strong { color: var(--signal-text); }
+.failpanel__lines {
+  margin: var(--s2) 0 0;
+  padding: 0;
+  list-style: none;
+  display: flex;
+  flex-direction: column;
+  gap: var(--s1);
+}
+.failpanel__count { color: var(--signal-text); }
+.failpanel__hint { margin: var(--s2) 0 0; color: var(--ink-muted); font-size: var(--fs-caption); }
 
 .promptview {
   margin: 0;
@@ -1123,6 +1172,7 @@
 .runrow:hover { border-color: var(--accent); text-decoration: none; }
 .runrow__id { color: var(--ink-faint); overflow: hidden; text-overflow: ellipsis; }
 .runrow__inst { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.runrow__quar { margin-left: var(--s2); font-size: var(--fs-micro); }
 .runrow__status--running { color: var(--accent); border-color: color-mix(in oklab, var(--accent) 45%, transparent); }
 .runrow__status--complete { color: var(--ink-muted); }
 .runrow__status--aborted, .runrow__status--failed { color: var(--signal-text); border-color: color-mix(in oklab, var(--signal) 45%, transparent); }
@@ -1168,6 +1218,20 @@
 .monitor__warning { display: flex; gap: var(--s2); align-items: baseline; font-size: var(--fs-caption); }
 .monitor__warning--none { font-style: italic; }
 .monitor__distwrap, .monitor__warnwrap { min-width: 0; }
+
+/* quarantined rows — unitId → reason, the unit id is an evidence door */
+.quarrow {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: var(--s2) var(--s3);
+  border-bottom: var(--rule);
+  padding: var(--s2) 0;
+  font-size: var(--fs-caption);
+}
+.quarrow:last-child { border-bottom: none; }
+.quarrow__unit { flex: 0 0 auto; }
+.quarrow__reason { display: inline-flex; flex-wrap: wrap; align-items: baseline; gap: var(--s2); color: var(--ink-muted); min-width: 0; }
 
 .escrow { border-bottom: var(--rule); padding: var(--s4) 0; }
 .escrow:last-child { border-bottom: none; }

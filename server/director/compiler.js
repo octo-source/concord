@@ -24,7 +24,15 @@ import {
   defaultTemplate, WORKER_CLASSES,
 } from "./prompts.js";
 
-const CLASS_MAX_TOKENS = { frontier: 512, mid: 384, small: 256 };
+// Per-class output budgets for compiled judge instruments. These must cover
+// the rationale-first JSON PLUS reasoning-model thinking tokens, which bill
+// against max_tokens on most stacks (OpenRouter/Gemini/OpenAI reasoning
+// tiers). The old budgets (frontier 512 / mid 384 / small 256) fit the JSON
+// alone, so reasoning-class workers truncated MOST calls nondeterministically
+// and the engine quarantined them silently (June 2026 field bug). judgeUnit's
+// per-call truncation retry (ONE doubling, capped at 8192) covers the tail of
+// unusually long thinking; these floors cover the typical case.
+const CLASS_MAX_TOKENS = { frontier: 2048, mid: 1536, small: 1024 };
 
 // outputSchemaFor lives in the sibling server/instruments/judge.js (pinned:
 // outputSchemaFor(construct) → OutputSchema). It is injectable so Director

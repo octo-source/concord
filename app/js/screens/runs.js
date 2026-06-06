@@ -3,7 +3,9 @@
 // privacy check, budget remaining, hard cap) with ONE start button. A running
 // run gets the live monitor: progress rule, running cost in mono, label
 // distribution accumulating as mini-bars, a warnings feed, the escalation
-// queue, and pause/resume/abort. Completed runs hand off to the Explorer.
+// queue, the quarantined-units list ({unitId → code: message}, never silent),
+// and pause/resume/abort. The detail opens with the run's scope (corpus ·
+// text column · units). Completed runs hand off to the Explorer.
 
 import { el, clear } from "../dom.js";
 import api from "../api.js";
@@ -13,7 +15,7 @@ import * as ladderC from "../components/ladder.js";
 import * as bar from "../components/charts/bar.js";
 import * as scopechip from "../components/scopechip.js";
 import { fmtCost, fmtCount, fmtStat, fmtDuration, fmtDateTime } from "../format.js";
-import { screenHead, section, asyncMount, ensureProject, refreshProject, emptyState, openSheet, kv, kvList } from "./_shared.js";
+import { screenHead, section, asyncMount, ensureProject, refreshProject, emptyState, openSheet, kv, kvList, normalizeQuarantine } from "./_shared.js";
 
 export const route = "p/:slug/runs";
 export const routes = ["p/:slug/runs", "p/:slug/runs/:id"];
@@ -55,9 +57,17 @@ export function render(mount, params, query) {
         const done = r.checkpoint?.done ?? 0;
         const total = r.checkpoint?.total ?? 0;
         const pct = total ? Math.round((done / total) * 100) : 0;
+        const qN = (r.quarantine ?? []).length;
         list.append(el("a", { class: "runrow", href: `#/p/${params.slug}/runs/${r.id}` },
           el("span", { class: "runrow__id data" }, r.id),
-          el("span", { class: "runrow__inst" }, instrumentName(instruments, r.instrumentId)),
+          el("span", { class: "runrow__inst" },
+            instrumentName(instruments, r.instrumentId),
+            qN > 0
+              ? el("span", {
+                  class: "chip chip--signal runrow__quar data",
+                  title: `${fmtCount(qN)} unit${qN === 1 ? "" : "s"} produced no valid output — open the run for the reasons`,
+                }, `${fmtCount(qN)} quarantined`)
+              : null),
           el("span", { class: `chip runrow__status runrow__status--${r.status}` }, r.status),
           el("span", { class: "runrow__bar", aria: { hidden: "true" } },
             el("span", { class: "runrow__fill", style: { width: pct + "%" } })),
@@ -242,6 +252,21 @@ function renderDetail(mount, params) {
             : [],
     }));
 
+    /* -- scope: which corpus and text column this run reads, at the top.
+       The run records corpusId; older records without one say nothing. -- */
+    const runCorpus = (project.corpora ?? []).find((c) => c.id === run.corpusId) ?? null;
+    if (runCorpus) {
+      mount.append(el("div", { class: "scopebar" },
+        el("span", { class: "overline" }, "reading"),
+        el("span", { class: "data" }, scopechip.displayName(runCorpus)),
+        scopechip.render(scopechip.fromCorpus(runCorpus, project))));
+    } else if (run.corpusId) {
+      mount.append(el("div", { class: "scopebar" },
+        el("span", { class: "overline" }, "reading"),
+        el("span", { class: "data" }, run.corpusId),
+        el("span", { class: "faint" }, "— corpus no longer in this project")));
+    }
+
     /* -- monitor surface -- */
     const progFill = el("span", { class: "monitor__fill", style: { width: total0 ? `${(done0 / total0) * 100}%` : "0%" } });
     const progText = el("span", { class: "data monitor__progresstext" }, `${fmtCount(done0)} / ${fmtCount(total0)}`);
@@ -374,6 +399,29 @@ function renderDetail(mount, params) {
         }
       })
       .catch(() => escHost.append(el("p", { class: "faint" }, "Escalations unavailable.")));
+
+    /* -- quarantined: units that produced NO valid output after the repair
+       budget — recorded with their reason ({unitId, code, message}; older
+       records carry bare ids), never silently dropped. -- */
+    const quarantined = normalizeQuarantine(run.quarantine);
+    const qHost = el("div", {});
+    if (quarantined.length) {
+      qHost.append(el("p", { class: "screen__hint faint" },
+        "These units failed schema validation, refusal, or truncation after constrained repairs — they carry no output line and sit outside every count above."));
+      for (const q of quarantined) {
+        qHost.append(el("div", { class: "quarrow" },
+          q.unitId
+            ? el("button", { class: "refchip data evidence-door quarrow__unit", type: "button", dataset: { evidence: q.unitId } }, q.unitId)
+            : el("span", { class: "data faint" }, "(unit id missing)"),
+          el("span", { class: "quarrow__reason" },
+            q.code ? el("span", { class: "chip chip--signal data" }, q.code) : null,
+            q.message ?? (q.code ? null : el("span", { class: "faint" }, "no reason recorded — this run predates quarantine reasons")))));
+      }
+    } else {
+      qHost.append(el("p", { class: "faint" },
+        "Nothing quarantined. Units whose output fails schema validation, gets refused, or truncates after repairs would be listed here with the reason."));
+    }
+    mount.append(section(quarantined.length ? `Quarantined · ${fmtCount(quarantined.length)}` : "Quarantined", qHost));
 
     /* -- record -- */
     mount.append(section("Record", kvList(

@@ -243,6 +243,23 @@ export function sheetBusy(s, actionBtn, { label, hint } = {}) {
   };
 }
 
+/* ---- quarantine -------------------------------------------------------------------- */
+
+/**
+ * Normalize quarantine entries from runs and previews. Current servers record
+ * WHY a unit failed — {unitId, code, message} — while older artifacts carry
+ * bare unit-id strings. Both normalize to the object shape; legacy entries
+ * come back with null code/message, so counts render and nothing invents a
+ * reason that was never recorded.
+ */
+export function normalizeQuarantine(quarantine) {
+  return (Array.isArray(quarantine) ? quarantine : [])
+    .filter((q) => q !== null && q !== undefined)
+    .map((q) => (typeof q === "object"
+      ? { unitId: q.unitId ?? null, code: q.code ?? null, message: q.message ?? null }
+      : { unitId: String(q), code: null, message: null }));
+}
+
 /* ---- chips & lines ----------------------------------------------------------------- */
 
 /** Estimate chips: units · calls · $ · eta. Every screen quotes prices the same way. */

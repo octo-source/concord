@@ -9,7 +9,10 @@
       "checkpoint": { "done": 2500, "total": 2500 },
       "cost": { "estUSD": 4.1, "actualUSD": 3.86, "inputTokens": 4012400, "outputTokens": 612800 },
       "escalation": { "count": 37, "directorModel": "claude-sonnet-4-5" },
-      "quarantine": ["u_84d5f1b7e0c3a926"],
+      "quarantine": [
+        { "unitId": "u_84d5f1b7e0c3a926", "code": "SCHEMA_INVALID", "message": "juror qwen2.5:7b-instruct answered prose instead of the label schema after 2 constrained repairs" },
+        { "unitId": "u_d12f4a86c3e09b58", "code": "TRUNCATED", "message": "structured output truncated at the token limit; raise maxTokens (currently 400)" }
+      ],
       "provider": "anthropic+openai+ollama",
       "model": "claude-haiku-4-5+gpt-5-mini+qwen2.5:7b-instruct",
       "snapshot": null,
@@ -76,7 +79,7 @@
       { "done": 1002, "total": 2500, "costUSD": 0.59, "labelDist": { "pay": 290, "management": 214, "workload-burnout": 259, "growth": 134, "remote-policy": 66, "other": 39 }, "warnings": [], "escalations": 12 },
       { "done": 1290, "total": 2500, "costUSD": 0.76, "labelDist": { "pay": 372, "management": 277, "workload-burnout": 332, "growth": 173, "remote-policy": 85, "other": 51 }, "warnings": [], "escalations": 15 },
       { "done": 1604, "total": 2500, "costUSD": 0.94, "labelDist": { "pay": 461, "management": 345, "workload-burnout": 414, "growth": 215, "remote-policy": 106, "other": 63 }, "warnings": [{ "kind": "drift", "message": "drift check: agreement on 20 re-judged gold units is 0.06 below the certificate — inside tolerance." }], "escalations": 19 },
-      { "done": 1933, "total": 2500, "costUSD": 1.13, "labelDist": { "pay": 556, "management": 416, "workload-burnout": 499, "growth": 259, "remote-policy": 128, "other": 75 }, "warnings": [], "escalations": 24 },
+      { "done": 1933, "total": 2500, "costUSD": 1.13, "labelDist": { "pay": 556, "management": 416, "workload-burnout": 499, "growth": 259, "remote-policy": 128, "other": 75 }, "warnings": [{ "kind": "quarantine", "message": "unit u_d12f4a86c3e09b58 quarantined: TRUNCATED", "unitId": "u_d12f4a86c3e09b58" }], "escalations": 24 },
       { "done": 2241, "total": 2500, "costUSD": 1.31, "labelDist": { "pay": 645, "management": 482, "workload-burnout": 578, "growth": 300, "remote-policy": 148, "other": 88 }, "warnings": [], "escalations": 27 },
       { "done": 2500, "total": 2500, "costUSD": 1.42, "labelDist": { "pay": 702, "management": 525, "workload-burnout": 629, "growth": 327, "remote-policy": 161, "other": 95 }, "warnings": [], "escalations": 29 }
     ]

@@ -16,6 +16,7 @@ import * as toast from "../components/toast.js";
 import * as confusion from "../components/confusion.js";
 import * as quotecard from "../components/quotecard.js";
 import * as ladderC from "../components/ladder.js";
+import * as scopechip from "../components/scopechip.js";
 import { fmtStat, fmtCount, fmtClock } from "../format.js";
 import { screenHead, section, asyncMount, ensureProject, emptyState, openSheet, setFullbleed, markedValue } from "./_shared.js";
 
@@ -78,13 +79,13 @@ export function disagreementsOf(goldset) {
 export function render(mount, params, query) {
   const state = { pane: query.pane ?? null };
   asyncMount(mount, async () => {
-    await ensureProject(params.slug);
+    const project = await ensureProject(params.slug);
     const [goldset, constructs] = await Promise.all([
       api.goldsets.get(params.slug, params.gid),
       api.constructs.list(params.slug).catch(() => []),
     ]);
-    return { goldset, construct: constructs.find((c) => c.id === goldset.constructId) };
-  }, ({ goldset, construct }) => {
+    return { project, goldset, construct: constructs.find((c) => c.id === goldset.constructId) };
+  }, ({ project, goldset, construct }) => {
     if (!state.pane) {
       state.pane = goldset.status === "sampling" || !goldset.sample?.length ? "sample"
         : goldset.status === "coding" ? "code"
@@ -99,6 +100,20 @@ export function render(mount, params, query) {
       lede: "Draw a sample, code it blind by hand, then compare: human–human agreement first, every instrument against the adjudicated gold after. This is what turns ◌ numbers into ● numbers.",
       actions: [coderLauncherBtn(params, goldset)],
     }));
+
+    /* -- scope: which construct this gold measures, sampled from which
+       corpus (text column · units) — stated at the top, like everywhere
+       else units are read. -- */
+    const goldCorpus = (project?.corpora ?? []).find((c) => c.id === goldset.corpusId) ?? null;
+    mount.append(el("div", { class: "scopebar" },
+      el("span", { class: "overline" }, "construct"),
+      el("span", {}, construct?.name ?? goldset.constructId ?? "—"),
+      el("span", { class: "overline" }, "sampling from"),
+      goldCorpus
+        ? [el("span", { class: "data" }, scopechip.displayName(goldCorpus)),
+           scopechip.render(scopechip.fromCorpus(goldCorpus, project))]
+        : el("span", { class: "faint" },
+            goldset.corpusId ?? "corpus not recorded — this gold set predates scope tracking")));
 
     const tabs = el("div", { class: "panetabs", role: "tablist", aria: { label: "Studio panes" } });
     const paneHost = el("div", { class: "panehost" });

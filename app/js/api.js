@@ -260,14 +260,15 @@ export const instruments = {
   remove: (p, id) => del(`${P(p)}/instruments/${encodeURIComponent(id)}`),
   compile: (p, i) => post(`${P(p)}/instruments/${encodeURIComponent(i)}/compile`),
   /**
-   * Auto prompt-tuning against silver labels. POST + SSE.
+   * Auto prompt-tuning against silver labels. POST + SSE. corpusId scopes the
+   * sample (the server defaults to the project's first corpus otherwise).
    * handlers: onIteration({versionHash, agreement, note}), onDone({curve…}),
    * onError. Returns {close}.
    */
-  silverTune(p, i, { n } = {}, handlers = {}) {
+  silverTune(p, i, { n, corpusId } = {}, handlers = {}) {
     return sseSubscribe(`${P(p)}/instruments/${encodeURIComponent(i)}/silver-tune`, {
       method: "POST",
-      body: { n },
+      body: { n, corpusId },
       onEvent: (event, data) => {
         if (event === "iteration") handlers.onIteration?.(data);
         else if (event === "done") handlers.onDone?.(data);
@@ -277,9 +278,9 @@ export const instruments = {
       onError: handlers.onError,
     });
   },
-  stability: (p, i, { k, n } = {}) => post(`${P(p)}/instruments/${encodeURIComponent(i)}/stability`, { k, n }),
+  stability: (p, i, { k, n, corpusId } = {}) => post(`${P(p)}/instruments/${encodeURIComponent(i)}/stability`, { k, n, corpusId }),
   freeze: (p, i, { goldsetId }) => post(`${P(p)}/instruments/${encodeURIComponent(i)}/freeze`, { goldsetId }),
-  preview: (p, i, { unitIds }) => post(`${P(p)}/instruments/${encodeURIComponent(i)}/preview`, { unitIds }),
+  preview: (p, i, { unitIds, corpusId } = {}) => post(`${P(p)}/instruments/${encodeURIComponent(i)}/preview`, { unitIds, corpusId }),
 };
 
 export const goldsets = {

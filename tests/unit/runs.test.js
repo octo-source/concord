@@ -421,13 +421,47 @@ test("executeRun: SCHEMA_INVALID after repairs quarantines the unit; the run con
   const done = await executeRun(SLUG, run.id, { dir, onTick: (s) => { lastTick = s; } });
 
   assert.equal(done.status, "complete", "quarantine never kills the run");
-  assert.deepEqual(done.quarantine, [poison.id]);
+  // quarantine entries carry their reasons: {unitId, code, message} — the
+  // researcher must see WHY a unit vanished, not just that it did
+  assert.equal(done.quarantine.length, 1);
+  const q = done.quarantine[0];
+  assert.equal(q.unitId, poison.id);
+  assert.equal(q.code, "SCHEMA_INVALID");
+  assert.ok(typeof q.message === "string" && q.message.length > 0, "the failure message rides along");
+  assert.ok(q.message.length <= 200, "message is trimmed to ≤200 chars");
+  // …and the persisted run record carries the same rich shape
+  const onDisk = (await loadProject(SLUG, dir)).runs[0];
+  assert.deepEqual(onDisk.quarantine, done.quarantine);
   const lines = await readNdjson(outputsFile(pdir, run.id));
   assert.equal(lines.length, N - 1);
   assert.ok(!lines.some((l) => l.unitId === poison.id), "no output line for the quarantined unit");
   assertExactlyOnce(lines);
-  // the quarantine warning was visible in live telemetry (state clears at complete)
-  assert.ok(lastTick.warnings.some((w) => w.kind === "quarantine" && w.unitId === poison.id));
+  // the quarantine warning was visible in live telemetry (state clears at
+  // complete) and now carries the taxonomy code too
+  assert.ok(lastTick.warnings.some((w) => w.kind === "quarantine" && w.unitId === poison.id && w.code === "SCHEMA_INVALID"));
+});
+
+test("executeRun: legacy string quarantine entries (old run records) normalize on read — resume never breaks", async (t) => {
+  const N = 6;
+  const { dir, project } = await setup(t, { units: makeUnits(N), instruments: [judgeInstrument()] });
+  mockAdapter(project, { accuracy: 1.0 });
+  const run = await createRun(project, { instrumentId: "inst_j", corpusId: "c1" }, { dir });
+  // Simulate a record written by the pre-reasons engine: bare unitId strings
+  // (with a duplicate — the old Set used to absorb those).
+  await updateProject(SLUG, (p) => {
+    p.runs[0].status = "paused";
+    p.runs[0].quarantine = ["u_0003", "u_0003"];
+  }, dir);
+
+  const done = await executeRun(SLUG, run.id, { dir });
+  assert.equal(done.status, "complete");
+  assert.deepEqual(
+    done.quarantine,
+    [{ unitId: "u_0003", code: null, message: null }],
+    "legacy strings normalize to {unitId, code: null, message: null}, deduped by unitId",
+  );
+  const onDisk = (await loadProject(SLUG, dir)).runs[0];
+  assert.deepEqual(onDisk.quarantine, done.quarantine, "the normalized shape is what persists");
 });
 
 // ---------------------------------------------------------------- panels
@@ -572,6 +606,29 @@ test("runEphemeral: outputs without persistence; cache-aware; seedOffset decorre
   const a2 = await runEphemeral(project, inst, units, { dir, seedOffset: "s1" });
   assert.equal(byUnit(a2), byUnit(a));
   assert.equal(a2.cost.actualUSD, 0);
+});
+
+test("runEphemeral: quarantine entries carry {unitId, code, message} (previews show the reason, not an empty list)", async (t) => {
+  const units = makeUnits(6);
+  const poison = units[2];
+  const inst = judgeInstrument({}, { promptTemplate: `[[handler:badjson-eph]]\n${DEFAULT_TEMPLATE}` });
+  const { dir, project } = await setup(t, { units, instruments: [inst] });
+  const adapter = mockAdapter(project, { accuracy: 1.0 });
+  adapter.setHandler("badjson-eph", (req) => {
+    const all = req.messages.map((m) => m.content).join("\n");
+    const unitText = all.match(/<unit>\n([\s\S]*?)\n<\/unit>/)?.[1] ?? "";
+    if (unitText === poison.text) return { garbage: true }; // schema-invalid on every attempt incl. repairs
+    return { rationale: "scripted", label: ORACLE(unitText), confidence: 0.9 };
+  });
+  t.after(() => adapter.handlers.delete("badjson-eph"));
+
+  const res = await runEphemeral(project, inst, units, { dir });
+  assert.equal(res.outputs.length, 5, "the other units still produce outputs");
+  assert.equal(res.quarantine.length, 1);
+  assert.equal(res.quarantine[0].unitId, poison.id);
+  assert.equal(res.quarantine[0].code, "SCHEMA_INVALID");
+  assert.ok(typeof res.quarantine[0].message === "string" && res.quarantine[0].message.length > 0);
+  assert.ok(res.quarantine[0].message.length <= 200);
 });
 
 test("runEphemeral: capUSD stops early with partial outputs (aborted: true)", async (t) => {

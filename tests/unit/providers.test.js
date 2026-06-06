@@ -9,8 +9,9 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 
 import {
-  Adapter, Pool, completeWithRepair, parseRetryAfter, validateSchema, httpJSON,
+  Adapter, Pool, completeWithRepair, parseRetryAfter, validateSchema, httpJSON, withTruncationRetry,
 } from "../../server/providers/base.js";
+import { ConcordError } from "../../server/core/errors.js";
 import { AnthropicAdapter } from "../../server/providers/anthropic.js";
 import { OpenAIAdapter, toOpenAIStrict } from "../../server/providers/openai.js";
 import { OpenRouterAdapter } from "../../server/providers/openrouter.js";
@@ -1131,6 +1132,53 @@ describe("malformed 200 responses", () => {
         assert.equal(res.finishReason, "stop");
       },
     );
+  });
+});
+
+// ---------------------------------------------------------------- truncation retry
+
+// Shared by EVERY structured caller (Director AND judges): TRUNCATED is
+// deterministic at a given budget, so retry exactly once at a doubled budget,
+// clamped to the caller's cap. Lives in the provider layer so judges do not
+// import director code.
+describe("withTruncationRetry (provider layer)", () => {
+  it("retries TRUNCATED once at a doubled budget (default cap 32768)", async () => {
+    const calls = [];
+    const r = await withTruncationRetry(async (mt) => {
+      calls.push(mt);
+      if (calls.length === 1) throw new ConcordError("TRUNCATED", "structured output truncated");
+      return { ok: mt };
+    }, { maxTokens: 4096 });
+    assert.deepEqual(calls, [4096, 8192], "second attempt doubles the budget");
+    assert.equal(r.ok, 8192);
+  });
+
+  it("honors a caller-supplied cap (judges pass 8192)", async () => {
+    const calls = [];
+    await withTruncationRetry(async (mt) => {
+      calls.push(mt);
+      if (calls.length === 1) throw new ConcordError("TRUNCATED", "x");
+      return {};
+    }, { maxTokens: 6000, cap: 8192 });
+    assert.deepEqual(calls, [6000, 8192], "doubling clamps to the cap");
+  });
+
+  it("at the cap there is nothing larger to try: TRUNCATED propagates after ONE call", async () => {
+    const calls = [];
+    await assert.rejects(
+      () => withTruncationRetry(async (mt) => { calls.push(mt); throw new ConcordError("TRUNCATED", "at cap"); }, { maxTokens: 8192, cap: 8192 }),
+      (e) => e.code === "TRUNCATED",
+    );
+    assert.equal(calls.length, 1);
+  });
+
+  it("non-truncation errors never retry", async () => {
+    const calls = [];
+    await assert.rejects(
+      () => withTruncationRetry(async (mt) => { calls.push(mt); throw new ConcordError("PROVIDER_HTTP", "boom"); }, { maxTokens: 4096 }),
+      (e) => e.code === "PROVIDER_HTTP",
+    );
+    assert.equal(calls.length, 1);
   });
 });
 

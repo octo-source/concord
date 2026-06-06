@@ -16,7 +16,8 @@
 //
 // Error taxonomy per unit:
 //   SCHEMA_INVALID / PROVIDER_REFUSAL / TRUNCATED → the unit quarantines
-//     (recorded on run.quarantine, no output line, run continues).
+//     (recorded on run.quarantine as {unitId, code, message}, no output line,
+//     run continues).
 //   PROVIDER_UNREACHABLE / RATE_LIMITED_EXHAUSTED (after Pool retries) → the
 //     RUN pauses as resumable (status "paused", run.error recorded) — good
 //     units are never quarantined for infrastructure faults.
@@ -63,6 +64,39 @@ const CHECKPOINT_EVERY = 25;
 const DEFAULT_CONCURRENCY = 4;
 const QUARANTINE_CODES = new Set(["SCHEMA_INVALID", "PROVIDER_REFUSAL", "TRUNCATED"]);
 const PAUSE_CODES = new Set(["PROVIDER_UNREACHABLE", "RATE_LIMITED_EXHAUSTED"]);
+
+// Quarantine entries carry their reasons: {unitId, code, message} (message
+// trimmed to ≤200 chars). A researcher staring at an empty preview or a
+// shrunken run must see WHY units vanished — a bare id list told them
+// nothing (June 2026 field bug: mass TRUNCATED quarantines read as "empty
+// results"). Older run records persisted bare unitId strings; readers
+// normalize on load (string → {unitId, code: null, message: null}) so legacy
+// run.json / project.runs[] keep working. Dedupe is by unitId, first entry
+// wins (parity with the old Set semantics).
+const QUARANTINE_MESSAGE_MAX = 200;
+
+const trimQuarantineMessage = (message) => {
+  if (typeof message !== "string" || message === "") return null;
+  return message.length > QUARANTINE_MESSAGE_MAX ? message.slice(0, QUARANTINE_MESSAGE_MAX) : message;
+};
+
+const quarantineEntry = (unitId, err) => ({
+  unitId,
+  code: typeof err?.code === "string" ? err.code : null,
+  message: trimQuarantineMessage(err?.message),
+});
+
+export function normalizeQuarantine(list) {
+  const byUnit = new Map();
+  for (const entry of Array.isArray(list) ? list : []) {
+    const e = typeof entry === "string"
+      ? { unitId: entry, code: null, message: null }
+      : { unitId: entry?.unitId, code: typeof entry?.code === "string" ? entry.code : null, message: trimQuarantineMessage(entry?.message) };
+    if (typeof e.unitId !== "string" || e.unitId === "" || byUnit.has(e.unitId)) continue;
+    byUnit.set(e.unitId, e);
+  }
+  return [...byUnit.values()];
+}
 const round6 = (x) => Math.round(x * 1e6) / 1e6;
 const nowISO = () => new Date().toISOString();
 
@@ -502,7 +536,8 @@ async function executeRunInner(project, run, opts) {
   run.status = "running";
   if (!run.startedAt) run.startedAt = nowISO();
   run.checkpoint = { done, total: units.length };
-  run.quarantine = [...new Set(run.quarantine ?? [])];
+  // normalize-on-read: legacy records carry bare unitId strings; also dedupes
+  run.quarantine = normalizeQuarantine(run.quarantine);
   delete run.error;
   await persistRun(slug, run, dir);
   for (const ev of ctx.privacyEvents) {
@@ -521,7 +556,7 @@ async function executeRunInner(project, run, opts) {
   }
 
   const base = { ...run.cost };
-  const quarantine = new Set(run.quarantine);
+  const quarantine = new Map(run.quarantine.map((q) => [q.unitId, q])); // unitId → {unitId, code, message}
   const stop = { reason: null, error: null };
   let sinceCheckpoint = 0;
 
@@ -535,7 +570,7 @@ async function executeRunInner(project, run, opts) {
 
   const checkpoint = async () => {
     run.checkpoint = { done, total: units.length };
-    run.quarantine = [...quarantine];
+    run.quarantine = [...quarantine.values()];
     syncCost();
     await persistRun(slug, run, dir);
   };
@@ -569,9 +604,14 @@ async function executeRunInner(project, run, opts) {
       await appendNdjson(outputsFile, cleanLine(line));
     }
     if (result.quarantined) {
-      quarantine.add(unit.id);
+      quarantine.set(unit.id, quarantineEntry(unit.id, result.error));
       done += 1; // quarantined units count as handled for progress purposes
-      monitor.warn(run.id, { kind: "quarantine", message: `unit ${unit.id} quarantined: ${result.error?.code}`, unitId: unit.id });
+      monitor.warn(run.id, {
+        kind: "quarantine",
+        message: `unit ${unit.id} quarantined: ${result.error?.code}`,
+        unitId: unit.id,
+        code: result.error?.code ?? null,
+      });
     } else {
       const final = result.final;
       const escalated = await maybeEscalate(ctx, unit, final, { escalate: opts.escalate, p99 });
@@ -594,7 +634,7 @@ async function executeRunInner(project, run, opts) {
   // terminal state
   syncCost();
   run.checkpoint = { done, total: units.length };
-  run.quarantine = [...quarantine];
+  run.quarantine = [...quarantine.values()];
   if (stop.reason === "failed") {
     run.status = "failed";
     run.error = { code: stop.error?.code ?? "UNKNOWN", message: stop.error?.message ?? String(stop.error) };
@@ -650,7 +690,8 @@ async function executeRunInner(project, run, opts) {
 // NO ledger, NO monitor — silver tuning, stability reruns and previews.
 // seedOffset → req.seed on every judge call + a distinct cache namespace.
 // Budget cap → clean stop, partial results, aborted: true on the return.
-// → {outputs, cost: {actualUSD, inputTokens, outputTokens}, quarantine}
+// → {outputs, cost: {actualUSD, inputTokens, outputTokens},
+//    quarantine: [{unitId, code, message}]}
 export async function runEphemeral(project, instrument, units, opts = {}) {
   const ctx = await buildContext(project, instrument, {
     seedOffset: opts.seedOffset ?? null,
@@ -671,7 +712,7 @@ export async function runEphemeral(project, instrument, units, opts = {}) {
     // unreachable/rate-limit errors propagate: ephemeral callers fail loudly
     const result = await processUnit(ctx, unit);
     for (const line of result.newLines) outputs.push(cleanLine(line));
-    if (result.quarantined) quarantine.push(unit.id);
+    if (result.quarantined) quarantine.push(quarantineEntry(unit.id, result.error));
     else outputs.push(cleanLine(result.final));
     done += 1;
     opts.onTick?.({ done, total: units.length, costUSD: ctx.m.totals().usd });

@@ -305,6 +305,32 @@ function extractCandidate(res) {
 
 const textOf = (res) => (typeof res?.text === "string" ? res.text : res?.json !== undefined ? JSON.stringify(res.json) : "");
 
+// ---------------------------------------------------------------------------
+// Truncation retry — shared by every structured caller (Director AND judges)
+// ---------------------------------------------------------------------------
+
+// Default cap matches the Director's historical ceiling; judges pass a much
+// smaller cap (they are high-volume — see judge.js).
+const TRUNCATION_RETRY_CAP = 32768;
+
+// Real models overflow budgets that fit MockModel comfortably: frontier
+// directors are verbose (Gemini Flash truncated the brief at 4096 in the
+// field), and reasoning-class workers bill their THINKING tokens against
+// max_tokens, so even a roomy budget can vanish before any JSON lands. A
+// truncation is deterministic — same call, same overflow — so retrying at the
+// SAME budget is waste, but ONE retry at a doubled budget (clamped to `cap`)
+// usually lands. Anything beyond that propagates: the caller's budget (and
+// prompt) need rethinking, not more spend.
+export async function withTruncationRetry(attempt, { maxTokens, cap = TRUNCATION_RETRY_CAP } = {}) {
+  try {
+    return await attempt(maxTokens);
+  } catch (err) {
+    const bigger = Math.min(maxTokens * 2, cap);
+    if (err?.code !== "TRUNCATED" || bigger <= maxTokens) throw err;
+    return await attempt(bigger);
+  }
+}
+
 // Structured-output enforcement shared by every adapter: validate, then up to
 // `maxRepairs` constrained re-prompts, then SCHEMA_INVALID (caller quarantines
 // the unit — never silently dropped).
