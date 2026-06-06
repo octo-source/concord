@@ -501,7 +501,9 @@ function startSprint(params, goldset, construct, coder) {
     if (!id) { complete(); return; }
     unitHost.append(el("p", { class: "faint data sprint__unitid" }, id));
     try {
-      const dossier = await api.evidence.get(params.slug, id);
+      // scope the dossier to THIS gold set's corpus so the coder reads the
+      // column under analysis — not whichever corpus shares the id first
+      const dossier = await api.evidence.get(params.slug, id, { corpusId: goldset.corpusId });
       const u = dossier?.unit ?? { id, text: "(unit unavailable)" };
       // blind: only the text and position — no machine readings, no meta that biases
       unitHost.append(el("blockquote", { class: "sprint__text", lang: dossier?.lang || undefined }, u.text));
@@ -791,7 +793,8 @@ function adjudicatePane(host, params, goldset, construct, disagreements = []) {
     const settledNow = Boolean(d.resolved || d.excluded);
     const row = el("div", { class: `adjrow${settledNow ? " adjrow--resolved" : ""}${d.excluded ? " adjrow--excluded" : ""}` });
     const quoteHost = el("div", { class: "adjrow__quote" });
-    api.evidence.get(params.slug, d.unitId)
+    // adjudication reads the same gold-set corpus the coders read
+    api.evidence.get(params.slug, d.unitId, { corpusId: goldset.corpusId })
       .then((dossier) => {
         quoteHost.append(quotecard.render({ unit: dossier.unit, compact: true, evidence: true }));
       })

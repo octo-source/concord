@@ -423,7 +423,18 @@ export default [
       if (!Number.isInteger(n) || n < 1) throw new ConcordError("VALIDATION", "n must be a positive integer", { n: body.n });
 
       const current = await readGoldset(params.p, params.g);
+      // The gold set's OWN corpus is the unit source — never project.corpora[0].
+      // A silent fallback to the first corpus would sample a different column's
+      // text than the one under analysis and invalidate the calibration. So the
+      // resolved corpus must still exist on the project; if it is gone, refuse
+      // (400) and name it rather than swapping in corpora[0].
       const corpusId = body.corpusId ?? current.corpusId ?? project.corpora?.[0]?.id;
+      if (!corpusId) throw new ConcordError("VALIDATION", "gold sets need a corpus to sample from", {});
+      if (!(project.corpora ?? []).some((c) => c.id === corpusId)) {
+        throw new ConcordError("VALIDATION",
+          `gold set '${params.g}' samples corpus '${corpusId}', which is no longer in this project — re-import it or create a gold set on a current corpus`,
+          { corpusId, goldsetId: params.g });
+      }
       const units = await readCorpusUnits(params.p, corpusId);
       if (units.length === 0) throw new ConcordError("VALIDATION", `corpus '${corpusId}' has no units`, { corpusId });
 

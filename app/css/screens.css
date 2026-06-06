@@ -535,6 +535,43 @@
    Instant Read
    ========================================================================= */
 
+/* The unit-text statement — the prominent "which column am I reading" line,
+   directly under the screen head. Title-scale serif so it cannot be missed;
+   a real Change button beside it; the scope chip (rows/exclusions) beneath. */
+.unittext {
+  margin: calc(-1 * var(--s3)) 0 var(--s6);
+}
+.unittext__line {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: var(--s2) var(--s4);
+}
+.unittext__statement {
+  font-family: var(--font-serif);
+  font-size: var(--fs-title);
+  font-weight: 600;
+  letter-spacing: -0.01em;
+  line-height: 1.2;
+  margin: 0;
+  min-width: 0;
+}
+.unittext__label { color: var(--ink-muted); }
+.unittext__col { color: var(--ink); }
+.unittext__col--unset {
+  color: var(--ink-muted);
+  font-style: italic;
+}
+.unittext__count {
+  font-size: var(--fs-data);
+  font-weight: 400;
+  color: var(--ink-muted);
+  white-space: nowrap;
+}
+.unittext__change { flex: none; }
+.unittext__scope { margin-top: var(--s3); }
+
 .localbadge { font-size: var(--fs-micro); }
 .irgrid {
   display: grid;

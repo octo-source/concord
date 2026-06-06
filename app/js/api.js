@@ -361,8 +361,15 @@ export const analyses = {
 };
 
 export const evidence = {
-  /** The dossier behind any number: {unit, dictionaryHits, outputs, goldLabels, sourcePos}. */
-  get: (p, unitId) => get_(`${P(p)}/evidence/${encodeURIComponent(unitId)}`),
+  /**
+   * The dossier behind any number: {unit, dictionaryHits, outputs, goldLabels,
+   * sourcePos}. Pass corpusId when the caller knows which corpus the number
+   * came from (the coding sprint and adjudication know the gold set's corpus)
+   * so the unit's TEXT resolves from that corpus — not whichever corpus is
+   * listed first. Omitted, the server scans every corpus for the id.
+   */
+  get: (p, unitId, { corpusId } = {}) =>
+    get_(`${P(p)}/evidence/${encodeURIComponent(unitId)}`, { query: { corpusId } }),
 };
 
 export const reliability = {

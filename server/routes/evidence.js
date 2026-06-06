@@ -4,7 +4,7 @@
 import { ConcordError } from "../core/errors.js";
 import { loadProject } from "../core/store.js";
 import { hits as dictHits } from "../instruments/dictionary.js";
-import { unitsById, readGoldset, readNdjson, runOutputsFile } from "./_shared.js";
+import { unitsById, readGoldset, readNdjson, runOutputsFile, findOr404 } from "./_shared.js";
 
 export default [
   {
@@ -12,10 +12,22 @@ export default [
     pattern: "/api/projects/:p/evidence/:unitId",
     handler: async (req, res, params) => {
       const project = await loadProject(params.p);
-      const found = await unitsById(project, [params.unitId]);
+      // Unit ids are content-addressed per corpus (sha256(corpusId|row|text)),
+      // so a re-unitized variant column shares NO ids with its parent — but a
+      // caller that knows which corpus the number came from (the coding
+      // sprint, adjudication) passes ?corpusId so the dossier resolves the
+      // unit from THAT corpus's text, never whichever corpus happens to be
+      // first. Without it the resolution falls back to a scan of every corpus.
+      const corpusId = req.query.corpusId || null;
+      if (corpusId) findOr404(project.corpora, corpusId, "corpus");
+      const found = await unitsById(project, [params.unitId], corpusId ? { corpusId } : {});
       const unit = found.get(params.unitId);
       if (!unit) {
-        throw new ConcordError("NOT_FOUND", `unit '${params.unitId}' not found in any corpus`, { unitId: params.unitId });
+        throw new ConcordError("NOT_FOUND",
+          corpusId
+            ? `unit '${params.unitId}' not found in corpus '${corpusId}'`
+            : `unit '${params.unitId}' not found in any corpus`,
+          { unitId: params.unitId, ...(corpusId ? { corpusId } : {}) });
       }
 
       // dictionary hits per dictionary instrument (highlight spans)

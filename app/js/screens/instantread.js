@@ -56,19 +56,34 @@ export function render(mount, params) {
       ],
     }));
 
-    /* -- scope: which column, which rows, what's excluded -- */
+    /* -- the unit-text statement: the single most load-bearing fact on this
+       screen — WHICH column every number below is computed over. Full-width,
+       screen-title scale, with a real Change button. The scope chip (rows
+       kept, exclusions) rides beneath it; this replaces the old small inline
+       affordance. -- */
     const corpusEntry = (project?.corpora ?? []).find((c) => c.id === params.cid) ?? null;
     const scope = read.scope
       ? { ...read.scope, derivedFrom: scopechip.resolveDerived(read.scope.derivedFrom, project) }
       : scopechip.fromCorpus(corpusEntry, project);
     const textCol = scope?.textColumn ?? null;
-    mount.append(el("div", { class: "scopebar" },
-      scope ? scopechip.render(scope) : null,
-      el("button", {
-        class: "btn btn--quiet scopebar__change", type: "button",
-        title: "Pick a different column as the unit text — builds a new corpus; this one is kept",
-        onclick: () => changeTextColumn(params, project, textCol),
-      }, textCol ? `Unit text: ${textCol} — change` : "Unit text: not recorded — set it"),
+    const unitN = read.unitCount ?? corpusEntry?.unitCount ?? null;
+    mount.append(el("div", { class: "unittext" },
+      el("div", { class: "unittext__line" },
+        el("p", { class: "unittext__statement" },
+          el("span", { class: "unittext__label" }, "Unit text:"),
+          " ",
+          textCol
+            ? el("span", { class: "unittext__col" }, textCol)
+            : el("span", { class: "unittext__col unittext__col--unset" }, "not recorded"),
+          unitN !== null
+            ? el("span", { class: "unittext__count data" }, ` · ${fmtCount(unitN)} units`)
+            : null),
+        el("button", {
+          class: "btn unittext__change", type: "button",
+          title: "Pick a different column as the unit text — builds a new corpus; this one is kept",
+          onclick: () => changeTextColumn(params, project, textCol),
+        }, textCol ? "Change…" : "Set the column…")),
+      scope ? el("div", { class: "unittext__scope" }, scopechip.render(scope)) : null,
     ));
 
     const grid = el("div", { class: "irgrid" });

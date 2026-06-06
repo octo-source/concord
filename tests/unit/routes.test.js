@@ -1125,6 +1125,91 @@ test("goldsets: adjudication resolves the disputes → status complete + goldset
   assert.equal((await events({ type: "goldset.completed", ref: S.goldsetId })).length, 1);
 });
 
+// =========================================================================
+// REGRESSION — a gold set must sample (and resolve units) from ITS OWN
+// corpus, never project.corpora[0]. The reported bug: creating a gold set
+// while analyzing a second column silently sampled/judged the FIRST corpus,
+// invalidating calibration. This test pins the corpus end to end.
+// =========================================================================
+
+test("goldsets: a gold set on corpus B samples ONLY corpus B's units, never corpora[0]", async () => {
+  armMock();
+  const slug = "regression-corpus-scope";
+  await ok("POST", "/api/projects", { name: "Regression Corpus Scope" });
+
+  // Corpus A (the FIRST corpus — corpora[0]) and corpus B carry DISTINCT
+  // texts so a unit drawn from one can never be mistaken for the other.
+  const csvA = ["respondent_id,dept,response",
+    ...Array.from({ length: 40 }, (_, i) => `a${i},${i % 2 ? "sales" : "ops"},ALPHA answer number ${i} about onboarding paperwork and badge access`)].join("\n") + "\n";
+  const csvB = ["respondent_id,dept,response",
+    ...Array.from({ length: 40 }, (_, i) => `b${i},${i % 2 ? "sales" : "ops"},BRAVO answer number ${i} about parking shuttles and cafeteria hours`)].join("\n") + "\n";
+
+  const upA = await upload(`/api/projects/${slug}/import`, "alpha.csv", csvA);
+  const corpusA = (await ok("POST", `/api/projects/${slug}/import/confirm`, {
+    importId: upA.importId, mapping: { textColumn: "response" }, unitization: { scheme: "response" },
+  })).corpusId;
+  const upB = await upload(`/api/projects/${slug}/import`, "bravo.csv", csvB);
+  const corpusB = (await ok("POST", `/api/projects/${slug}/import/confirm`, {
+    importId: upB.importId, mapping: { textColumn: "response" }, unitization: { scheme: "response" },
+  })).corpusId;
+
+  const pdirReg = projectDir(slug);
+  const idsIn = async (corpusId) => new Set(
+    (await readNdjson(path.join(pdirReg, "corpora", corpusId, "units.ndjson"))).map((u) => u.id));
+  const idsA = await idsIn(corpusA);
+  const idsB = await idsIn(corpusB);
+  assert.equal([...idsA].filter((id) => idsB.has(id)).length, 0, "independent corpora share no unit ids");
+
+  const construct = await ok("POST", `/api/projects/${slug}/constructs`, {
+    name: "Topic", type: "nominal",
+    definition: "What the response is about.", criteria: { include: ["on topic"], exclude: [] }, edgeCases: [],
+    categories: [{ value: "onboarding", label: "Onboarding" }, { value: "facilities", label: "Facilities" }],
+  });
+
+  // The gold set names corpus B (the column under analysis), NOT corpora[0].
+  const gs = await ok("POST", `/api/projects/${slug}/goldsets`, { constructId: construct.id, corpusId: corpusB });
+  assert.equal(gs.corpusId, corpusB, "create persists the body's corpusId");
+
+  const sampled = await ok("POST", `/api/projects/${slug}/goldsets/${gs.id}/sample`, { design: "srs", n: 12 });
+  assert.equal(sampled.n, 12);
+
+  // THE CORE ASSERTION: every sampled unit id lives in corpus B and in NONE
+  // of corpus A. Before the fix the sample route fell back to corpora[0] (A)
+  // whenever the goldset's corpus did not resolve, so this caught the drop.
+  for (const s of sampled.sample) {
+    assert.ok(idsB.has(s.unitId), `sampled unit ${s.unitId} is a corpus B unit`);
+    assert.ok(!idsA.has(s.unitId), `sampled unit ${s.unitId} is NOT a corpus A unit`);
+  }
+  const full = await ok("GET", `/api/projects/${slug}/goldsets/${gs.id}`);
+  assert.equal(full.corpusId, corpusB, "sampling keeps the goldset pinned to corpus B");
+
+  // The text the coder reads must be corpus B's text. Plant a cross-corpus id
+  // COLLISION: copy a sampled unit's id into corpus A's units.ndjson with
+  // DIFFERENT text. The evidence dossier (the sprint's unit source) must
+  // still return corpus B's text when scoped — never corpus A's "first
+  // column" text. This is the exact "judging the first column" failure.
+  const probe = sampled.sample[0].unitId;
+  const bUnit = (await readNdjson(path.join(pdirReg, "corpora", corpusB, "units.ndjson")))
+    .find((u) => u.id === probe);
+  assert.match(bUnit.text, /^BRAVO/, "corpus B unit carries BRAVO text");
+  const aUnitsFile = path.join(pdirReg, "corpora", corpusA, "units.ndjson");
+  const aRaw = await readNdjson(aUnitsFile);
+  aRaw.push({ id: probe, text: "ALPHA decoy text for a colliding id", meta: {}, pos: { row: 999 } });
+  await writeFile(aUnitsFile, aRaw.map((u) => JSON.stringify(u)).join("\n") + "\n");
+
+  // scoped to corpus B → corpus B's text (the fix); unscoped order would have
+  // returned corpus A (corpora[0]) first.
+  const scoped = await ok("GET", `/api/projects/${slug}/evidence/${probe}?corpusId=${corpusB}`);
+  assert.match(scoped.unit.text, /^BRAVO/, "evidence?corpusId=B returns corpus B's text, not the first corpus's");
+
+  // A gold set whose corpus is GONE must refuse to sample (no silent
+  // corpora[0] fallback that would invalidate calibration).
+  const orphan = await ok("POST", `/api/projects/${slug}/goldsets`, { constructId: construct.id, corpusId: corpusB });
+  await updateProject(slug, (p) => { p.corpora = p.corpora.filter((c) => c.id !== corpusB); });
+  const err = await fail("POST", `/api/projects/${slug}/goldsets/${orphan.id}/sample`, { design: "srs", n: 5 }, 400, "VALIDATION");
+  assert.match(err.message, new RegExp(corpusB), "the missing corpus is named, not silently swapped");
+});
+
 test("instruments: freeze mints the certificate (human-first ordering in the ledger) and seals the instrument", async () => {
   armMock();
   const cert = await ok("POST", `/api/projects/${S.slug}/instruments/${S.inst1}/freeze`, { goldsetId: S.goldsetId });
