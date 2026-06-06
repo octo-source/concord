@@ -647,15 +647,13 @@ function openCoderSheet(params, goldset) {
               }, "End this session"),
             );
           } catch (err) {
-            // fall back to the --coder launch profile (works without this route)
-            const cmd = `start.bat --coder ${goldset.id}:${coderId}`;
+            // No hand-rolled fallback: a wrongly-launched second server would
+            // present an UNBLINDED surface as blind. Coder sessions come only
+            // from this route.
             clear(out).append(
               el("p", { class: "screen__hint" },
-                "The listener could not start from here (", String(err.message ?? err), ") — launch the coder profile by hand:"),
-              el("div", { class: "codeline" },
-                el("code", { class: "data" }, cmd),
-                copyBtn(cmd)),
-              el("p", { class: "screen__hint faint" }, "The gold set and coder are already in the command."),
+                "The coder listener could not start (", String(err.message ?? err), "). ",
+                "Check that the server is running normally and try again — blind sessions are only ever started from here."),
             );
           }
           e.target.disabled = false;

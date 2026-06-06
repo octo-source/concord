@@ -145,7 +145,16 @@ export async function startCoderListener(projectSlug, goldsetId, coderId, {
 const isMain = process.argv[1] && import.meta.url === pathToFileURL(path.resolve(process.argv[1])).href;
 if (isMain) {
   const port = await readPort();
-  const { port: actual } = await startServer({ port });
-  const suffix = serverMode.role === "coder" ? ` — coder profile: ${serverMode.coderId} on ${serverMode.goldsetId}` : "";
-  console.log(`Concord listening on http://localhost:${actual}${suffix}`);
+  try {
+    const { port: actual } = await startServer({ port });
+    console.log(`Concord listening on http://localhost:${actual}`);
+    console.log(`Blind coder sessions are started from the Calibration Studio, never from the command line.`);
+  } catch (err) {
+    if (err?.code === "EADDRINUSE") {
+      console.error(`Port ${port} is already in use — is Concord already running? Close it or change the port in config/app.json.`);
+    } else {
+      console.error(`Concord failed to start: ${err?.message ?? err}`);
+    }
+    process.exitCode = 1;
+  }
 }

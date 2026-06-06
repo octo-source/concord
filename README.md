@@ -12,18 +12,21 @@ And **every number is a door**. Click any count, bar, cell, or coefficient and t
 
 ## Quickstart (no API keys needed)
 
+Prerequisite: **Node.js 20.10 or newer** on your PATH (`node --version`).
+
 1. **Double-click `start.bat`** (first run installs dependencies — pure JavaScript, nothing compiles). Your browser opens `http://localhost:7341`.
-2. **Drop `demo/techcorp-exit-survey.csv`** anywhere on the import screen — 2,500 synthetic exit-survey responses.
+2. **Create a project** (any name; privacy mode "no-training" is a fine default), then **drop `demo/techcorp-exit-survey.csv`** anywhere — 2,500 synthetic exit-survey responses.
 3. Confirm the proposed mapping (the `response` column is auto-detected as text). The junk queue flags the planted non-answers, duplicates, and a 7-row bot burst.
 4. Watch the **Instant Read** (all-local: length histogram, language mix, top terms — "pay" is right there, sentiment sketch, metadata marginals).
-5. Ask for the **Corpus Brief** and watch it stream in: candidate themes, each anchored to real quotes. Click a quote — that's the inspector.
-6. From there, the whole ladder is open: accept constructs, compile instruments, silver-tune, run the corpus, draw a gold sample, code it (or let two scripted coders show you the Calibration Studio), freeze a certificate, and watch the Correction Reveal put the corrected estimate beside the naive one.
+5. **Pick a Director**: the rail's *Project → Settings* (or the link under the Brief button) → The Director's slot → keyless demo: provider **mock** → Save.
+6. Ask for the **Corpus Brief** and watch it stream in: candidate themes, each anchored to real quotes. Click a quote — that's the inspector.
+7. From there, the whole ladder is open: accept constructs, compile instruments, silver-tune, run the corpus, draw a gold sample, code it in the Calibration Studio, freeze a certificate, and watch the Correction Reveal put the corrected estimate beside the naive one.
 
 **What "Mock" means:** keyless, Concord runs on **MockModel** — a deterministic, $0, local fake model that knows the demo corpus's planted themes and emulates a ~90%-accurate judge with plausible rationales. It exists so the entire product (including calibration and correction, which need a fallible judge) works end to end before you paste a single key. It is always labeled "Mock" — in the UI, in run records, and in generated methods text. It never pretends to be science; it demonstrates the machinery that makes science possible.
 
 ## Adding real models
 
-Open **Settings → Providers** and paste a key for any of:
+Open **Settings** (the gear route `#/settings`, or *Project → Settings* in the rail) and paste a key for any of:
 
 - **Anthropic** — Claude models, schemas via tool-use.
 - **OpenAI** — GPT models, native JSON-schema output.
@@ -89,7 +92,8 @@ The e2e pipeline drives the real server over HTTP exactly as the UI does: import
 Honest list, with where each deviation is documented (design doc §2, `docs/plans/2026-06-05-concord-v1-design.md`):
 
 - **No local Whisper.** Transcripts import as VTT/SRT/JSON; audio transcription can attach later via any local OpenAI-compatible endpoint.
-- **No end-to-end-encrypted relay.** Project bundles are plain portable folders — share a drive; the coder launch profile enforces blindness server-side.
+- **No end-to-end-encrypted relay.** Project bundles are plain portable folders — share a drive; blind coder sessions are restricted listeners started from the Calibration Studio, never a second server.
+- **PII pseudonymization is built but not yet wired into import.** The reversible pseudonymizer (`server/ingest/pii.js`, vault outside the bundle, conflict-refusing) is implemented and tested; the import flow does not yet offer it. Next session's work.
 - **No OS keychain.** Keys sit in `config/keys.json` (gitignored, outside bundles and archives).
 - **No SQLite/DuckDB.** NDJSON/JSON bundles with atomic writes and an append-only ledger — fluid to ~100k units, not 1M.
 - **No embedded Python.** Statistics are pure JS, validated against hand-derived golden numbers and seeded simulations; replication archives emit R + Python that reproduce every corrected number outside Concord.

@@ -4,6 +4,9 @@
   "description": "Concord — instrument-grade qualitative text measurement. Explore in minutes, publish with honest statistics.",
   "type": "module",
   "private": true,
+  "engines": {
+    "node": ">=20.10"
+  },
   "scripts": {
     "start": "node server/index.js",
     "test": "node --test \"tests/**/*.test.js\""

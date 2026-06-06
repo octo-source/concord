@@ -85,6 +85,11 @@ export function render(mount, params) {
        {project: {slug, director}} (no global Director exists) ---- */
     if (projectScoped && project) {
       const director = { ...(project.director ?? {}) };
+      const providers = Object.keys(catalog ?? {});
+      // No slot configured yet: seed the working copy from what the selects
+      // will DISPLAY, so "Save" saves what the researcher sees. Mock first —
+      // it is the honest keyless default.
+      if (!director.provider) director.provider = providers.includes("mock") ? "mock" : providers[0];
       const dirModels = (prov) => (catalog?.[prov] ?? []).map((m) => m.id);
       const dirModelSel = el("select", { class: "input input--inline", "aria-label": "Director model" });
       const fillDirModels = () => {
@@ -92,6 +97,7 @@ export function render(mount, params) {
         for (const id of dirModels(director.provider)) {
           dirModelSel.append(el("option", { value: id, selected: id === director.model }, id));
         }
+        if (!director.model && dirModelSel.options.length) director.model = dirModelSel.value;
       };
       fillDirModels();
       dirModelSel.addEventListener("change", () => { director.model = dirModelSel.value; });

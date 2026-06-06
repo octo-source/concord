@@ -254,6 +254,13 @@ export function createRouter({ appDir, maxJsonBody = DEFAULT_MAX_JSON_BODY, fsIm
     } catch {
       return sendText(res, 400, "Bad request");
     }
+    // DNS-rebinding guard: the server binds loopback, but a hostile page can
+    // point its own hostname at 127.0.0.1 and script the API cross-origin.
+    // The Host header survives rebinding, so refuse anything non-local.
+    const host = (req.headers.host || "").replace(/:\d+$/, "").replace(/^\[|\]$/g, "").toLowerCase();
+    if (host && host !== "localhost" && host !== "127.0.0.1" && host !== "::1") {
+      return sendJson(res, 403, { ok: false, error: { code: "BAD_HOST", message: "Concord only answers local requests" } });
+    }
     req.query = Object.fromEntries(url.searchParams);
     const found = match(req.method, url.pathname);
     if (found) {

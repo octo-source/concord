@@ -141,7 +141,7 @@ export function render(mount, params) {
         est === null
           ? el("p", { class: "ctacard__line faint" },
               "No price to quote yet — choose a Director model in ",
-              el("a", { href: "#/settings" }, "Settings"),
+              el("a", { href: `#/p/${params.slug}/settings` }, "this project's Settings"),
               " (keyless demo: choose Mock).")
           : null,
       ),

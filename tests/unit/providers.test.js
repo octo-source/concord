@@ -122,7 +122,11 @@ describe("Pool", () => {
       (call, n) => (n < 3 ? { status: 429, body: { error: { type: "rate_limit_error" } } } : anthropicToolResponse({ label: "pay" })),
       async (srv) => {
         const adapter = new AnthropicAdapter({ apiKey: "k", baseUrl: srv.url });
-        const pool = new Pool({ concurrency: 1, baseDelayMs: 60 });
+        // base 400ms: algebraic max for d1 is 1.25x base = 500ms, min for d2
+        // is 2x base = 800ms — a 300ms monotonicity margin that survives the
+        // event-loop scheduling noise of 13 suites running in parallel
+        // (observed +110ms inflation under full-suite load at base 60).
+        const pool = new Pool({ concurrency: 1, baseDelayMs: 400 });
         const res = await pool.run(() => adapter.complete({
           model: "claude-sonnet-4-6",
           messages: [{ role: "user", content: "judge" }],
@@ -132,8 +136,8 @@ describe("Pool", () => {
         assert.equal(srv.calls.length, 3);
         const d1 = srv.calls[1].at - srv.calls[0].at;
         const d2 = srv.calls[2].at - srv.calls[1].at;
-        assert.ok(d1 >= 40, `first backoff too small: ${d1}ms`);
-        assert.ok(d2 >= 95, `second backoff too small: ${d2}ms`);
+        assert.ok(d1 >= 300, `first backoff too small: ${d1}ms`);
+        assert.ok(d2 >= 700, `second backoff too small: ${d2}ms`);
         assert.ok(d2 > d1, `delays not increasing: ${d1}ms then ${d2}ms`);
       },
     );

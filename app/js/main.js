@@ -121,6 +121,8 @@ function projectToSections(project) {
       items: (project.runs ?? []).map((r) => item({ id: r.id, name: r.id }, { href: `/p/${slug}/runs/${r.id}` })) },
     { id: "analyses", title: "Analyses", emptyHint: "Ask the data a question.",
       items: (project.analyses ?? []).map((a) => item(a, { level: a.level, href: `/p/${slug}/analyses/${a.id}` })) },
+    { id: "settings", title: "Project",
+      items: [{ id: "settings", label: "Settings — Director, privacy, budget", humanTouched: true, href: `/p/${slug}/settings` }] },
   ];
 }
 

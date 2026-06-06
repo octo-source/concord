@@ -42,8 +42,18 @@ function stringArray(v, field) {
   return v;
 }
 
+// Windows reserved device names make fs calls misbehave when used as a
+// directory name; suffix them rather than reject (the user typed "Con
+// Survey", not a syscall).
+const RESERVED_SLUGS = new Set([
+  "con", "prn", "aux", "nul",
+  "com1", "com2", "com3", "com4", "com5", "com6", "com7", "com8", "com9",
+  "lpt1", "lpt2", "lpt3", "lpt4", "lpt5", "lpt6", "lpt7", "lpt8", "lpt9",
+]);
+
 function slugify(name) {
-  return name.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-+|-+$/g, "");
+  const s = name.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-+|-+$/g, "");
+  return RESERVED_SLUGS.has(s) ? `${s}-project` : s;
 }
 
 // ---------------------------------------------------------------- Project
