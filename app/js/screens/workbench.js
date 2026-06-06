@@ -674,18 +674,36 @@ function subgroupResult(canvas, analysis) {
 
 /* ================= export to report ====================================================== */
 
-function addToReport(params, analysis) {
-  const blocks = store.get("report.blocks") ?? [];
-  blocks.push({
-    id: `blk_${Date.now().toString(36)}`,
-    type: analysis.kind === "model" ? "table" : "chart",
-    source: "analysis",
-    analysisId: analysis.id,
-    title: `${analysis.kind} · ${analysis.id}`,
+async function addToReport(params, analysis) {
+  // The report canvas is a PERSISTED project artifact (project.report.blocks).
+  // Append through the server so the block survives a reload and reaches the
+  // server-side HTML export — the canonical block schema is {kind, ref?,
+  // content?} (server validateReportBlock / reporting/report.js), so a model
+  // fit becomes a table block and everything else a chart, both keyed by the
+  // analysis id under `ref`.
+  const block = {
+    kind: analysis.kind === "model" ? "table" : "chart",
+    ref: analysis.id,
+    title: analysis.name ?? `${analysis.kind} · ${analysis.id}`,
     level: analysis.level,
-  });
-  store.set("report.blocks", blocks);
-  toast.success("Added to the report canvas.", {
-    detail: `${analysis.kind} — arrange it under Reports`,
-  });
+  };
+  try {
+    const updated = await api.report.addBlock(params.slug, block);
+    // keep the session's canvas mirror AND the cached project graph in step
+    // with the server, so the Reports screen opens with this block present
+    const blocks = store.get("report.blocks") ?? [];
+    blocks.push(block);
+    store.set("report.blocks", blocks);
+    const cached = store.get("project");
+    if (cached?.slug === params.slug) {
+      cached.report = cached.report ?? { blocks: [], updatedAt: null };
+      cached.report.blocks = [...(cached.report.blocks ?? []), { ...block, addedAt: new Date().toISOString() }];
+      cached.report.updatedAt = new Date().toISOString();
+    }
+    toast.success("Added to the report canvas.", {
+      detail: `${updated.blocks} block${updated.blocks === 1 ? "" : "s"} now — arrange and export under Reports`,
+    });
+  } catch (err) {
+    toast.error("Could not add to the report.", { detail: String(err.message ?? err) });
+  }
 }

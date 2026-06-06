@@ -994,6 +994,23 @@ function patch() {
       `Fixtures mode — the ${kind === "report" ? "standalone report" : "replication zip"} streams from the live server.`);
   };
 
+  /* -- report (persisted project artifact: project.report.blocks) -- */
+  // live: PUT report {blocks} replaces the layout → {blocks, updatedAt};
+  //       POST report/blocks {block} appends → {blocks: count}. The canvas
+  //       reads project.report.blocks back through projects.get, so the
+  //       in-memory db.project.report is the single source for both here.
+  apiNs.report.save = async (p, blocks) => {
+    const report = { blocks: clone(blocks ?? []), updatedAt: new Date().toISOString() };
+    P.report = report;
+    return clone(report);
+  };
+  apiNs.report.addBlock = async (p, block) => {
+    P.report = P.report ?? { blocks: [], updatedAt: null };
+    P.report.blocks.push({ ...clone(block), addedAt: new Date().toISOString() });
+    P.report.updatedAt = new Date().toISOString();
+    return { blocks: P.report.blocks.length };
+  };
+
   /* -- catalog / settings / health -- */
   // live: {providers: {name: [models]}, cachedAt}
   apiNs.catalog.models = async () => clone(db.catalog);

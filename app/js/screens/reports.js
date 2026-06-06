@@ -126,16 +126,53 @@ function citationChip(hash8, cite) {
 
 /* ================= the canvas ============================================================= */
 
+// The block vocabulary is the server's: kind ∈ chart|table|quote|text|
+// methods-excerpt (validateReportBlock / reporting/report.js). The canvas
+// persists exactly what the exporter draws.
 const BLOCK_TYPES = [
-  { type: "chart", label: "Chart", hint: "a computed analysis, drawn" },
-  { type: "table", label: "Table", hint: "a computed analysis, tabulated" },
-  { type: "quote", label: "Quote", hint: "a verbatim, with its source line" },
-  { type: "text", label: "Text", hint: "your prose" },
-  { type: "methods", label: "Methods excerpt", hint: "a section of the generated methods" },
+  { kind: "chart", label: "Chart", hint: "a computed analysis, drawn" },
+  { kind: "table", label: "Table", hint: "a computed analysis, tabulated" },
+  { kind: "quote", label: "Quote", hint: "a verbatim, with its source line" },
+  { kind: "text", label: "Text", hint: "your prose" },
+  { kind: "methods-excerpt", label: "Methods excerpt", hint: "a section of the generated methods" },
 ];
 
+// A human label for a persisted block. chart/table/methods carry a title;
+// quote and text describe themselves from their ref/content.
+function blockTitle(b) {
+  if (b.title) return b.title;
+  if (b.kind === "quote") return `quote · ${String(b.ref ?? b.content?.attribution ?? "").slice(0, 16) || "verbatim"}`;
+  if (b.kind === "text") return "text block";
+  if (b.kind === "methods-excerpt") return "methods excerpt";
+  return b.ref ?? b.kind;
+}
+
 function reportCanvas(host, params, project) {
-  const blocks = store.get("report.blocks") ?? [];
+  // The report is a persisted project artifact: load the saved layout into the
+  // session store so the canvas opens with what the server holds (a reload no
+  // longer empties it), then persist every edit back through the report routes.
+  store.set("report.blocks", (project.report?.blocks ?? []).map((b) => ({ ...b })));
+
+  // PUT replaces the whole layout — the right semantics for reorder/remove and
+  // for an add that must land in order. Failures roll the canvas back to the
+  // server's last-known layout so the screen never lies about what was saved.
+  const persist = async () => {
+    const blocks = store.get("report.blocks") ?? [];
+    try {
+      const saved = await api.report.save(params.slug, blocks);
+      // keep the cached project graph honest so re-entering the screen (no hard
+      // reload) reflects the saved layout, not the layout this mount opened with
+      const cached = store.get("project");
+      if (cached?.slug === params.slug) cached.report = saved ?? { blocks, updatedAt: new Date().toISOString() };
+    } catch (err) {
+      toast.error("Could not save the report layout.", { detail: String(err.message ?? err) });
+      try {
+        const fresh = await api.projects.get(params.slug);
+        store.set("report.blocks", (fresh.report?.blocks ?? []).map((b) => ({ ...b })));
+      } catch { /* offline — keep the optimistic copy on screen */ }
+      redraw();
+    }
+  };
 
   const listEl = el("ol", { class: "blocklist", role: "list" });
   const redraw = () => {
@@ -150,14 +187,14 @@ function reportCanvas(host, params, project) {
     }
     current.forEach((b, i) => {
       listEl.append(el("li", { class: "block" },
-        el("span", { class: "block__type chip" }, b.type),
+        el("span", { class: "block__type chip" }, b.kind),
         el("span", { class: "block__title" },
-          b.title ?? "(untitled)",
+          blockTitle(b),
           b.level ? ladderC.render({ level: b.level, size: "sm" }) : null),
         el("span", { class: "block__tools" },
           el("button", { class: "btn btn--quiet", type: "button", disabled: i === 0, aria: { label: "Move up" }, onclick: () => move(i, -1) }, "↑"),
           el("button", { class: "btn btn--quiet", type: "button", disabled: i === current.length - 1, aria: { label: "Move down" }, onclick: () => move(i, 1) }, "↓"),
-          el("button", { class: "btn btn--quiet", type: "button", aria: { label: "Remove block" }, onclick: () => { current.splice(i, 1); store.set("report.blocks", current); redraw(); } }, "×")),
+          el("button", { class: "btn btn--quiet", type: "button", aria: { label: "Remove block" }, onclick: () => { current.splice(i, 1); store.set("report.blocks", current); redraw(); persist(); } }, "×")),
       ));
     });
   };
@@ -169,6 +206,7 @@ function reportCanvas(host, params, project) {
     [current[i], current[j]] = [current[j], current[i]];
     store.set("report.blocks", current);
     redraw();
+    persist();
   }
 
   redraw();
@@ -176,7 +214,7 @@ function reportCanvas(host, params, project) {
   host.append(
     listEl,
     el("div", { class: "repcanvas__actions" },
-      el("button", { class: "btn", type: "button", onclick: () => addBlockSheet(params, project, redraw) }, "+ Add block"),
+      el("button", { class: "btn", type: "button", onclick: () => addBlockSheet(params, project, redraw, persist) }, "+ Add block"),
       el("button", {
         class: "btn btn--primary", type: "button",
         onclick: () => renderReport(params, project),
@@ -184,7 +222,7 @@ function reportCanvas(host, params, project) {
   );
 }
 
-function addBlockSheet(params, project, redraw) {
+function addBlockSheet(params, project, redraw, persist) {
   const s = openSheet({ title: "Add a block", overline: "From this project's artifacts" });
   const analyses = project.analyses ?? [];
 
@@ -194,7 +232,7 @@ function addBlockSheet(params, project, redraw) {
         el("h3", { class: "addblock__label" }, bt.label),
         el("p", { class: "faint" }, bt.hint)),
     );
-    if (bt.type === "chart" || bt.type === "table") {
+    if (bt.kind === "chart" || bt.kind === "table") {
       const sel = el("select", { class: "input input--inline", "aria-label": `${bt.label} source` },
         ...analyses.map((a) => el("option", { value: a.id }, a.name ?? a.id)));
       row.append(sel,
@@ -203,28 +241,30 @@ function addBlockSheet(params, project, redraw) {
           onclick: () => {
             const a = analyses.find((x) => x.id === sel.value) ?? analyses[0];
             if (!a) { toast.warn("No analyses yet."); return; }
-            push({ type: bt.type, source: "analysis", analysisId: a.id, title: a.name ?? a.id, level: a.level });
+            push({ kind: bt.kind, ref: a.id, title: a.name ?? a.id, level: a.level });
           },
         }, "Add"));
-    } else if (bt.type === "quote") {
+    } else if (bt.kind === "quote") {
       const input = el("input", { class: "input input--inline", placeholder: "unit id (u_…)", "aria-label": "Unit id" });
       row.append(input,
         el("button", {
           class: "btn", type: "button",
           onclick: () => {
             if (!input.value.trim()) { input.focus(); return; }
-            push({ type: "quote", unitId: input.value.trim(), title: `quote · ${input.value.trim().slice(0, 12)}` });
+            push({ kind: "quote", ref: input.value.trim(), title: `quote · ${input.value.trim().slice(0, 12)}` });
           },
         }, "Add"));
-    } else if (bt.type === "text") {
+    } else if (bt.kind === "text") {
       row.append(el("button", {
         class: "btn", type: "button",
-        onclick: () => push({ type: "text", text: "", title: "text block" }),
+        onclick: () => push({ kind: "text", content: "" }),
       }, "Add"));
     } else {
+      // methods-excerpt: a side-effect-free preview of the generated methods
+      // (the server renders the full section; ref omitted = whole methods)
       row.append(el("button", {
         class: "btn", type: "button",
-        onclick: () => push({ type: "methods", title: "methods excerpt" }),
+        onclick: () => push({ kind: "methods-excerpt", title: "methods excerpt" }),
       }, "Add"));
     }
     s.body.append(row);
@@ -233,22 +273,36 @@ function addBlockSheet(params, project, redraw) {
 
   function push(block) {
     const blocks = store.get("report.blocks") ?? [];
-    blocks.push({ id: `blk_${Date.now().toString(36)}${blocks.length}`, ...block });
+    blocks.push(block);
     store.set("report.blocks", blocks);
     redraw();
-    toast.success("Block added.", { detail: block.title, duration: 1800 });
+    persist?.();
+    toast.success("Block added.", { detail: blockTitle(block), duration: 1800 });
   }
 }
 
-/* Render the canvas to a single-file HTML download. The live server route
-   (GET exports/report) does this with full chart SVG; this client-side render
-   keeps the affordance honest in fixtures mode and offline. */
+/* Render the canvas to a single-file HTML download. The persisted blocks are
+   the server's source of truth, so the live path streams the full report
+   (real chart SVG + evidence drill-down) straight from GET exports/report.
+   The client-side render below stays as the honest fixtures/offline fallback,
+   reading the SAME canonical block schema {kind, ref?, content?}. */
 async function renderReport(params, project) {
   const blocks = store.get("report.blocks") ?? [];
   if (!blocks.length) {
     toast.warn("The canvas is empty.", { detail: "add at least one block first" });
     return;
   }
+  // Live: the server renders the persisted layout with full fidelity. Fixtures
+  // mode patches exports.download to a notice, so fall through to the local
+  // draft when there is no streaming server behind the button.
+  if (typeof api.exports.replicationContents !== "function") {
+    api.exports.download(params.slug, "report");
+    toast.success("Report streaming from the server.", {
+      detail: `${params.slug}-report.html — full charts and evidence drill-down`, data: true,
+    });
+    return;
+  }
+
   let methodsMd = "";
   try {
     const m = await api.exports.methods(params.slug);
@@ -257,19 +311,24 @@ async function renderReport(params, project) {
 
   const parts = [];
   for (const b of blocks) {
-    if (b.type === "methods") {
-      parts.push(`<section class="block"><h2>Methods</h2><pre class="md">${escapeHtml(methodsMd)}</pre></section>`);
-    } else if (b.type === "quote" && b.unitId) {
-      let text = b.unitId;
-      try {
-        const dossier = await api.evidence.get(params.slug, b.unitId);
-        text = dossier?.unit?.text ?? b.unitId;
-      } catch { /* keep the id */ }
-      parts.push(`<section class="block"><blockquote class="quote">${escapeHtml(text)}</blockquote><p class="source">${escapeHtml(b.unitId)}</p></section>`);
-    } else if (b.type === "text") {
-      parts.push(`<section class="block"><p>${escapeHtml(b.text ?? "")}</p></section>`);
+    if (b.kind === "methods-excerpt") {
+      const md = typeof b.content === "string" ? b.content : methodsMd;
+      parts.push(`<section class="block"><h2>Methods</h2><pre class="md">${escapeHtml(md)}</pre></section>`);
+    } else if (b.kind === "quote") {
+      const ref = b.ref ?? "";
+      let text = b.content?.text ?? ref;
+      if (b.content?.text === undefined && ref) {
+        try {
+          const dossier = await api.evidence.get(params.slug, ref);
+          text = dossier?.unit?.text ?? ref;
+        } catch { /* keep the id */ }
+      }
+      const source = b.content?.attribution ?? ref;
+      parts.push(`<section class="block"><blockquote class="quote">${escapeHtml(text)}</blockquote><p class="source">${escapeHtml(source)}</p></section>`);
+    } else if (b.kind === "text") {
+      parts.push(`<section class="block"><p>${escapeHtml(b.content ?? "")}</p></section>`);
     } else {
-      parts.push(`<section class="block"><h2>${escapeHtml(b.title ?? b.type)}${b.level ? ` <span class="mark">${markFor(b.level)}</span>` : ""}</h2><p class="note">Analysis ${escapeHtml(b.analysisId ?? "")} — full chart renders in the server export; this standalone draft records the reference and its evidence level.</p></section>`);
+      parts.push(`<section class="block"><h2>${escapeHtml(blockTitle(b))}${b.level ? ` <span class="mark">${markFor(b.level)}</span>` : ""}</h2><p class="note">Analysis ${escapeHtml(b.ref ?? "")} — full chart renders in the server export; this standalone draft records the reference and its evidence level.</p></section>`);
     }
   }
 
