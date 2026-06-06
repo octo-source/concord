@@ -844,6 +844,28 @@ function patch() {
     const d = db.runs.disagreement[r] ?? db.runs.disagreement.run_panel_full;
     return d ? clone(d) : notFound(`disagreement for "${r}"`);
   };
+  // live: GET runs/:r/export.csv streams the labeled-data CSV — original
+  // columns + <construct> label/confidence/escalated (+ _error when anything
+  // quarantined), named <slug>-<construct>-<runId>[-partial].csv. Fixtures
+  // download a canned sample of the same shape so the button works offline.
+  apiNs.runs.exportCsv = (p, r) => {
+    const run = runList().find((x) => x.id === r);
+    const inst = run ? instList().find((x) => x.id === run.instrumentId) : null;
+    const construct = inst ? constructList().find((x) => x.id === inst.constructId) : null;
+    const cSlug = String(construct?.name ?? "construct").toLowerCase()
+      .replace(/[^a-z0-9]+/g, "-").replace(/^-+|-+$/g, "") || "construct";
+    const partial = run && run.status !== "complete" ? "-partial" : "";
+    const csv = db.runs.exportCsv ?? "unit_id\r\n";
+    const blob = new Blob([csv], { type: "text/csv;charset=utf-8" });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = `${p}-${cSlug}-${r}${partial}.csv`;
+    document.body.append(a);
+    a.click();
+    a.remove();
+    setTimeout(() => URL.revokeObjectURL(url), 2000);
+  };
 
   /* -- analyses -- */
   // live: POST analyses → full analysis {id, kind, spec, results, level,

@@ -19,6 +19,8 @@ import { getAdapter } from "../../server/providers/registry.js";
 import { readNdjson, projectDir, updateProject } from "../../server/core/store.js";
 import * as ledger from "../../server/core/ledger.js";
 import { sha256 } from "../../server/core/ids.js";
+import { parse as parseCsv } from "../../server/ingest/csv.js";
+import { ConcordError } from "../../server/core/errors.js";
 
 // ---------------------------------------------------------------- harness
 
@@ -1612,6 +1614,184 @@ test("exports: report renders standalone HTML", async () => {
   assert.match(html, /Evidence ladder/);
   // the report canvas previews methods (side-effect-free): still ONE export.methods event
   assert.equal((await events({ type: "export.methods" })).length, 1, "report rendering minted no export-of-record");
+});
+
+// =========================================================================
+// exports — labeled-data CSV (the researcher's "file with the new columns")
+// =========================================================================
+
+// Round-trip a CSV body through Concord's OWN ingest parser — the export must
+// be readable by the same machinery that read the researcher's file in.
+async function parseCsvBody(name, text) {
+  const file = path.join(tmpProjects, name);
+  await writeFile(file, text, "utf8");
+  return parseCsv(file, { delimiter: "," });
+}
+
+test("exports: labeled-data CSV — the researcher's file back with the run's verdict columns appended", async () => {
+  const res = await fetch(`${base}/api/projects/${S.slug}/runs/${S.runId}/export.csv`);
+  assert.equal(res.status, 200);
+  assert.match(res.headers.get("content-type") ?? "", /^text\/csv; charset=utf-8/);
+  assert.equal(
+    res.headers.get("content-disposition"),
+    `attachment; filename="${S.slug}-pay-complaint-${S.runId}.csv"`,
+    "complete run → no -partial marker in the filename",
+  );
+  const text = await res.text();
+  assert.ok(!/^#/.test(text), "the CSV stays pure — no comment preamble; state rides the filename");
+
+  const { rows, issues } = await parseCsvBody("export-full.csv", text);
+  assert.deepEqual(issues, [], `export must round-trip through the ingest parser cleanly (issues: ${JSON.stringify(issues)})`);
+  assert.equal(rows.length, 240, "row count = the corpus's unitCount");
+
+  // columns: meta under ORIGINAL names first, unit text under the corpus's
+  // textColumn, then the construct's verdict columns, unit_id last
+  const cols = Object.keys(rows[0]);
+  assert.deepEqual(cols.slice(0, 4), ["respondent_id", "dept", "tenure", "response"]);
+  assert.ok(cols.includes("Pay complaint"), "label column carries the construct's name");
+  assert.ok(cols.includes("Pay complaint_confidence"), "judge outputs carry confidence → confidence column present");
+  assert.ok(cols.includes("Pay complaint_escalated"));
+  assert.ok(!cols.includes("Pay complaint_error"), "no error column when nothing quarantined");
+  assert.equal(cols[cols.length - 1], "unit_id", "unit_id is the last column");
+
+  const byRid = new Map(rows.map((r) => [r.respondent_id, r]));
+  // planted labels: i%3===0 rows talk salary → yes; others → no
+  assert.equal(byRid.get("r0")["Pay complaint"], "yes");
+  assert.equal(byRid.get("r3")["Pay complaint"], "yes");
+  assert.equal(byRid.get("r1")["Pay complaint"], "no");
+  // the ≫p99 unit carries the Director's escalation override as its FINAL label
+  const long = byRid.get(`r${LONG_ROW}`);
+  assert.equal(long["Pay complaint"], "no", "escalation override is the exported label");
+  assert.equal(long["Pay complaint_escalated"], "true");
+  assert.equal(byRid.get("r0")["Pay complaint_escalated"], "", "non-escalated rows leave the flag empty");
+  const conf = Number(byRid.get("r0")["Pay complaint_confidence"]);
+  assert.ok(conf > 0 && conf <= 1, `confidence is numeric (got ${byRid.get("r0")["Pay complaint_confidence"]})`);
+
+  // the researcher's own columns are intact
+  assert.equal(byRid.get("r0").dept, "ops");
+  assert.equal(byRid.get("r1").dept, "sales");
+  assert.equal(byRid.get("r9").tenure, "9");
+  assert.match(byRid.get("r0").response, /salary is too low/);
+  assert.ok(rows.every((r) => /^u_[0-9a-f]{16}$/.test(r.unit_id)), "every row joins back to its unit id");
+
+  // run/instrument under another project → 404, never someone else's data
+  await fail("GET", `/api/projects/kick-project/runs/${S.runId}/export.csv`, undefined, 404, "NOT_FOUND");
+});
+
+function makeExportCsv() {
+  // "Pay verdict" is BOTH a metadata column and the construct's name below —
+  // the researcher's column must survive untouched, the label column suffixes.
+  const lines = ["pid,Pay verdict,note,response"];
+  for (let i = 0; i < 8; i++) {
+    const note = i === 0 ? "=SUM(A1:A9)" : `note ${i}`;
+    const text = i === 2
+      ? "this row is poison for the scripted judge and must quarantine with its reason"
+      : `the salary is ${i % 2 ? "too low for this work" : "fine and the team is kind"} in row ${i} of the export fixture`;
+    lines.push(`p${i},${i % 2 ? "yes" : "no"},${note},${text}`);
+  }
+  return lines.join("\n") + "\n";
+}
+
+const EXP = { slug: "export-project", corpusId: null, instId: null };
+
+test("exports: labeled-data CSV — collision suffixing, quarantine error codes, formula-injection hardening", async () => {
+  await ok("POST", "/api/projects", { name: "Export Project" });
+  const up = await upload(`/api/projects/${EXP.slug}/import`, "verdicts.csv", makeExportCsv());
+  const confirmed = await ok("POST", `/api/projects/${EXP.slug}/import/confirm`, {
+    importId: up.importId, mapping: { textColumn: "response" }, unitization: { scheme: "response" },
+  });
+  EXP.corpusId = confirmed.corpusId;
+  assert.equal(confirmed.unitCount, 8);
+
+  const construct = await ok("POST", `/api/projects/${EXP.slug}/constructs`, {
+    name: "Pay verdict", type: "binary",
+    categories: [{ value: "yes", label: "Yes" }, { value: "no", label: "No" }],
+  });
+  const inst = await ok("POST", `/api/projects/${EXP.slug}/instruments`, {
+    constructId: construct.id, kind: "judge", name: "Export judge",
+    payload: judgePayload("[[handler:export-poison]]\nT {{definition}} {{criteria}} {{examples}} {{unit}}"),
+  });
+  EXP.instId = inst.id;
+  mock().setHandler("export-poison", (req) => {
+    const all = req.messages.map((m) => m.content).join("\n");
+    const unitText = all.match(/<unit>\n([\s\S]*?)\n<\/unit>/)?.[1] ?? "";
+    if (unitText.includes("poison")) return { garbage: true }; // schema-invalid every attempt → quarantine
+    return { rationale: "scripted", label: unitText.includes("salary is too low") ? "yes" : "no", confidence: 0.9 };
+  });
+
+  const { runId } = await ok("POST", `/api/projects/${EXP.slug}/runs`, { instrumentId: inst.id, corpusId: confirmed.corpusId });
+  const { events: evs } = await readSse(`/api/projects/${EXP.slug}/runs/${runId}/monitor`);
+  const done = evs.find((e) => e.event === "done");
+  assert.equal(done.data.status, "complete");
+  assert.equal(done.data.quarantine.length, 1, "the poison unit quarantined");
+
+  const res = await fetch(`${base}/api/projects/${EXP.slug}/runs/${runId}/export.csv`);
+  assert.equal(res.status, 200);
+  assert.equal(
+    res.headers.get("content-disposition"),
+    `attachment; filename="${EXP.slug}-pay-verdict-${runId}.csv"`,
+  );
+  const { rows, issues } = await parseCsvBody("export-collide.csv", await res.text());
+  assert.deepEqual(issues, []);
+  assert.equal(rows.length, 8, "quarantined units still appear as rows");
+
+  // collision: the researcher's "Pay verdict" column survives; the label
+  // column suffixes (the ingest parser's own _N convention)
+  const cols = Object.keys(rows[0]);
+  assert.deepEqual(cols.slice(0, 4), ["pid", "Pay verdict", "note", "response"]);
+  assert.ok(cols.includes("Pay verdict_2"), `label column suffixed on collision (got ${cols.join(", ")})`);
+  assert.ok(cols.includes("Pay verdict_confidence"));
+  assert.ok(cols.includes("Pay verdict_escalated"));
+  assert.ok(cols.includes("Pay verdict_error"), "a quarantined run exports the error column");
+  assert.equal(cols[cols.length - 1], "unit_id");
+
+  const byPid = new Map(rows.map((r) => [r.pid, r]));
+  // the researcher's own values are untouched; the machine's live in _2
+  assert.equal(byPid.get("p1")["Pay verdict"], "yes");
+  assert.equal(byPid.get("p1")["Pay verdict_2"], "yes");
+  assert.equal(byPid.get("p4")["Pay verdict"], "no");
+  assert.equal(byPid.get("p4")["Pay verdict_2"], "no");
+  // quarantined unit: empty label + the quarantine code in the error column
+  const poisoned = byPid.get("p2");
+  assert.equal(poisoned["Pay verdict_2"], "", "quarantined unit exports an empty label");
+  assert.equal(poisoned["Pay verdict_error"], "SCHEMA_INVALID", "the quarantine code rides the error column");
+  assert.equal(poisoned["Pay verdict_confidence"], "");
+  assert.equal(byPid.get("p1")["Pay verdict_error"], "", "healthy rows leave the error column empty");
+  // formula-injection hardening: =+−@ leaders carry the replication
+  // convention's apostrophe prefix
+  assert.equal(byPid.get("p0").note, "'=SUM(A1:A9)", "formula leader neutralized with a leading apostrophe");
+  assert.equal(byPid.get("p1").note, "note 1", "ordinary text cells are not prefixed");
+});
+
+test("exports: labeled-data CSV — an incomplete run exports what exists under a -partial filename", async () => {
+  // a scripted provider outage pauses the run partway (resumable) — the
+  // export must still serve what exists, with the run state in the FILENAME
+  // (never a comment preamble: the CSV stays machine-pure)
+  mock().setHandler("export-poison", (req) => {
+    const all = req.messages.map((m) => m.content).join("\n");
+    const unitText = all.match(/<unit>\n([\s\S]*?)\n<\/unit>/)?.[1] ?? "";
+    const m = unitText.match(/row (\d+)/);
+    if (!m || Number(m[1]) >= 2) {
+      throw new ConcordError("PROVIDER_UNREACHABLE", "scripted outage", { url: "mock://down", kind: "TypeError" });
+    }
+    return { rationale: "scripted", label: "yes", confidence: 0.9 };
+  });
+  const { runId } = await ok("POST", `/api/projects/${EXP.slug}/runs`, { instrumentId: EXP.instId, corpusId: EXP.corpusId });
+  const { events: evs } = await readSse(`/api/projects/${EXP.slug}/runs/${runId}/monitor`);
+  assert.equal(evs.find((e) => e.event === "done")?.data.status, "paused", "the outage pauses the run resumably");
+
+  const res = await fetch(`${base}/api/projects/${EXP.slug}/runs/${runId}/export.csv`);
+  assert.equal(res.status, 200);
+  assert.equal(
+    res.headers.get("content-disposition"),
+    `attachment; filename="${EXP.slug}-pay-verdict-${runId}-partial.csv"`,
+    "non-complete run → the filename carries -partial",
+  );
+  const text = await res.text();
+  assert.ok(!/^#/.test(text), "no comment preamble even when partial — the state rides the filename");
+  const { rows } = await parseCsvBody("export-partial.csv", text);
+  assert.equal(rows.length, 8, "every corpus unit gets a row; not-yet-run ones are simply empty");
+  assert.ok(Object.keys(rows[0]).includes("Pay verdict_2"), "label column present even on a partial export");
 });
 
 // =========================================================================

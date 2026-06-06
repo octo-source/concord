@@ -770,6 +770,95 @@ test("silver: stability failure leaves the level exploratory; missing engine/sta
   await assert.rejects(silverTune(project, instrument, units, { engine }), { code: "VALIDATION" });
 });
 
+// June 2026 field failure, Director side: the worker budgets were raised for
+// reasoning-class models, but the DIRECTOR's own calls still carried tiny
+// hardcoded budgets — the researcher's silver-tune died TRUNCATED inside the
+// per-unit labeling call (512, doubled once to 1024, still starved) while the
+// error pointed him at a maxTokens he could not find. Director budgets must
+// be reasoning-tolerant, and any failure must NAME the stage that threw.
+
+// shared scaffolding for the silver budget/stage tests: researcher-supplied
+// template (no Director compile call), trivial engine + stability doubles
+async function silverFixture({ handler, n = 8, targets = [0.5, 0.8, 0.805] }) {
+  const project = await makeProject({ handler });
+  const { units } = await makeCorpus(project, { n });
+  const construct = binaryConstruct();
+  Object.assign(project, await updateProject(project.slug, (p) => { p.constructs.push(construct); }));
+  const instrument = await compileInstrument(project, construct, {
+    workerClass: "mid", provider: "mock", model: "mock-1", snapshot: "mock-1",
+    outputSchemaFor: () => ({ type: "binary", options: ["yes", "no"] }),
+    promptTemplate: "T {{definition}} {{criteria}} {{examples}} {{unit}}",
+  });
+  await acceptInstrument(project, instrument);
+  let call = 0;
+  const engine = {
+    async runEphemeral(p, inst, sampleUnits) {
+      const t = targets[Math.min(call++, targets.length - 1)];
+      const agree = Math.round(sampleUnits.length * t);
+      return {
+        outputs: sampleUnits.map((u, k) => ({ unitId: u.id, juror: inst.versionHash, label: k < agree ? "yes" : "no" })),
+        cost: { actualUSD: 0 },
+        quarantine: [],
+      };
+    },
+  };
+  const stability = { async stabilityCheck() { return { alpha: 0.9, pass: true, runs: [] }; } };
+  return { project, units, instrument, engine, stability };
+}
+
+test("silver: Director budgets are reasoning-tolerant — labeling ≥1536, rewrite ≥2048 (thinking tokens bill against max_tokens)", async () => {
+  const budgets = { label: [], rewrite: [] };
+  mock.setHandler("t-silver-budget", (req) => {
+    if (req.schema?.properties?.promptTemplate) {
+      budgets.rewrite.push(req.maxTokens);
+      return { promptTemplate: `R${budgets.rewrite.length} {{definition}} {{criteria}} {{examples}} {{unit}}`, note: "n" };
+    }
+    budgets.label.push(req.maxTokens);
+    return { rationale: "r", label: "yes", confidence: 0.9 };
+  });
+  const { project, units, instrument, engine, stability } = await silverFixture({ handler: "t-silver-budget" });
+  await silverTune(project, instrument, units, { engine, stability });
+  assert.ok(budgets.label.length >= 8, `labeling calls observed (got ${budgets.label.length})`);
+  for (const b of budgets.label) {
+    assert.ok(b >= 1536, `per-unit silver labeling budget ${b} must be ≥1536 — reasoning Directors bill thinking tokens against max_tokens`);
+  }
+  assert.ok(budgets.rewrite.length >= 1, "at least one rewrite call observed");
+  for (const b of budgets.rewrite) {
+    assert.ok(b >= 2048, `prompt-rewrite budget ${b} must be ≥2048 — reasoning Directors bill thinking tokens against max_tokens`);
+  }
+});
+
+test("silver: a TRUNCATED labeling call escapes stage-named — 'Director silver-labeling:' prefix, code + details + original message preserved", async () => {
+  mock.setHandler("t-silver-trunc", (req) => {
+    if (req.schema?.properties?.promptTemplate) return { promptTemplate: "R {{definition}} {{criteria}} {{examples}} {{unit}}", note: "n" };
+    throw new ConcordError("TRUNCATED", `structured output truncated at the token limit; raise maxTokens (currently ${req.maxTokens}) and retry`, { finishReason: "length" });
+  });
+  const { project, units, instrument, engine, stability } = await silverFixture({ handler: "t-silver-trunc", n: 4 });
+  await assert.rejects(silverTune(project, instrument, units, { engine, stability }), (err) => {
+    assert.equal(err.code, "TRUNCATED", "code preserved through the stage label");
+    assert.match(err.message, /^Director silver-labeling: /, "the failing Director stage is named");
+    assert.match(err.message, /truncated at the token limit/, "original message preserved after the prefix");
+    assert.equal(err.details.finishReason, "length", "details preserved");
+    return true;
+  });
+});
+
+test("silver: a rewrite failure escapes stage-named — 'Director prompt-rewrite:' prefix, code preserved", async () => {
+  mock.setHandler("t-silver-rw-trunc", (req) => {
+    if (req.schema?.properties?.promptTemplate) {
+      throw new ConcordError("TRUNCATED", `structured output truncated at the token limit; raise maxTokens (currently ${req.maxTokens}) and retry`, { finishReason: "length" });
+    }
+    return { rationale: "r", label: "yes", confidence: 0.9 };
+  });
+  const { project, units, instrument, engine, stability } = await silverFixture({ handler: "t-silver-rw-trunc", n: 4 });
+  await assert.rejects(silverTune(project, instrument, units, { engine, stability }), (err) => {
+    assert.equal(err.code, "TRUNCATED");
+    assert.match(err.message, /^Director prompt-rewrite: /, "the failing Director stage is named");
+    assert.match(err.message, /truncated at the token limit/, "original message preserved after the prefix");
+    return true;
+  });
+});
+
 // ---------------------------------------------------------------- panels.js
 
 test("panels: recommends a family-disjoint panel from registry catalogs", async () => {
@@ -889,6 +978,37 @@ test("escalate: Director disagreement produces a marked replacement with a one-l
 
   mock.setHandler("t-esc", () => ({ rationale: "Agree with the worker.", label: "yes", confidence: 0.9, reason: "" }));
   assert.equal(await escalate(unit, workerOutput), null, "agreement → no replacement");
+});
+
+test("escalate: second opinion carries maxTokens ≥1536; a failure escapes stage-named — 'Director second opinion:' prefix, code + details preserved", async () => {
+  const project = await makeProject({ handler: "t-esc-budget" });
+  const construct = binaryConstruct();
+  const unit = { id: "u_e2e2e2e2e2e2e2e2", text: "Pay was fine honestly — the hours were the problem.", meta: {} };
+  const workerOutput = { unitId: unit.id, juror: "vh_worker", label: "yes", confidence: 0.41, rationale: "mentions pay" };
+
+  // budget: reasoning Directors bill thinking tokens against max_tokens —
+  // 512 (doubled once to 1024 by the truncation retry) starved them in the field
+  const budgets = [];
+  mock.setHandler("t-esc-budget", (req) => {
+    budgets.push(req.maxTokens);
+    return { rationale: "Agree.", label: "yes", confidence: 0.9, reason: "" };
+  });
+  const escalate = makeEscalator(project, construct);
+  assert.equal(await escalate(unit, workerOutput), null);
+  assert.equal(budgets.length, 1);
+  assert.ok(budgets[0] >= 1536, `second-opinion budget ${budgets[0]} must be ≥1536`);
+
+  // stage label: the researcher must know WHICH Director call failed
+  mock.setHandler("t-esc-budget", (req) => {
+    throw new ConcordError("TRUNCATED", `structured output truncated at the token limit; raise maxTokens (currently ${req.maxTokens}) and retry`, { finishReason: "length" });
+  });
+  await assert.rejects(escalate(unit, workerOutput), (err) => {
+    assert.equal(err.code, "TRUNCATED", "code preserved through the stage label");
+    assert.match(err.message, /^Director second opinion: /, "the failing Director stage is named");
+    assert.match(err.message, /truncated at the token limit/, "original message preserved after the prefix");
+    assert.equal(err.details.finishReason, "length", "details preserved");
+    return true;
+  });
 });
 
 // ---------------------------------------------------------------- analyst.js

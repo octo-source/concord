@@ -24,6 +24,9 @@ import {
   goldLabelMap, addSpend, readNdjson, runOutputsFile, finalJurorOf, round6, labelKey,
   writeJsonAtomic,
 } from "./_shared.js";
+// the replication archive's CSV writer is the single home for RFC-4180
+// quoting + formula-injection hardening — reused here, never duplicated
+import { toCsv } from "../reporting/replication.js";
 import path from "node:path";
 
 // The engine persists runs in project.runs (the Wave-1 amendment), but the
@@ -370,6 +373,87 @@ export default [
       const project = await loadProject(params.p);
       findOr404(project.runs, params.r, "run");
       return readNdjson(runOutputsFile(params.p, params.r), { filter: (o) => o.escalated === true });
+    },
+  },
+  {
+    // Labeled-data export: the researcher's file back with the run's verdicts
+    // appended. Every unit meta column under its ORIGINAL name, the unit text
+    // under the corpus's textColumn, then <construct> / <construct>_confidence
+    // (when any output carries one) / <construct>_escalated /
+    // <construct>_error (when anything quarantined), and unit_id last.
+    // Appended columns suffix _2, _3… when a meta key already claims the name.
+    // The CSV stays machine-pure (no comment preamble): an incomplete run is
+    // signalled by "-partial" in the FILENAME instead.
+    method: "GET",
+    pattern: "/api/projects/:p/runs/:r/export.csv",
+    handler: async (req, res, params) => {
+      const project = await loadProject(params.p);
+      const run = findOr404(project.runs, params.r, "run");
+      const instrument = findOr404(project.instruments, run.instrumentId, "instrument");
+      const construct = findOr404(project.constructs, instrument.constructId, "construct");
+      const corpus = findOr404(project.corpora, run.corpusId, "corpus");
+      const units = await readCorpusUnits(params.p, run.corpusId,
+        run.unitFilter ? { filter: engineMod.parseUnitFilter(run.unitFilter) } : {});
+
+      // one final verdict per unit: the judge line, or the aggregate line for panels
+      const fin = finalJurorOf(instrument);
+      const outputs = await readNdjson(runOutputsFile(params.p, params.r), { filter: (o) => o.juror === fin });
+      const finals = new Map(outputs.map((o) => [o.unitId, o]));
+      const quarantined = new Map(engineMod.normalizeQuarantine(run.quarantine).map((q) => [q.unitId, q.code ?? ""]));
+      const anyConfidence = outputs.some((o) => o.confidence !== undefined && o.confidence !== null);
+
+      // meta columns keep their original names and first-seen order — this is
+      // the researcher's own file coming back, not a merge artifact
+      const metaKeys = [];
+      const used = new Set();
+      for (const u of units) {
+        for (const k of Object.keys(u.meta ?? {})) {
+          if (!used.has(k)) {
+            used.add(k);
+            metaKeys.push(k);
+          }
+        }
+      }
+      const uniq = (base) => {
+        let name = base;
+        for (let k = 2; used.has(name); k++) name = `${base}_${k}`;
+        used.add(name);
+        return name;
+      };
+      const textCol = uniq(corpus.textColumn ?? corpus.unitization?.textColumn ?? "text");
+      const labelCol = uniq(construct.name);
+      const confidenceCol = anyConfidence ? uniq(`${construct.name}_confidence`) : null;
+      const escalatedCol = uniq(`${construct.name}_escalated`);
+      const errorCol = quarantined.size > 0 ? uniq(`${construct.name}_error`) : null;
+      const idCol = uniq("unit_id");
+
+      const header = [...metaKeys, textCol, labelCol];
+      if (confidenceCol) header.push(confidenceCol);
+      header.push(escalatedCol);
+      if (errorCol) header.push(errorCol);
+      header.push(idCol);
+
+      const rows = [header];
+      for (const u of units) {
+        const o = finals.get(u.id);
+        const row = metaKeys.map((k) => u.meta?.[k] ?? "");
+        row.push(u.text ?? "", o ? o.label : "");
+        if (confidenceCol) row.push(o?.confidence ?? "");
+        row.push(o?.escalated === true ? true : "");
+        if (errorCol) row.push(quarantined.get(u.id) ?? "");
+        row.push(u.id);
+        rows.push(row);
+      }
+
+      const constructSlug = String(construct.name).toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-+|-+$/g, "") || "construct";
+      const partial = run.status === "complete" ? "" : "-partial";
+      const body = toCsv(rows);
+      res.writeHead(200, {
+        "content-type": "text/csv; charset=utf-8",
+        "content-disposition": `attachment; filename="${project.slug}-${constructSlug}-${run.id}${partial}.csv"`,
+        "content-length": Buffer.byteLength(body),
+      });
+      res.end(body);
     },
   },
   {

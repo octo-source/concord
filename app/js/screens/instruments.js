@@ -17,7 +17,7 @@
 // compile sheet directly — construct preselected, model defaulted to the
 // project Director's provider/model — so the user lands IN the action.
 
-import { el, clear } from "../dom.js";
+import { el, clear, frag } from "../dom.js";
 import api from "../api.js";
 import * as router from "../router.js";
 import * as toast from "../components/toast.js";
@@ -287,7 +287,12 @@ function instrumentEditor(main, params, instRaw, constructs, catalog, project = 
     const level = ladderC.levelKey(inst.level);
     const hasCompleteRun = (project?.runs ?? []).some((r) => r.instrumentId === inst.id && r.status === "complete");
     const states = { construct: "done" };
+    const calibrateAction = {
+      label: "Calibrate against gold →",
+      onclick: (e) => openGoldFlow(e, params, inst, project, previewScope),
+    };
     let action;
+    let secondary = null;
     if (inst.frozen || level === "calibrated" || level === "corrected") {
       states.instrument = "done";
       states.calibrate = "done";
@@ -298,16 +303,16 @@ function instrumentEditor(main, params, instRaw, constructs, catalog, project = 
     } else if (level === "stabilized") {
       states.instrument = "done";
       if (hasCompleteRun) states.run = "done";
-      action = {
-        label: "Calibrate against gold →",
-        onclick: (e) => openGoldFlow(e, params, inst, project),
-      };
+      action = calibrateAction;
     } else if (previewed) {
+      // levels never block: gold is one click away even at ◌
       action = { label: "Run on the corpus →", href: `#/p/${params.slug}/runs?preflight=${encodeURIComponent(inst.id)}` };
+      secondary = calibrateAction;
     } else {
       action = { label: "Preview on 5 units", onclick: () => actions?.clickPreview() };
+      secondary = calibrateAction;
     }
-    clear(stripHost).append(pipeline.render({ current: "instrument", states, action }));
+    clear(stripHost).append(pipeline.render({ current: "instrument", states, action, secondary }));
   };
 
   /* -- scope bar: what this editor reads — corpus, text column, unit count.
@@ -383,10 +388,11 @@ function instrumentEditor(main, params, instRaw, constructs, catalog, project = 
   paintStrip();
 }
 
-/* The stabilized → calibrated step: open the construct's gold set, creating
-   one (status: sampling) when none exists, so the click lands in the studio's
-   Sample pane rather than on advice. */
-async function openGoldFlow(e, params, inst, project) {
+/* The calibration step at any level: open the construct's gold set, creating
+   one (status: sampling) when none exists — scoped to the editor's current
+   corpus — so the click lands in the studio's Sample pane rather than on
+   advice. */
+async function openGoldFlow(e, params, inst, project, previewScope = null) {
   const existing = (project?.goldsets ?? []).find((g) => g.constructId === inst.constructId);
   if (existing) {
     router.navigate(`p/${params.slug}/goldsets/${existing.id}`);
@@ -395,7 +401,10 @@ async function openGoldFlow(e, params, inst, project) {
   const btn = e?.target;
   if (btn) btn.disabled = true;
   try {
-    const created = await api.goldsets.create(params.slug, { constructId: inst.constructId });
+    const created = await api.goldsets.create(params.slug, {
+      constructId: inst.constructId,
+      corpusId: previewScope?.corpusId ?? undefined,
+    });
     toast.success("Gold set created.", { detail: "draw the sample, then code it blind", data: false });
     await refreshProject(params.slug).catch(() => {});
     router.navigate(`p/${params.slug}/goldsets/${created.id}`);
@@ -641,7 +650,9 @@ function judgeEditor(main, params, inst, catalog, construct, touch) {
   const paramsHost = el("div", {});
   const paintParams = () => {
     const entry = modelpicker.findEntry(catalog, payload.provider, payload.model);
-    clear(paramsHost).append(
+    // frag() skips the null branch below; NATIVE append would stringify it
+    // into a literal "null" between the controls and the snapshot line
+    clear(paramsHost).append(frag(
       el("div", { class: "controlrow" },
         paramControl("temperature", el("input", {
           class: "input input--num", type: "number", step: "0.1", min: 0, max: 2, disabled: ro,
@@ -659,7 +670,7 @@ function judgeEditor(main, params, inst, catalog, construct, touch) {
         : null,
       el("p", { class: "screen__hint faint data" },
         `snapshot: ${payload.snapshot ?? "unpinned"} · rationale-first: ${payload.rationaleFirst !== false ? "yes" : "no"} · schema: ${payload.schema?.type ?? "—"}${payload.schema?.options ? ` (${payload.schema.options.join(", ")})` : ""}`),
-    );
+    ));
   };
   paintParams();
 
@@ -963,9 +974,10 @@ function actionRow(main, params, inst, { onPreviewed, previewScope = null } = {}
         // entries are {unitId, code, message} (older servers: bare unit ids)
         const res = await api.instruments.preview(params.slug, inst.id, { unitIds: units.map((u) => u.id), corpusId: corpus?.id ?? undefined });
         const outputs = (res?.outputs ?? []).filter((o) => o.label !== undefined);
-        // failures first — when every unit failed, the panel IS the result
+        // failures first — when every unit failed, the panel IS the result.
+        // frag() skips null children; NATIVE append would print them as "null".
         const failed = failurePanel(res?.quarantine, units.length);
-        clear(out).append(
+        clear(out).append(frag(
           readLine(corpus, units.length),
           failed,
           outputs.length
@@ -980,7 +992,7 @@ function actionRow(main, params, inst, { onPreviewed, previewScope = null } = {}
                     el("td", {}, el("span", { class: "chip chip--machine" }, String(o.label))),
                     el("td", { class: "table__num data" }, o.confidence !== undefined ? fmtStat(o.confidence) : "—"),
                     el("td", { class: "previewrationale" }, o.rationale ?? "—")))))
-            : failed ? null : el("p", { class: "faint" }, "No outputs came back for these units — and none were quarantined; the server may not know these unit ids."));
+            : failed ? null : el("p", { class: "faint" }, "No outputs came back for these units — and none were quarantined; the server may not know these unit ids.")));
         onPreviewed?.();
       } catch (err) {
         clear(out).append(el("p", { class: "faint" }, "Preview failed: ", String(err.message ?? err)));
@@ -991,12 +1003,18 @@ function actionRow(main, params, inst, { onPreviewed, previewScope = null } = {}
 
   const freeze = el("button", {
     class: "btn", type: "button", disabled: inst.frozen,
-    onclick: () => freezeSheet(params, inst),
+    onclick: () => freezeSheet(params, inst, previewScope),
   }, inst.frozen ? "Frozen ●" : "Freeze → ●");
+
+  const runOther = el("a", {
+    class: "btn",
+    href: `#/p/${params.slug}/runs?preflight=${encodeURIComponent(inst.id)}`,
+    title: "Open the run preflight with this instrument preselected — pick any corpus there.",
+  }, "Run on another corpus…");
 
   // Which corpus these actions read lives in the scope bar at the TOP of the
   // editor (scopeBar); the readLine on every preview result still names it.
-  row.append(compile, silver, stability, preview, freeze);
+  row.append(compile, silver, stability, preview, freeze, runOther);
   return {
     el: el("div", {}, row, out),
     clickPreview: () => {
@@ -1006,25 +1024,66 @@ function actionRow(main, params, inst, { onPreviewed, previewScope = null } = {}
   };
 }
 
-function freezeSheet(params, inst) {
+function freezeSheet(params, inst, previewScope = null) {
   const s = openSheet({ title: "Freeze this instrument", overline: "Calibration certificate" });
   let goldsetId = null;
-  const select = el("select", { class: "input", "aria-label": "Gold set" }, el("option", { value: "" }, "choose a gold set…"));
-  api.goldsets.list(params.slug).then((sets) => {
-    for (const g of sets) {
-      select.append(el("option", { value: g.id }, `${g.name ?? g.id} (${g.status})`));
-    }
-  }).catch(() => {});
-  select.addEventListener("change", () => { goldsetId = select.value || null; });
+  let select = null;
 
+  // create-and-go: a new gold set for THIS construct, sampling from the
+  // editor's current scope corpus, landing in the studio's Sample pane
+  const createGoldBtn = (label, cls) => el("button", {
+    class: cls, type: "button",
+    onclick: async (e) => {
+      e.target.disabled = true;
+      try {
+        const created = await api.goldsets.create(params.slug, {
+          constructId: inst.constructId,
+          corpusId: previewScope?.corpusId ?? undefined,
+        });
+        toast.success("Gold set created.", { detail: "draw the sample, then code it blind", data: false });
+        await refreshProject(params.slug).catch(() => {});
+        s.close();
+        router.navigate(`p/${params.slug}/goldsets/${created.id}`);
+      } catch (err) {
+        e.target.disabled = false;
+        toast.error("Could not create the gold set.", { detail: String(err.message ?? err) });
+      }
+    },
+  }, label);
+
+  const pickerHost = el("div", {});
   s.body.append(
     el("p", {}, "Freezing stamps the version hash into a calibration certificate with its agreement-vs-gold numbers. The instrument becomes read-only; any future edit forks a new ◌ version."),
-    el("label", { class: "field" }, el("span", { class: "field__label overline" }, "Certify against"), select),
+    pickerHost,
   );
+
+  api.goldsets.list(params.slug).then((sets) => {
+    const own = (sets ?? []).filter((g) => g.constructId === inst.constructId);
+    if (!own.length) {
+      freezeBtn.disabled = true;
+      pickerHost.append(
+        el("p", { class: "screen__hint" },
+          "Freezing needs a human gold standard: a sample you code by hand, so agreement statistics can certify the instrument."),
+        el("p", {}, createGoldBtn("Create a gold set for this construct", "btn btn--primary")),
+      );
+      return;
+    }
+    select = el("select", { class: "input", "aria-label": "Gold set" },
+      el("option", { value: "" }, "choose a gold set…"),
+      ...own.map((g) => el("option", { value: g.id }, `${g.name ?? g.id} (${g.status})`)));
+    select.addEventListener("change", () => { goldsetId = select.value || null; });
+    pickerHost.append(
+      el("label", { class: "field" }, el("span", { class: "field__label overline" }, "Certify against"), select),
+      el("p", { class: "screen__hint faint" }, createGoldBtn("or create another…", "btn btn--quiet")),
+    );
+  }).catch(() => {
+    pickerHost.append(el("p", { class: "faint" }, "Gold sets unavailable — try again."));
+  });
+
   const freezeBtn = el("button", {
     class: "btn btn--primary", type: "button",
     onclick: async () => {
-      if (!goldsetId) { select.focus(); return; }
+      if (!goldsetId) { select?.focus(); return; }
       const stop = sheetBusy(s, freezeBtn, {
         label: (sec) => `Calibrating against gold · ${sec}s`,
         hint: "judging the gold units with this instrument — one pass, then the certificate",

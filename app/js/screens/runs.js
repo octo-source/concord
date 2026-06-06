@@ -7,7 +7,7 @@
 // and pause/resume/abort. The detail opens with the run's scope (corpus ·
 // text column · units). Completed runs hand off to the Explorer.
 
-import { el, clear } from "../dom.js";
+import { el, clear, frag } from "../dom.js";
 import api from "../api.js";
 import * as router from "../router.js";
 import * as toast from "../components/toast.js";
@@ -121,13 +121,16 @@ async function preflightSheet(params, project, instruments, presetInstrument) {
   corpusSelect.addEventListener("change", () => { corpusId = corpusSelect.value; paintScope(); runPreflight(); });
   paintScope();
 
-  s.body.append(
+  s.body.append(frag(
     el("div", { class: "controlrow" },
       el("label", { class: "controlrow__item controlrow__item--grow" }, el("span", { class: "overline" }, "instrument"), instSelect),
       el("label", { class: "controlrow__item controlrow__item--grow" }, el("span", { class: "overline" }, "corpus"), corpusSelect)),
+    corpora.length > 1
+      ? el("p", { class: "screen__hint faint" }, "Same instrument, different data: pick the corpus to read.")
+      : null,
     scopeHost,
     resultHost,
-  );
+  ));
   s.foot.append(
     el("button", { class: "btn btn--quiet", type: "button", onclick: () => s.close() }, "Cancel"),
     startBtn,
@@ -236,6 +239,14 @@ function renderDetail(mount, params) {
       complete: "Complete.",
       failed: "Failed — see the warnings below; resuming retries only the unfinished units.",
     };
+    // the labeled-data takeaway: GET runs/:r/export.csv — your rows plus the
+    // instrument's columns; the server marks partial files in the filename
+    const csvBtn = () => el("button", {
+      class: "btn", type: "button",
+      title: "Your rows, plus the instrument's columns: label, confidence, escalated.",
+      onclick: () => api.runs.exportCsv(params.slug, run.id),
+    }, "Download labeled CSV");
+    const hasOutputs = (run.checkpoint?.done ?? 0) > 0;
     mount.append(screenHead({
       overline: `Run · ${run.id}`,
       title: instrumentName(project.instruments ?? [], run.instrumentId),
@@ -243,12 +254,21 @@ function renderDetail(mount, params) {
       actions: run.status === "complete"
         ? [
             el("a", { class: "btn btn--primary", href: `#/p/${params.slug}/explore/${run.id}` }, "Explore results"),
+            csvBtn(),
+            el("a", { class: "btn", href: `#/p/${params.slug}/analyses?runId=${encodeURIComponent(run.id)}` }, "Analyze →"),
             el("a", { class: "btn", href: `#/p/${params.slug}/runs/${run.id}/disagreement` }, "Disagreement"),
+            el("a", {
+              class: "btn",
+              href: run.instrumentId
+                ? `#/p/${params.slug}/runs?preflight=${encodeURIComponent(run.instrumentId)}`
+                : `#/p/${params.slug}/runs`,
+              title: "Same instrument, different data — the preflight's corpus picker does the rest.",
+            }, "Run on another corpus…"),
           ]
         : run.status === "pending"
           ? [startBtn("Start")]
           : run.status === "paused" || run.status === "aborted" || run.status === "failed"
-            ? [startBtn("Resume")]
+            ? [startBtn("Resume"), ...(hasOutputs ? [csvBtn()] : [])]
             : [],
     }));
 

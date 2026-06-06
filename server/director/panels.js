@@ -71,6 +71,8 @@ export async function recommendPanel(project, construct, opts = {}) {
   const res = await callDirector(project, {
     messages: [{ role: "system", content: system }, { role: "user", content: user }],
     schema: PANEL_SCHEMA,
+    // thinking tokens bill against max_tokens on reasoning-class Directors
+    // — keep at the reasoning-tolerant floor (≥2048)
     maxTokens: 2048,
   });
   const out = res.json;

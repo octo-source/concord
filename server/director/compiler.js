@@ -90,6 +90,8 @@ export async function compileInstrument(project, construct, opts = {}) {
     const res = await callDirector(project, {
       messages: [{ role: "system", content: system }, { role: "user", content: user }],
       schema: COMPILE_SCHEMA,
+      // thinking tokens bill against max_tokens on reasoning-class Directors
+      // — keep at the reasoning-tolerant floor (≥2048)
       maxTokens: 2048,
     });
     template = enforceTemplateScaffolding(res.json.promptTemplate, workerClass);
@@ -128,6 +130,8 @@ export async function seedDictionary(project, construct, sampleUnits) {
   const res = await callDirector(project, {
     messages: [{ role: "system", content: system }, { role: "user", content: user }],
     schema: DICTIONARY_SEED_SCHEMA,
+    // thinking tokens bill against max_tokens on reasoning-class Directors
+    // — keep at the reasoning-tolerant floor (≥2048)
     maxTokens: 2048,
   });
 

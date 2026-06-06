@@ -53,6 +53,13 @@ export function render(mount, params) {
       overline: `Explorer · ${params.runId}`,
       title: "What the run found.",
       lede: "Label counts, metadata splits, and co-occurrence from this run. Click any bar to read the units behind it; the numbers stay exploratory (◌) until the instrument is calibrated against human gold.",
+      actions: [
+        el("button", {
+          class: "btn", type: "button",
+          title: "Your rows, plus the instrument's columns: label, confidence, escalated.",
+          onclick: () => api.runs.exportCsv(params.slug, params.runId),
+        }, "Download labeled CSV"),
+      ],
     }));
 
     /* -- scope: which corpus/column these findings were computed over -- */
@@ -138,6 +145,12 @@ export function render(mount, params) {
         onGo: () => router.navigate(goldsetId ? `p/${params.slug}/goldsets/${goldsetId}` : `p/${params.slug}`),
       }));
     }
+
+    /* -- the statistics live one screen over — say so, carrying the run -- */
+    mount.append(el("p", { class: "screen__hint" },
+      el("a", { href: `#/p/${params.slug}/analyses?runId=${encodeURIComponent(params.runId)}` },
+        "Analyze in the Workbench →"),
+      el("span", { class: "faint" }, " crosstabs, models, triangulation over this run — corrected where gold exists.")));
   }, "Aggregating the run…");
 }
 

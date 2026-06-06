@@ -232,6 +232,8 @@ function renderSheet(mount, params, proposal, file) {
       confirmBtn.disabled = true;
       const progress = progressRule("Unitizing…");
       bar.replaceChildren(progress.el);
+      // read BEFORE the refresh below — was this an additional corpus?
+      const hadCorpora = (store.get("project")?.corpora?.length ?? 0) > 0;
       try {
         // live confirm wants the text column by name + the scheme
         const textColumn = tabular ? unitTextColumn : null;
@@ -244,7 +246,9 @@ function renderSheet(mount, params, proposal, file) {
         const junkCounts = result.junkQueue?.counts ?? {};
         const junkTotal = Object.values(junkCounts).reduce((s, n) => s + n, 0);
         toast.success(`Corpus imported — ${fmtCount(result.unitCount)} units${textColumn ? ` from “${textColumn}”` : ""}.`, {
-          detail: `${fmtCount(junkTotal)} flagged as junk (kept, marked)${unitization ? ` · ${unitization} unitization` : ""}`, data: true,
+          detail: `${fmtCount(junkTotal)} flagged as junk (kept, marked)${unitization ? ` · ${unitization} unitization` : ""}`
+            + (hadCorpora ? " · Existing instruments can run on this corpus from Runs → New run." : ""),
+          data: true,
         });
         await refreshProject(params.slug).catch(() => {});
         router.navigate(`p/${params.slug}/corpus/${result.corpusId}/instant`);

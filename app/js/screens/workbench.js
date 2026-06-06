@@ -33,7 +33,7 @@
 // computed numbers; 404 (artifact gone) falls back to the project summary
 // {id, kind, level, createdAt} and the recompute state.
 
-import { el, clear } from "../dom.js";
+import { el, clear, frag } from "../dom.js";
 import api from "../api.js";
 import * as toast from "../components/toast.js";
 import * as ladderC from "../components/ladder.js";
@@ -58,7 +58,7 @@ const KINDS = [
   { value: "subgroup", label: "Subgroup audit", hint: "machine-vs-gold agreement and error rates by group — needs a complete gold set" },
 ];
 
-export function render(mount, params) {
+export function render(mount, params, query = {}) {
   asyncMount(mount, async () => {
     const project = await ensureProject(params.slug);
     let analysis = null;
@@ -86,7 +86,11 @@ export function render(mount, params) {
     const canvas = el("div", { class: "split__main wb-canvas" });
     split.append(canvas);
 
-    builderRail(rail, canvas, params, project);
+    // arriving from a run (Explorer / run detail "Analyze →") carries
+    // ?runId= — the builder pins new analyses to that run's outputs
+    const presetRunId = query?.runId && (project.runs ?? []).some((r) => r.id === query.runId)
+      ? query.runId : null;
+    builderRail(rail, canvas, params, project, presetRunId);
 
     /* -- existing analyses (project summaries: {id, kind, level, createdAt}) -- */
     if (project.analyses?.length) {
@@ -124,7 +128,7 @@ export function render(mount, params) {
 
 /* ================= builder ============================================================== */
 
-function builderRail(rail, canvas, params, project) {
+function builderRail(rail, canvas, params, project, presetRunId = null) {
   let kind = "crosstab";
   const constructs = project.constructs ?? [];
   const instruments = project.instruments ?? [];
@@ -175,14 +179,16 @@ function builderRail(rail, canvas, params, project) {
           el("span", { class: "choice__label" }, k.label),
           el("span", { class: "choice__hint" }, k.hint)))));
 
-  // live spec shapes per kind (see header contract)
+  // live spec shapes per kind (see header contract); a preset runId from
+  // ?runId= rides every run-backed spec as the pickRun hint
+  const withRun = (spec) => (presetRunId ? { runId: presetRunId, ...spec } : spec);
   const specFor = () => {
     if (kind === "triangulation") return { instrumentIds: [instASel.value, instBSel.value] };
-    if (kind === "subgroup") return { instrumentId: instASel.value, by: metaSel.value };
+    if (kind === "subgroup") return withRun({ instrumentId: instASel.value, by: metaSel.value });
     const instrumentId = instrumentForConstruct();
-    if (kind === "model") return { x: [metaSel.value], family: "logit", ...(instrumentId ? { instrumentId } : {}) };
-    if (kind === "crosstab") return { rowKey: "label", colKey: metaSel.value, ...(instrumentId ? { instrumentId } : {}) };
-    return instrumentId ? { instrumentId } : {};
+    if (kind === "model") return withRun({ x: [metaSel.value], family: "logit", ...(instrumentId ? { instrumentId } : {}) });
+    if (kind === "crosstab") return withRun({ rowKey: "label", colKey: metaSel.value, ...(instrumentId ? { instrumentId } : {}) });
+    return withRun(instrumentId ? { instrumentId } : {});
   };
 
   const runBtn = el("button", {
@@ -203,12 +209,16 @@ function builderRail(rail, canvas, params, project) {
   }, "Run analysis");
 
   paintVars();
-  rail.append(
+  rail.append(frag(
     el("h3", { class: "overline split__group" }, "Build"),
+    presetRunId
+      ? el("p", { class: "screen__hint faint" },
+          "Scoped to run ", el("span", { class: "data" }, presetRunId), " — new analyses read its outputs.")
+      : null,
     kindList,
     variableHost,
     runBtn,
-  );
+  ));
 
   function varField(label, control) {
     return el("label", { class: "field" },

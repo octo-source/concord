@@ -332,6 +332,17 @@ export const runs = {
   abort: (p, r) => post(`${P(p)}/runs/${encodeURIComponent(r)}/abort`),
   escalations: (p, r) => get_(`${P(p)}/runs/${encodeURIComponent(r)}/escalations`),
   disagreement: (p, r) => get_(`${P(p)}/runs/${encodeURIComponent(r)}/disagreement`),
+  /** Raw-stream labeled-data CSV (original columns + label/confidence/escalated);
+      the server names the file, with -partial for incomplete runs. */
+  exportCsvUrl: (p, r) => `${baseUrl}${P(p)}/runs/${encodeURIComponent(r)}/export.csv`,
+  exportCsv(p, r) {
+    const a = document.createElement("a");
+    a.href = runs.exportCsvUrl(p, r);
+    a.download = "";
+    document.body.append(a);
+    a.click();
+    a.remove();
+  },
 };
 
 export const analyses = {

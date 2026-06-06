@@ -69,6 +69,8 @@
       "budget": { "capUSD": 25, "spentUSD": 4.87, "wouldExceed": false }
     }
   },
+  "exportCsvNote": "mirror of GET runs/:r/export.csv for run_panel_full — meta columns under their original names, text under the corpus textColumn, then <construct> / _confidence / _escalated / _error (quarantined units carry no label), unit_id last; 5 representative rows of the 2,500",
+  "exportCsv": "dept,tenure_years,role_level,region,exit_date,satisfaction,response,Exit theme,Exit theme_confidence,Exit theme_escalated,Exit theme_error,unit_id\r\nOperations,5,IC3,NA,2025-09-12,2,\"I stayed three years longer than I should have. The pay was fine, honestly — it was watching every good manager leave while the broken processes stayed. By the end I was doing two jobs and interviewing for a third.\",management,0.91,,,u_2847f1a09c3d55b2\r\nSales,3,IC2,LATAM,2025-08-02,2,\"El salario nunca alcanzó y la gerencia jamás escuchaba; aun así, voy a extrañar muchísimo a mi equipo.\",pay,0.78,,,u_91b3c07d2e8f4a16\r\nSupport,2,IC2,NA,2025-10-03,1,\"Oh sure, the workload was totally reasonable. Eighty-hour weeks build character, right?\",workload-burnout,0.7,true,,u_8800c1d2e4a90b77\r\nSales,4,IC3,NA,2025-05-16,1,\"Quota went up 40% in January with no territory change and commission accelerators got quietly capped. When the top three reps all leave in one quarter, the comp plan is the message.\",,,,TRUNCATED,u_d12f4a86c3e09b58\r\nSales,1,IC1,NA,2025-09-29,4,\"Loved the people. Left for money. It really is that simple.\",pay,0.97,,,u_4b9c2e7d80a1f355\r\n",
   "monitorScript": {
     "note": "fixtures replay of the live monitor tick shape {done, total, costUSD, labelDist, warnings: [{kind, message}], escalations}",
     "ticks": [

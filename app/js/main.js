@@ -9,13 +9,14 @@ import { store } from "./state.js";
 import * as routerMod from "./router.js";
 import api from "./api.js";
 import { fmtCost } from "./format.js";
-import { el } from "./dom.js";
+import { el, frag } from "./dom.js";
 import * as rail from "./components/rail.js";
 import * as inspector from "./components/inspector.js";
 import * as toast from "./components/toast.js";
 import * as glyph from "./components/glyph.js";
+import * as scopechip from "./components/scopechip.js";
 import { fixturesEnabled, installFixtures } from "./fixtures.js";
-import { openSheet, estimateChips } from "./screens/_shared.js";
+import { openSheet, estimateChips, refreshProject } from "./screens/_shared.js";
 
 // the twelve (plus home and the dev index)
 import * as homeScreen from "./screens/home.js";
@@ -110,17 +111,31 @@ function projectToSections(project) {
   });
   return [
     { id: "corpora", title: "Corpora", emptyHint: "Drop a file anywhere to begin.",
-      items: (project.corpora ?? []).map((c) => item(c, { count: c.unitCount, href: `/p/${slug}/corpus/${c.id}/instant` })) },
+      items: [
+        ...(project.corpora ?? []).map((c) => item(c, { count: c.unitCount, href: `/p/${slug}/corpus/${c.id}/instant` })),
+        // always-open door for the next file — a project is rarely one corpus
+        { id: "corpora-import", label: "+ Import another file", humanTouched: true, href: `/p/${slug}/import` },
+      ] },
     { id: "constructs", title: "Constructs", emptyHint: "What do you want to measure?",
       items: (project.constructs ?? []).map((c) => item(c, { href: `/p/${slug}/constructs/${c.id}` })) },
     { id: "instruments", title: "Instruments", emptyHint: "Compiled from constructs.",
       items: (project.instruments ?? []).map((i) => item(i, { href: `/p/${slug}/instruments/${i.id}` })) },
     { id: "goldsets", title: "Gold sets", emptyHint: "Human judgment, sampled with π.",
-      items: (project.goldsets ?? []).map((g) => item(g, { count: g.n, href: `/p/${slug}/goldsets/${g.id}` })) },
+      items: [
+        ...(project.goldsets ?? []).map((g) => item(g, { count: g.n, href: `/p/${slug}/goldsets/${g.id}` })),
+        // creatable from where you need it — needs a construct to code against
+        ...((project.constructs ?? []).length
+          ? [{ id: "goldsets-new", label: "+ New gold set…", humanTouched: true, action: "new-goldset" }]
+          : []),
+      ] },
     { id: "runs", title: "Runs", emptyHint: "Nothing has been measured yet.",
       items: (project.runs ?? []).map((r) => item({ id: r.id, name: r.id }, { href: `/p/${slug}/runs/${r.id}` })) },
-    { id: "analyses", title: "Analyses", emptyHint: "Ask the data a question.",
-      items: (project.analyses ?? []).map((a) => item(a, { level: a.level, href: `/p/${slug}/analyses/${a.id}` })) },
+    { id: "analyses", title: "Analyses", emptyHint: "Crosstabs, models, triangulation — corrected where gold exists.",
+      items: [
+        // the Workbench is the builder screen — findable before any analysis exists
+        { id: "analyses-workbench", label: "Open the Workbench", humanTouched: true, href: `/p/${slug}/analyses` },
+        ...(project.analyses ?? []).map((a) => item(a, { level: a.level, href: `/p/${slug}/analyses/${a.id}` })),
+      ] },
     { id: "settings", title: "Project",
       items: [{ id: "settings", label: "Settings — Director, privacy, budget", humanTouched: true, href: `/p/${slug}/settings` }] },
   ];
@@ -129,7 +144,12 @@ function projectToSections(project) {
 function initRail() {
   const mount = $("rail-mount");
   if (!mount) return;
-  railEl = rail.render({ sections: projectToSections(store.get("project")) });
+  railEl = rail.render({
+    sections: projectToSections(store.get("project")),
+    onSelect: (item) => {
+      if (item.action === "new-goldset") newGoldsetSheet(store.get("project"));
+    },
+  });
   mount.append(railEl);
   store.subscribe("project", (project) => {
     railEl.update({ sections: projectToSections(project), activeId: activeRailId() });
@@ -142,6 +162,59 @@ function initRail() {
 function activeRailId() {
   const r = routerMod.current();
   return r?.params?.id ?? r?.params?.cid ?? r?.params?.gid ?? r?.params?.runId ?? r?.params?.rid ?? null;
+}
+
+/* The rail's "+ New gold set…" — pick a construct and a corpus, create, land
+   in the Calibration Studio's Sample pane. Minimal: two selects, one button. */
+function newGoldsetSheet(project) {
+  const constructs = project?.constructs ?? [];
+  const corpora = project?.corpora ?? [];
+  if (!project?.slug || !constructs.length) {
+    toast.info("Write a construct first.", { detail: "a gold set is hand-coding against one construct's codebook" });
+    return;
+  }
+  if (!corpora.length) {
+    toast.info("Import a corpus first.", { detail: "gold sets sample the units you will measure" });
+    routerMod.navigate(`p/${project.slug}/import`);
+    return;
+  }
+
+  const s = openSheet({ title: "New gold set", overline: "Human gold standard" });
+  let constructId = constructs[0].id;
+  let corpusId = corpora.at(-1)?.id ?? null; // most recently created — same default as runs/previews
+
+  const constructSel = el("select", { class: "input", "aria-label": "Construct to code by hand" },
+    ...constructs.map((c) => el("option", { value: c.id, selected: c.id === constructId }, c.name)));
+  constructSel.addEventListener("change", () => { constructId = constructSel.value; });
+  const corpusSel = el("select", { class: "input", "aria-label": "Corpus to sample — picking a corpus picks the text column" },
+    ...corpora.map((c) => el("option", { value: c.id, selected: c.id === corpusId }, scopechip.optionLabel(c, project))));
+  corpusSel.addEventListener("change", () => { corpusId = corpusSel.value; });
+
+  s.body.append(
+    el("p", {}, "A gold set is a sample you code by hand — the human standard that agreement statistics certify instruments against."),
+    el("label", { class: "field" }, el("span", { class: "field__label overline" }, "Construct"), constructSel),
+    el("label", { class: "field" }, el("span", { class: "field__label overline" }, "Corpus to sample"), corpusSel),
+  );
+  const createBtn = el("button", {
+    class: "btn btn--primary", type: "button",
+    onclick: async (e) => {
+      e.target.disabled = true;
+      try {
+        const created = await api.goldsets.create(project.slug, { constructId, corpusId });
+        toast.success("Gold set created.", { detail: "draw the sample, then code it blind", data: false });
+        await refreshProject(project.slug).catch(() => {});
+        s.close();
+        routerMod.navigate(`p/${project.slug}/goldsets/${created.id}`);
+      } catch (err) {
+        e.target.disabled = false;
+        toast.error("Could not create the gold set.", { detail: String(err.message ?? err) });
+      }
+    },
+  }, "Create the gold set");
+  s.foot.append(
+    el("button", { class: "btn btn--quiet", type: "button", onclick: () => s.close() }, "Cancel"),
+    createBtn,
+  );
 }
 
 /* ---- top-bar chips ------------------------------------------------------------ */
@@ -317,7 +390,8 @@ function planSheet(project, res, question) {
   const analysis = plan.analysis ?? {};
   const specLine = planSpecLine(analysis.spec);
 
-  s.body.append(
+  // frag() skips null children; NATIVE append would print them as "null"
+  s.body.append(frag(
     el("p", { class: "plansheet__q" }, "“", plan.question ?? res?.question ?? question, "”"),
     plan.summary ? el("p", { class: "plansheet__summary" }, plan.summary) : null,
 
@@ -345,7 +419,7 @@ function planSheet(project, res, question) {
       (analysis.annotation ?? analysis.note)
         ? el("span", { class: "faint" }, analysis.annotation ?? analysis.note)
         : null),
-  );
+  ));
 
   s.foot.append(
     el("button", { class: "btn btn--quiet", type: "button", onclick: () => s.close() }, "Dismiss"),

@@ -124,15 +124,25 @@ export async function silverTune(project, instrument, units, opts = {}) {
   const pool = directorPool({ concurrency: 8 });
   const startedAt = new Date().toISOString();
   const labels = {};
-  await Promise.all(sample.map((unit) => pool.run(async () => {
-    const { system, user } = silverLabelPrompt(construct, unit);
-    const res = await callDirector(project, {
-      messages: [{ role: "system", content: system }, { role: "user", content: user }],
-      schema,
-      maxTokens: 512,
-    });
-    labels[unit.id] = res.json.label;
-  })));
+  try {
+    await Promise.all(sample.map((unit) => pool.run(async () => {
+      const { system, user } = silverLabelPrompt(construct, unit);
+      const res = await callDirector(project, {
+        messages: [{ role: "system", content: system }, { role: "user", content: user }],
+        schema,
+        // reasoning-class Directors bill their thinking tokens against
+        // max_tokens — 512 starved them before any JSON landed (June 2026
+        // field failure); ≥1536 leaves room for thinking + the verdict.
+        maxTokens: 1536,
+      });
+      labels[unit.id] = res.json.label;
+    })));
+  } catch (err) {
+    // name the stage: a bare "raise maxTokens" pointed researchers at their
+    // WORKER budgets while the Director's own labeling call was the one starving
+    if (err instanceof Error) err.message = `Director silver-labeling: ${err.message}`;
+    throw err;
+  }
   const finishedAt = new Date().toISOString();
 
   const goldset = createGoldSet({
@@ -226,11 +236,19 @@ export async function silverTune(project, instrument, units, opts = {}) {
       confusionSummary: summary,
       agreement,
     });
-    const res = await callDirector(project, {
-      messages: [{ role: "system", content: system }, { role: "user", content: user }],
-      schema: REWRITE_SCHEMA,
-      maxTokens: 2048,
-    });
+    let res;
+    try {
+      res = await callDirector(project, {
+        messages: [{ role: "system", content: system }, { role: "user", content: user }],
+        schema: REWRITE_SCHEMA,
+        // thinking tokens bill against max_tokens on reasoning-class
+        // Directors — keep the rewrite at the reasoning-tolerant floor (≥2048)
+        maxTokens: 2048,
+      });
+    } catch (err) {
+      if (err instanceof Error) err.message = `Director prompt-rewrite: ${err.message}`;
+      throw err;
+    }
     const newTemplate = enforceTemplateScaffolding(res.json.promptTemplate, instrument.payload.workerClass ?? "mid");
     versionInstrument(instrument, { ...instrument.payload, promptTemplate: newTemplate });
     note = res.json.note;

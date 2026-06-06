@@ -15,11 +15,21 @@ export function makeEscalator(project, construct) {
   const schema = escalationSchema(construct);
   return async function escalate(unit, output) {
     const { system, user } = escalationPrompt({ construct, unit, output });
-    const res = await callDirector(project, {
-      messages: [{ role: "system", content: system }, { role: "user", content: user }],
-      schema,
-      maxTokens: 512,
-    });
+    let res;
+    try {
+      res = await callDirector(project, {
+        messages: [{ role: "system", content: system }, { role: "user", content: user }],
+        schema,
+        // reasoning-class Directors bill thinking tokens against max_tokens —
+        // 512 (even doubled once by the truncation retry) starved them in the
+        // field; ≥1536 covers thinking + the structured second opinion.
+        maxTokens: 1536,
+      });
+    } catch (err) {
+      // name the stage so the researcher knows WHICH Director call failed
+      if (err instanceof Error) err.message = `Director second opinion: ${err.message}`;
+      throw err;
+    }
     const second = res.json;
     if (same(second.label, output.label)) return null; // worker's call stands
 

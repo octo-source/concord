@@ -15,13 +15,15 @@ export const STAGES = [
 ];
 
 /**
- * render({ current, states, action }) → <nav class="pipeline">
- *   current  stage key — stages before it default to "done", it to "current",
- *            after it to "next"
- *   states   per-stage overrides: {run: "done", calibrate: "locked", …}
- *   action   the ONE next step: {label, href} or {label, onclick}
+ * render({ current, states, action, secondary }) → <nav class="pipeline">
+ *   current   stage key — stages before it default to "done", it to "current",
+ *             after it to "next"
+ *   states    per-stage overrides: {run: "done", calibrate: "locked", …}
+ *   action    the ONE next step: {label, href} or {label, onclick}
+ *   secondary an always-available side door (same shape) — levels never block
+ *             action, so e.g. "Calibrate against gold" rides beside Preview/Run
  */
-export function render({ current, states = {}, action = null } = {}) {
+export function render({ current, states = {}, action = null, secondary = null } = {}) {
   const ci = STAGES.findIndex((s) => s.key === current);
   const items = STAGES.map((s, i) => {
     const state = states[s.key] ?? (i < ci ? "done" : i === ci ? "current" : "next");
@@ -35,15 +37,19 @@ export function render({ current, states = {}, action = null } = {}) {
     );
   });
 
-  let go = null;
-  if (action?.href) {
-    go = el("a", { class: "btn btn--quiet pipeline__go", href: action.href }, action.label);
-  } else if (typeof action?.onclick === "function") {
-    go = el("button", { class: "btn btn--quiet pipeline__go", type: "button", onclick: action.onclick }, action.label);
-  }
+  const goEl = (a) => {
+    if (a?.href) {
+      return el("a", { class: "btn btn--quiet pipeline__go", href: a.href }, a.label);
+    }
+    if (typeof a?.onclick === "function") {
+      return el("button", { class: "btn btn--quiet pipeline__go", type: "button", onclick: a.onclick }, a.label);
+    }
+    return null;
+  };
 
   return el("nav", { class: "pipeline", aria: { label: "Measurement pipeline" } },
     el("ol", { class: "pipeline__stages", role: "list" }, ...items),
-    go,
+    goEl(action),
+    goEl(secondary),
   );
 }

@@ -43,6 +43,8 @@ export async function suggestAnalyses(project, run, outputsSample) {
   const res = await callDirector(project, {
     messages: [{ role: "system", content: system }, { role: "user", content: user }],
     schema: ANALYST_SCHEMA,
+    // thinking tokens bill against max_tokens on reasoning-class Directors
+    // — keep at the reasoning-tolerant floor (≥2048)
     maxTokens: 2048,
   });
 
