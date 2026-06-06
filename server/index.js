@@ -50,6 +50,29 @@ async function mountRoutes(router, dir) {
   }
 }
 
+// Boot-time orphan sweep (see call site below). Lives here because index.js
+// owns process lifecycle; the monitor route heals the same condition lazily
+// for any record this sweep misses (e.g. a bundle synced in after boot).
+async function healOrphanedRuns() {
+  const { listProjects, updateProject } = await import("./core/store.js");
+  for (const entry of await listProjects()) {
+    if (!entry || entry.corrupt || !entry.slug) continue;
+    try {
+      await updateProject(entry.slug, (p) => {
+        for (const r of p.runs ?? []) {
+          if (r.status === "running") {
+            r.status = "paused";
+            r.error = {
+              code: "ORPHANED",
+              message: "the server stopped while this run was executing; resume continues from the checkpoint",
+            };
+          }
+        }
+      });
+    } catch { /* one damaged bundle must not block the rest */ }
+  }
+}
+
 export async function startServer({
   port = 7341,
   appDir = path.join(repoRoot, "app"),
@@ -86,6 +109,12 @@ export async function startServer({
     server.once("error", reject);
     server.listen(port, "127.0.0.1", resolve);
   });
+
+  // Heal orphaned runs: a record still saying "running" at boot belongs to a
+  // process that no longer exists (restart/crash mid-run). Mark it paused —
+  // resume is exactly-once off the outputs on disk — so the UI never watches
+  // a runner that is not there. Best-effort; never blocks startup.
+  healOrphanedRuns().catch(() => {});
 
   return {
     server,

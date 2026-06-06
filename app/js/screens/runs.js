@@ -376,6 +376,15 @@ function renderDetail(mount, params) {
           } else if (status === "failed") {
             toast.error("Run failed.", { detail: `${run.id} — open it for the error; resume retries unfinished units`, data: true });
           }
+          // Loop guard: re-render ONLY when the status actually moved. The
+          // server heals orphaned "running" records to paused before its done
+          // event, so an echo of our own status means something upstream is
+          // wrong — a visible note beats flickering forever.
+          if (status === run.status) {
+            liveRegion.textContent = `The monitor stream ended while the run still reads "${status}".`;
+            pushWarnings([{ kind: "monitor", message: `Stream ended without a status change (still ${status}) — reload the page to reconnect.` }]);
+            return;
+          }
           // Refresh BEFORE re-rendering: a re-render against stale status
           // would re-subscribe the monitor and loop this handler.
           await refreshProject(params.slug).catch(() => {});

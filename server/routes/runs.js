@@ -307,9 +307,29 @@ export default [
         conn.close();
         return;
       }
-      // not executing in this process: report the persisted state
-      conn.send("tick", monitor.runState(params.r) ?? tickFromRun(run));
-      conn.send("done", doneOf(run));
+      // Not executing in this process: report the persisted state. A record
+      // still saying "running" here is an ORPHAN — the process that ran it is
+      // gone (restart/crash mid-run). Heal it to paused (resume is exactly-
+      // once off the outputs on disk) BEFORE answering; replaying "running"
+      // for a run nothing is running once looped the client into a re-render
+      // flicker.
+      let settled = run;
+      if (run.status === "running") {
+        const fresh = await updateProject(params.p, (p) => {
+          const r = (p.runs ?? []).find((x) => x.id === params.r);
+          if (r && r.status === "running") {
+            r.status = "paused";
+            r.error = {
+              code: "ORPHANED",
+              message: "the server stopped while this run was executing; resume continues from the checkpoint",
+            };
+          }
+        });
+        settled = (fresh.runs ?? []).find((x) => x.id === params.r) ?? run;
+        await snapshotRun(params.p, params.r);
+      }
+      conn.send("tick", monitor.runState(params.r) ?? tickFromRun(settled));
+      conn.send("done", doneOf(settled));
       conn.close();
     },
   },

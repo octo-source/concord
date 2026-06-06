@@ -2094,3 +2094,60 @@ test("the demo project's ledger chain verifies end-to-end", async () => {
   assert.equal(v.ok, true, JSON.stringify(v));
   assert.ok(v.length > 60, `a full pipeline's worth of events (got ${v.length})`);
 });
+
+// ------------------------------------------------------- orphaned-run healing
+
+// A record still "running" with no in-process execution is an orphan (server
+// restarted mid-run). The monitor replaying "running" for it once looped the
+// client into a re-render flicker. Two healers: the monitor route (lazy) and
+// the boot sweep (startServer).
+test("runs: the monitor heals an orphaned running record to paused (resumable) instead of echoing it", async () => {
+  const { updateProject } = await import("../../server/core/store.js");
+  // fabricate the orphan AFTER boot so the startup sweep cannot have seen it
+  let orphanId = null;
+  await updateProject(S.slug, (p) => {
+    const src = (p.runs ?? []).find((r) => r.checkpoint?.total > 0) ?? p.runs?.[0];
+    assert.ok(src, "suite has at least one run to clone");
+    orphanId = "run_orphan_monitor";
+    p.runs.push({ ...structuredClone(src), id: orphanId, status: "running" });
+  });
+
+  const { events: evs } = await readSse(`/api/projects/${S.slug}/runs/${orphanId}/monitor`);
+  const done = evs.find((e) => e.event === "done");
+  assert.ok(done, "monitor closes with a done event");
+  assert.equal(done.data.status, "paused", "an orphan must NOT be echoed as running");
+
+  const p = await ok("GET", `/api/projects/${S.slug}`);
+  const healed = p.runs.find((r) => r.id === orphanId);
+  assert.equal(healed.status, "paused");
+  assert.equal(healed.error?.code, "ORPHANED");
+  assert.match(healed.error?.message ?? "", /resume continues from the checkpoint/);
+});
+
+test("runs: startServer's boot sweep heals orphaned running records across bundles", async () => {
+  const { updateProject } = await import("../../server/core/store.js");
+  const { startServer } = await import("../../server/index.js");
+  let orphanId = null;
+  await updateProject(S.slug, (p) => {
+    orphanId = "run_orphan_boot";
+    const src = p.runs?.[0];
+    p.runs.push({ ...structuredClone(src), id: orphanId, status: "running" });
+  });
+  // a fresh server instance (same projects dir) runs the sweep at listen time
+  const second = await startServer({ port: 0 });
+  try {
+    // the sweep is fire-and-forget — give it a beat, then poll briefly
+    for (let i = 0; i < 40; i++) {
+      const p = await ok("GET", `/api/projects/${S.slug}`);
+      const r = p.runs.find((x) => x.id === orphanId);
+      if (r.status === "paused") {
+        assert.equal(r.error?.code, "ORPHANED");
+        return;
+      }
+      await new Promise((res) => setTimeout(res, 50));
+    }
+    assert.fail("boot sweep did not heal the orphaned run within 2s");
+  } finally {
+    await second.close();
+  }
+});
