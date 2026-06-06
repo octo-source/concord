@@ -170,22 +170,56 @@ function renderDetail(mount, params) {
     const run = (project.runs ?? []).find((r) => r.id === params.id) ?? { id: params.id, status: "unknown" };
     return { project, run };
   }, ({ project, run }) => {
-    const live = run.status === "running" || run.status === "pending" || run.status === "paused";
+    // ONLY a running run gets a monitor subscription. A pending or paused run
+    // is not executing — the server's monitor stream would answer immediately
+    // with its terminal state, and an immediate done + re-render once looped
+    // this screen into an endless stack of "Run complete." toasts.
+    const live = run.status === "running";
     const instrument = (project.instruments ?? []).find((i) => i.id === run.instrumentId);
     const level = instrument?.level ?? "exploratory";
     const done0 = run.checkpoint?.done ?? 0;
     const total0 = run.checkpoint?.total ?? 0;
 
+    // Start (pending) / Resume (paused/aborted) both ride the resume route:
+    // execution is exactly-once off the outputs already on disk.
+    const startBtn = (label) => el("button", {
+      class: "btn btn--primary", type: "button",
+      onclick: async (e) => {
+        e.target.disabled = true;
+        try {
+          await api.runs.resume(params.slug, run.id);
+          toast.info(label === "Start" ? "Run started." : "Resumed.", { detail: run.id, data: true });
+          await refreshProject(params.slug).catch(() => {});
+          window.dispatchEvent(new HashChangeEvent("hashchange")); // re-render into the live monitor
+        } catch (err) {
+          e.target.disabled = false;
+          toast.error(`${label} failed.`, { detail: String(err.message ?? err) });
+        }
+      },
+    }, label);
+
+    const ledeFor = {
+      running: "Reading now. Numbers below accumulate as outputs land.",
+      pending: "Created but not started — nothing has been read or paid for yet.",
+      paused: "Paused. Outputs already on disk are kept; resuming continues from the checkpoint without re-paying.",
+      aborted: "Stopped. Outputs already on disk are kept; a resume continues from the checkpoint without re-paying.",
+      complete: "Complete.",
+      failed: "Failed — see the warnings below; resuming retries only the unfinished units.",
+    };
     mount.append(screenHead({
       overline: `Run · ${run.id}`,
       title: instrumentName(project.instruments ?? [], run.instrumentId),
-      lede: live ? "Reading now. Numbers below accumulate as outputs land." : `Status: ${run.status}.`,
+      lede: ledeFor[run.status] ?? `Status: ${run.status}.`,
       actions: run.status === "complete"
         ? [
             el("a", { class: "btn btn--primary", href: `#/p/${params.slug}/explore/${run.id}` }, "Explore results"),
             el("a", { class: "btn", href: `#/p/${params.slug}/runs/${run.id}/disagreement` }, "Disagreement"),
           ]
-        : [],
+        : run.status === "pending"
+          ? [startBtn("Start")]
+          : run.status === "paused" || run.status === "aborted" || run.status === "failed"
+            ? [startBtn("Resume")]
+            : [],
     }));
 
     /* -- monitor surface -- */
@@ -266,9 +300,20 @@ function renderDetail(mount, params) {
           pushWarnings(t.warnings);
           liveRegion.textContent = `${t.done} of ${t.total} units, ${fmtCost(t.costUSD)}`;
         },
-        onDone() {
-          toast.success("Run complete.", { detail: `${run.id} — explore the results`, data: true });
-          refreshProject(params.slug).catch(() => {});
+        async onDone(data) {
+          // Status-aware: the stream also settles on pause/abort/failure, and
+          // those already announce themselves at the button that caused them.
+          monitor?.close?.();
+          monitor = null;
+          const status = data?.status ?? "complete";
+          if (status === "complete") {
+            toast.success("Run complete.", { detail: `${run.id} — explore the results`, data: true });
+          } else if (status === "failed") {
+            toast.error("Run failed.", { detail: `${run.id} — open it for the error; resume retries unfinished units`, data: true });
+          }
+          // Refresh BEFORE re-rendering: a re-render against stale status
+          // would re-subscribe the monitor and loop this handler.
+          await refreshProject(params.slug).catch(() => {});
           window.dispatchEvent(new HashChangeEvent("hashchange"));
         },
         onError(err) {
@@ -321,27 +366,30 @@ function renderDetail(mount, params) {
     )));
 
     function controlButtons() {
+      // Pause/Abort only make sense while the engine is actually executing;
+      // pending/paused/aborted get Start/Resume in the header instead.
       if (!live) return null;
       const wrap = el("span", { class: "monitor__controls" });
       const pauseBtn = el("button", {
         class: "btn", type: "button",
         onclick: async () => {
-          const paused = pauseBtn.dataset.state === "paused";
           try {
-            if (paused) { await api.runs.resume(params.slug, run.id); pauseBtn.dataset.state = ""; pauseBtn.textContent = "Pause"; toast.info("Resumed."); }
-            else { await api.runs.pause(params.slug, run.id); pauseBtn.dataset.state = "paused"; pauseBtn.textContent = "Resume"; toast.info("Paused — outputs already paid for are kept."); }
-          } catch (err) { toast.error("Control failed.", { detail: String(err.message ?? err) }); }
+            await api.runs.pause(params.slug, run.id);
+            toast.info("Paused — outputs already paid for are kept.", { data: true });
+            await refreshProject(params.slug).catch(() => {});
+            window.dispatchEvent(new HashChangeEvent("hashchange")); // re-render into the paused view (Resume in header)
+          } catch (err) { toast.error("Pause failed.", { detail: String(err.message ?? err) }); }
         },
-      }, run.status === "paused" ? "Resume" : "Pause");
-      if (run.status === "paused") pauseBtn.dataset.state = "paused";
+      }, "Pause");
       const abortBtn = el("button", {
         class: "btn btn--quiet", type: "button",
         onclick: async () => {
           try {
             await api.runs.abort(params.slug, run.id);
             monitor?.close?.();
+            monitor = null;
             toast.warn("Aborted.", { detail: "checkpointed — a future run resumes from here, cached calls stay free" });
-            refreshProject(params.slug).catch(() => {});
+            await refreshProject(params.slug).catch(() => {});
             window.dispatchEvent(new HashChangeEvent("hashchange"));
           } catch (err) { toast.error("Abort failed.", { detail: String(err.message ?? err) }); }
         },
