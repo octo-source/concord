@@ -39,13 +39,24 @@ export class OpenRouterAdapter extends OpenAIAdapter {
 
   async catalog() {
     const raw = await httpJSON("GET", `${this.baseUrl}/v1/models`, { headers: this.headers() });
-    return (raw.data ?? []).map((m) => ({
-      id: m.id,
-      name: m.name ?? m.id,
-      family: familyOf(m.id),
-      ctx: m.context_length ?? null,
-      pricing: { inUSDper1M: perMillion(m.pricing?.prompt), outUSDper1M: perMillion(m.pricing?.completion) },
-      snapshot: m.id,
-    }));
+    return (raw.data ?? []).map((m) => {
+      // Per-model capability flags from supported_parameters (present on every
+      // live entry, 2026-06; absent → conservative flags, never a throw).
+      // OpenRouter SILENTLY ignores response_format on models that lack it —
+      // the repair loop still lands valid JSON, just slowly — so these flags
+      // exist for the UI to warn + default-filter, not to hard-block.
+      const params = Array.isArray(m.supported_parameters) ? m.supported_parameters : [];
+      return {
+        id: m.id,
+        name: m.name ?? m.id,
+        family: familyOf(m.id),
+        ctx: m.context_length ?? null,
+        pricing: { inUSDper1M: perMillion(m.pricing?.prompt), outUSDper1M: perMillion(m.pricing?.completion) },
+        snapshot: m.id,
+        structuredOutput: params.includes("structured_outputs") || params.includes("response_format"),
+        noTemperature: !params.includes("temperature"),
+        params,
+      };
+    });
   }
 }

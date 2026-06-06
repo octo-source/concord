@@ -22,6 +22,7 @@ import * as glyph from "../components/glyph.js";
 import * as ladderC from "../components/ladder.js";
 import * as pipeline from "../components/pipeline.js";
 import * as quotecard from "../components/quotecard.js";
+import * as modelpicker from "../components/modelpicker.js";
 import * as line from "../components/charts/line.js";
 import { fmt, fmtStat, fmtCost, fmtCount, fmtDateTime } from "../format.js";
 import { screenHead, section, asyncMount, ensureProject, refreshProject, emptyState, openSheet, sheetBusy, buttonBusy, kv, kvList, markedValue } from "./_shared.js";
@@ -490,24 +491,46 @@ function judgeEditor(main, params, inst, catalog, construct, touch) {
     promptView,
     rawReveal));
 
-  /* worker class + model + params */
-  const providers = Object.keys(catalog ?? {});
-  const modelSelect = el("select", { class: "input input--inline", disabled: ro, "aria-label": "Model" });
-  const fillModels = (provider) => {
-    clear(modelSelect);
-    for (const mdl of catalog?.[provider] ?? []) {
-      modelSelect.append(el("option", {
-        value: mdl.id, selected: mdl.id === payload.model,
-      }, `${mdl.name} · $${mdl.pricing.inUSDper1M}/${mdl.pricing.outUSDper1M} per 1M`));
-    }
-  };
-  fillModels(payload.provider ?? providers[0]);
-  modelSelect.addEventListener("change", (e) => {
-    payload.model = e.target.value;
-    const mdl = (catalog?.[payload.provider] ?? []).find((x) => x.id === payload.model);
-    if (mdl) payload.snapshot = mdl.snapshot;
-    touch();
+  /* worker class + model picker + params with capability honesty */
+  const picker = modelpicker.render({
+    catalog,
+    value: { provider: payload.provider, model: payload.model },
+    structuredFilter: true,
+    disabled: ro,
+    label: "Model",
+    onPick: ({ provider, entry }) => {
+      payload.provider = provider;
+      payload.model = entry.id;
+      payload.snapshot = entry.snapshot ?? null;
+      touch();
+      paintParams();
+    },
   });
+
+  const paramsHost = el("div", {});
+  const paintParams = () => {
+    const entry = modelpicker.findEntry(catalog, payload.provider, payload.model);
+    clear(paramsHost).append(
+      el("div", { class: "controlrow" },
+        paramControl("temperature", el("input", {
+          class: "input input--num", type: "number", step: "0.1", min: 0, max: 2, disabled: ro,
+          value: payload.params?.temperature ?? 0, "aria-label": "Temperature",
+          onchange: (e) => { payload.params = payload.params ?? {}; payload.params.temperature = Number(e.target.value); touch(); },
+        }), modelpicker.supportsParam(entry, "temperature")),
+        paramControl("max tokens", el("input", {
+          class: "input input--num", type: "number", step: "50", min: 50, disabled: ro,
+          value: payload.params?.maxTokens ?? 400, "aria-label": "Max tokens",
+          onchange: (e) => { payload.params = payload.params ?? {}; payload.params.maxTokens = Number(e.target.value); touch(); },
+        }), modelpicker.supportsParam(entry, "maxTokens")),
+      ),
+      (!entry || !Array.isArray(entry.params))
+        ? el("p", { class: "screen__hint faint" }, "Parameter support varies by model; unsupported settings are ignored by the provider.")
+        : null,
+      el("p", { class: "screen__hint faint data" },
+        `snapshot: ${payload.snapshot ?? "unpinned"} · rationale-first: ${payload.rationaleFirst !== false ? "yes" : "no"} · schema: ${payload.schema?.type ?? "—"}${payload.schema?.options ? ` (${payload.schema.options.join(", ")})` : ""}`),
+    );
+  };
+  paintParams();
 
   main.append(section("Worker",
     el("div", { class: "controlrow" },
@@ -520,32 +543,20 @@ function judgeEditor(main, params, inst, catalog, construct, touch) {
           ...["frontier", "mid", "small"].map((c) =>
             el("option", { value: c, selected: payload.workerClass === c }, c))),
         el("span", { class: "faint" }, "smaller classes get more rubric anchoring when the Director compiles")),
-      el("label", { class: "controlrow__item" },
-        el("span", { class: "overline" }, "provider"),
-        el("select", {
-          class: "input input--inline", disabled: ro, "aria-label": "Provider",
-          onchange: (e) => { payload.provider = e.target.value; fillModels(e.target.value); touch(); },
-        },
-          ...providers.map((p) => el("option", { value: p, selected: p === payload.provider }, p)))),
-      el("label", { class: "controlrow__item" },
-        el("span", { class: "overline" }, "model"), modelSelect),
-      el("label", { class: "controlrow__item" },
-        el("span", { class: "overline" }, "temperature"),
-        el("input", {
-          class: "input input--num", type: "number", step: "0.1", min: 0, max: 2, disabled: ro,
-          value: payload.params?.temperature ?? 0, "aria-label": "Temperature",
-          onchange: (e) => { payload.params = payload.params ?? {}; payload.params.temperature = Number(e.target.value); touch(); },
-        })),
-      el("label", { class: "controlrow__item" },
-        el("span", { class: "overline" }, "max tokens"),
-        el("input", {
-          class: "input input--num", type: "number", step: "50", min: 50, disabled: ro,
-          value: payload.params?.maxTokens ?? 400, "aria-label": "Max tokens",
-          onchange: (e) => { payload.params = payload.params ?? {}; payload.params.maxTokens = Number(e.target.value); touch(); },
-        })),
+      el("div", { class: "controlrow__item controlrow__item--grow" },
+        el("span", { class: "overline" }, "model"), picker.el),
     ),
-    el("p", { class: "screen__hint faint data" },
-      `snapshot: ${payload.snapshot ?? "unpinned"} · rationale-first: ${payload.rationaleFirst !== false ? "yes" : "no"} · schema: ${payload.schema?.type ?? "—"}${payload.schema?.options ? ` (${payload.schema.options.join(", ")})` : ""}`)));
+    paramsHost));
+}
+
+/* A parameter control that says when the selected model ignores it — grayed,
+   never hidden: the value still saves; the provider strips what it cannot use. */
+function paramControl(labelText, input, supported) {
+  const ignored = supported === false;
+  return el("div", { class: `paramctl${ignored ? " paramctl--ignored" : ""}` },
+    el("label", { class: "controlrow__item" },
+      el("span", { class: "overline" }, labelText), input),
+    ignored ? el("p", { class: "paramctl__note" }, "ignored by this model (reasoning-class)") : null);
 }
 
 /* ================= panel ============================================================ */
@@ -558,17 +569,24 @@ function panelEditor(main, params, inst, catalog, touch) {
 
   const warnBox = el("div", { class: "panelwarn", aria: { live: "polite" } });
   const costLine = el("p", { class: "panelcost data", aria: { live: "polite" } });
+  const paramsNote = el("p", { class: "screen__hint faint" });
   const jurorWrap = el("div", { class: "jurors" });
 
   const redraw = () => {
     clear(jurorWrap);
     payload.jurors.forEach((j, i) => {
+      const entry = modelpicker.findEntry(catalog, j.provider, j.model);
+      const noTemp = modelpicker.supportsParam(entry, "temperature") === false;
       jurorWrap.append(el("div", { class: "juror" },
         el("div", { class: "juror__head" },
           el("span", { class: "juror__name data" }, j.model),
           el("span", { class: "chip" }, j.family ?? familyOf(j)),
-          el("span", { class: "chip chip--ghost" }, j.provider)),
+          el("span", { class: "chip chip--ghost" }, j.provider),
+          ...modelpicker.capBadges(entry)),
         el("p", { class: "juror__meta faint data" }, j.snapshot ?? "unpinned"),
+        el("p", { class: "juror__meta faint data" },
+          `temperature ${j.params?.temperature ?? 0} · max ${j.params?.maxTokens ?? 400} tokens`),
+        noTemp ? el("p", { class: "paramctl__note" }, "temperature ignored by this model (reasoning-class)") : null,
         !ro ? el("button", {
           class: "btn btn--quiet juror__remove", type: "button", aria: { label: `Remove juror ${j.model}` },
           onclick: () => { payload.jurors.splice(i, 1); touch(); redraw(); },
@@ -576,20 +594,21 @@ function panelEditor(main, params, inst, catalog, touch) {
       ));
     });
     if (!ro) {
-      const select = el("select", { class: "input", "aria-label": "Add juror from catalog" },
-        el("option", { value: "" }, "+ add juror from the catalog…"),
-        ...allModels.map((m, idx) =>
-          el("option", { value: String(idx) }, `${m.provider} · ${m.name} (${m.family})`)));
-      select.addEventListener("change", () => {
-        const m = allModels[Number(select.value)];
-        if (!m) return;
-        payload.jurors.push({
-          provider: m.provider, model: m.id, snapshot: m.snapshot, family: m.family,
-          params: { temperature: 0, maxTokens: 400 }, workerClass: m.class ?? "small",
-        });
-        touch(); redraw();
+      const addPicker = modelpicker.render({
+        catalog,
+        structuredFilter: true,
+        showSelected: false,
+        label: "Add juror from catalog",
+        placeholder: "add juror — search the catalog…",
+        onPick: ({ provider, entry }) => {
+          payload.jurors.push({
+            provider, model: entry.id, snapshot: entry.snapshot ?? null, family: entry.family,
+            params: { temperature: 0, maxTokens: 400 }, workerClass: entry.class ?? "small",
+          });
+          touch(); redraw();
+        },
       });
-      jurorWrap.append(el("div", { class: "juror juror--add" }, select));
+      jurorWrap.append(el("div", { class: "juror juror--add" }, addPicker.el));
     }
     paintWarnAndCost();
   };
@@ -616,10 +635,17 @@ function panelEditor(main, params, inst, catalog, touch) {
     costLine.textContent = payload.jurors.length
       ? `cost as composed: ${fmtCost(perUnit * 1000)} per 1,000 units (${payload.jurors.length} jurors × ~800 in / 120 out tokens)`
       : "add jurors to see the running cost per 1,000 units";
+    const noParamData = payload.jurors.some((j) => {
+      const e = modelpicker.findEntry(catalog, j.provider, j.model);
+      return !e || !Array.isArray(e.params);
+    });
+    paramsNote.textContent = noParamData
+      ? "Parameter support varies by model; unsupported settings are ignored by the provider."
+      : "";
   };
 
   redraw();
-  main.append(section("Panel composition", jurorWrap, warnBox, costLine));
+  main.append(section("Panel composition", jurorWrap, warnBox, costLine, paramsNote));
 
   /* aggregation rule, in plain language */
   const explain = el("p", { class: "screen__hint" }, AGG_RULES[payload.aggregation] ?? "");
@@ -928,29 +954,19 @@ function compileSheet(params, { project, constructs, catalog, presetConstructId 
   const providers = Object.keys(catalog ?? {});
   let provider = (project?.director?.provider && catalog?.[project.director.provider]?.length)
     ? project.director.provider : providers[0];
-  let model = null;
-  const modelSelect = el("select", { class: "input input--inline", "aria-label": "Worker model" });
-  const fillModels = (prov) => {
-    clear(modelSelect);
-    const models = catalog?.[prov] ?? [];
-    const preferred = models.find((m) => m.id === project?.director?.model) ?? models[0];
-    model = preferred?.id ?? null;
-    for (const m of models) {
-      modelSelect.append(el("option", { value: m.id, selected: m.id === model },
-        `${m.name} · $${m.pricing.inUSDper1M}/${m.pricing.outUSDper1M} per 1M`));
-    }
-  };
-  fillModels(provider);
-  modelSelect.addEventListener("change", () => { model = modelSelect.value; });
-  const providerSelect = el("select", { class: "input input--inline", "aria-label": "Provider" },
-    ...providers.map((p) => el("option", { value: p, selected: p === provider }, p)));
-  providerSelect.addEventListener("change", () => { provider = providerSelect.value; fillModels(provider); });
+  let model = ((catalog?.[provider] ?? []).find((m) => m.id === project?.director?.model)
+    ?? (catalog?.[provider] ?? [])[0])?.id ?? null;
+  const picker = modelpicker.render({
+    catalog,
+    value: { provider, model },
+    structuredFilter: true,
+    label: "Worker model",
+    onPick: (p) => { provider = p.provider; model = p.entry.id; },
+  });
 
   const judgeOnly = el("div", { class: "field" },
     el("span", { class: "field__label overline" }, "Worker model"),
-    el("div", { class: "controlrow" },
-      el("label", { class: "controlrow__item" }, el("span", { class: "overline" }, "provider"), providerSelect),
-      el("label", { class: "controlrow__item" }, el("span", { class: "overline" }, "model"), modelSelect)),
+    picker.el,
     el("p", { class: "field__hint" }, "Defaulted to this project's Director model — change it freely; the run preflight quotes the cost either way."));
 
   const GO_LABELS = { judge: "Compile the judge", dictionary: "Create the dictionary", panel: "Create the panel" };

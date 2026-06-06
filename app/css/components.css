@@ -146,6 +146,98 @@
   border-color: var(--accent);
 }
 
+/* ---- model picker -----------------------------------------------------------
+   components/modelpicker.js — a searchable combobox over the model catalog.
+   The panel drops under the input (never a modal); rows are mono catalog
+   stamps with capability badges; the structured-output filter sits at the
+   top of the panel; the current selection wears a chip beside the input. */
+
+.modelpicker {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--s2);
+  min-width: 0;
+}
+.modelpicker__field {
+  position: relative;
+  flex: 1 1 16rem;
+  min-width: 14rem;
+}
+.modelpicker__input {
+  font-family: var(--font-mono);
+  font-size: var(--fs-data);
+}
+.modelpicker__panel {
+  position: absolute;
+  top: calc(100% + 4px);
+  left: 0;
+  z-index: var(--z-popover);
+  width: min(36rem, calc(100vw - var(--s6)));
+  border: var(--rule);
+  border-radius: var(--r-md);
+  background: var(--paper-raised);
+  box-shadow: var(--shadow-lift);
+}
+.modelpicker__filter {
+  display: flex;
+  align-items: baseline;
+  padding: var(--s2) var(--s3);
+  border-bottom: var(--rule);
+  color: var(--ink-muted);
+}
+.modelpicker__list {
+  max-height: 19rem;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+}
+.modelpicker__group {
+  position: sticky;
+  top: 0;
+  z-index: 1;
+  margin: 0;
+  padding: var(--s2) var(--s3) var(--s1);
+  background: var(--paper-raised);
+  border-bottom: var(--rule);
+}
+.modelpicker__row {
+  display: flex;
+  align-items: baseline;
+  gap: var(--s3);
+  padding: var(--s2) var(--s3);
+  cursor: pointer;
+  border-left: 2px solid transparent;
+}
+.modelpicker__row:hover,
+.modelpicker__row--active { background: var(--accent-wash); }
+.modelpicker__row[aria-selected="true"] { border-left-color: var(--accent); }
+.modelpicker__id {
+  min-width: 0;
+  overflow-wrap: anywhere;
+  color: var(--ink);
+}
+.modelpicker__meta {
+  margin-left: auto;
+  display: inline-flex;
+  align-items: baseline;
+  gap: var(--s3);
+  white-space: nowrap;
+  color: var(--ink-muted);
+}
+.modelpicker__empty { margin: 0; padding: var(--s3); }
+.modelpicker__count {
+  margin: 0;
+  padding: var(--s1) var(--s3);
+  border-top: var(--rule);
+  font-size: var(--fs-micro);
+}
+.modelpicker__selected {
+  display: inline-flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--s1);
+}
+
 /* ---- top bar ----------------------------------------------------------------- */
 
 .wordmark {

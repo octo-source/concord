@@ -7,6 +7,7 @@
 import { el, clear } from "../dom.js";
 import api from "../api.js";
 import * as toast from "../components/toast.js";
+import * as modelpicker from "../components/modelpicker.js";
 import { store } from "../state.js";
 import { fmtCost } from "../format.js";
 import { screenHead, section, asyncMount, ensureProject, openSheet, emptyState } from "./_shared.js";
@@ -85,6 +86,7 @@ export function render(mount, params) {
             el("th", { scope: "col" }, "provider"), el("th", { scope: "col" }, "model"),
             el("th", { scope: "col" }, "family"), el("th", { scope: "col", class: "table__num data" }, "ctx"),
             el("th", { scope: "col", class: "table__num data" }, "$/1M in"), el("th", { scope: "col", class: "table__num data" }, "$/1M out"),
+            el("th", { scope: "col" }, "supports"),
             el("th", { scope: "col" }, "snapshot"))),
           el("tbody", {},
             ...catRows.map((m) => el("tr", {},
@@ -94,46 +96,40 @@ export function render(mount, params) {
               el("td", { class: "table__num data" }, String(m.ctx ?? "—")),
               el("td", { class: "table__num data" }, String(m.pricing?.inUSDper1M ?? 0)),
               el("td", { class: "table__num data" }, String(m.pricing?.outUSDper1M ?? 0)),
-              el("td", { class: "data settings__snapshot" }, m.snapshot ?? "—"))))))));
+              el("td", {}, (() => { const b = modelpicker.capBadges(m); return b.length ? b : "—"; })()),
+              el("td", { class: "data settings__snapshot" }, m.snapshot ?? "—")))))),
+      el("p", { class: "screen__hint faint" },
+        "Parameter support varies by model; unsupported settings are ignored by the provider.")));
 
     /* ---- Director slot — a PROJECT field, saved via PUT /api/settings
        {project: {slug, director}} (no global Director exists) ---- */
     if (projectScoped && project) {
       const director = { ...(project.director ?? {}) };
       const providers = Object.keys(catalog ?? {});
-      // No slot configured yet: seed the working copy from what the selects
+      // No slot configured yet: seed the working copy from what the picker
       // will DISPLAY, so "Save" saves what the researcher sees. Mock first —
       // it is the honest keyless default.
       if (!director.provider) director.provider = providers.includes("mock") ? "mock" : providers[0];
-      const dirModels = (prov) => (catalog?.[prov] ?? []).map((m) => m.id);
-      const dirModelSel = el("select", { class: "input input--inline", "aria-label": "Director model" });
-      const fillDirModels = () => {
-        clear(dirModelSel);
-        for (const id of dirModels(director.provider)) {
-          dirModelSel.append(el("option", { value: id, selected: id === director.model }, id));
-        }
-        if (!director.model && dirModelSel.options.length) director.model = dirModelSel.value;
-      };
-      fillDirModels();
-      dirModelSel.addEventListener("change", () => { director.model = dirModelSel.value; });
+      if (!director.model) director.model = (catalog?.[director.provider] ?? [])[0]?.id ?? null;
+      const dirPicker = modelpicker.render({
+        catalog,
+        value: { provider: director.provider, model: director.model },
+        structuredFilter: true,
+        label: "Director model",
+        onPick: ({ provider, entry }) => { director.provider = provider; director.model = entry.id; },
+      });
 
       mount.append(section("The Director's slot",
         el("p", { class: "screen__hint faint" },
           "The Director drafts, compiles, tunes, escalates — and is metered like any other model. In strict mode it must be local."),
         el("div", { class: "controlrow" },
-          el("label", { class: "controlrow__item" },
-            el("span", { class: "overline" }, "provider"),
-            el("select", {
-              class: "input input--inline", "aria-label": "Director provider",
-              onchange: (e) => { director.provider = e.target.value; fillDirModels(); director.model = dirModelSel.value; },
-            }, ...Object.keys(catalog ?? {}).map((p) => el("option", { value: p, selected: p === director.provider }, p)))),
-          el("label", { class: "controlrow__item" }, el("span", { class: "overline" }, "model"), dirModelSel),
+          el("div", { class: "controlrow__item controlrow__item--grow" },
+            el("span", { class: "overline" }, "model"), dirPicker.el),
           el("button", {
             class: "btn", type: "button",
             onclick: async (e) => {
               e.target.disabled = true;
               try {
-                if (!director.model) director.model = dirModelSel.value;
                 await api.settings.update({ project: { slug: params.slug, director } });
                 toast.success("Director updated.", { detail: `${director.provider} · ${director.model}`, data: true });
                 // The save is project policy; the privacy gate fires at USE.

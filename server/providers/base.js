@@ -22,6 +22,9 @@ export class Adapter {
   }
 
   // → [{id, name, family, ctx, pricing:{inUSDper1M, outUSDper1M}, snapshot}]
+  // Adapters with per-model capability data (openrouter) additionally emit
+  // {structuredOutput, noTemperature, params}; routes/catalog.js decorates
+  // every other entry from capabilities() so the UI always sees the fields.
   async catalog() {
     return [];
   }
@@ -40,6 +43,27 @@ export function parseRetryAfter(value) {
   if (Number.isFinite(secs)) return Math.min(Math.max(0, secs * 1000), RETRY_AFTER_CAP_MS);
   const at = Date.parse(value);
   return Number.isNaN(at) ? null : Math.min(Math.max(0, at - Date.now()), RETRY_AFTER_CAP_MS);
+}
+
+// Non-2xx bodies usually carry the provider's own explanation; surface a
+// trimmed extract IN THE MESSAGE — the field saw bare "HTTP 400"s while the
+// actionable detail sat unread in details.body. OpenRouter nests the
+// upstream's body as a JSON string at error.metadata.raw; its inner
+// error.message beats the generic outer "Provider returned error".
+function providerErrorDetail(data) {
+  const err = data && typeof data === "object" ? data.error : null;
+  if (!err || typeof err !== "object") return null;
+  let msg = typeof err.message === "string" && err.message ? err.message : null;
+  const raw = err.metadata?.raw;
+  if (typeof raw === "string" && raw.trim()) {
+    let inner;
+    try { inner = JSON.parse(raw); } catch { /* raw is not JSON — use verbatim */ }
+    const innerMsg = inner?.error?.message;
+    msg = typeof innerMsg === "string" && innerMsg ? innerMsg : raw;
+  }
+  if (!msg) return null;
+  const flat = msg.replace(/\s+/g, " ").trim();
+  return flat.length > 200 ? `${flat.slice(0, 199)}…` : flat;
 }
 
 // Shared fetch wrapper. Non-2xx → ConcordError("PROVIDER_HTTP") carrying
@@ -77,7 +101,8 @@ export async function httpJSON(method, url, { headers = {}, body, timeoutMs = 12
     let data;
     try { data = text ? JSON.parse(text) : null; } catch { data = text; }
     if (!res.ok) {
-      throw new ConcordError("PROVIDER_HTTP", `${method} ${url} → HTTP ${res.status}`, {
+      const detail = providerErrorDetail(data);
+      throw new ConcordError("PROVIDER_HTTP", `${method} ${url} → HTTP ${res.status}${detail ? ` — ${detail}` : ""}`, {
         status: res.status,
         body: data,
         retryAfterMs: parseRetryAfter(res.headers.get("retry-after")),

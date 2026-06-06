@@ -1,23 +1,23 @@
 {
   "providers": {
     "anthropic": [
-      { "id": "claude-sonnet-4-5", "name": "Claude Sonnet 4.5", "family": "claude", "ctx": 200000, "pricing": { "inUSDper1M": 3.0, "outUSDper1M": 15.0 }, "snapshot": "claude-sonnet-4-5-20250929", "class": "frontier" },
-      { "id": "claude-haiku-4-5", "name": "Claude Haiku 4.5", "family": "claude", "ctx": 200000, "pricing": { "inUSDper1M": 0.8, "outUSDper1M": 4.0 }, "snapshot": "claude-haiku-4-5-20251001", "class": "small" }
+      { "id": "claude-sonnet-4-5", "name": "Claude Sonnet 4.5", "family": "claude", "ctx": 200000, "pricing": { "inUSDper1M": 3.0, "outUSDper1M": 15.0 }, "snapshot": "claude-sonnet-4-5-20250929", "class": "frontier", "structuredOutput": true, "noTemperature": false },
+      { "id": "claude-haiku-4-5", "name": "Claude Haiku 4.5", "family": "claude", "ctx": 200000, "pricing": { "inUSDper1M": 0.8, "outUSDper1M": 4.0 }, "snapshot": "claude-haiku-4-5-20251001", "class": "small", "structuredOutput": true, "noTemperature": false }
     ],
     "openai": [
-      { "id": "gpt-5", "name": "GPT-5", "family": "gpt", "ctx": 272000, "pricing": { "inUSDper1M": 2.5, "outUSDper1M": 10.0 }, "snapshot": "gpt-5-2025-08-07", "class": "frontier" },
-      { "id": "gpt-5-mini", "name": "GPT-5 mini", "family": "gpt", "ctx": 272000, "pricing": { "inUSDper1M": 0.25, "outUSDper1M": 2.0 }, "snapshot": "gpt-5-mini-2025-08-07", "class": "small" }
+      { "id": "gpt-5", "name": "GPT-5", "family": "gpt", "ctx": 272000, "pricing": { "inUSDper1M": 2.5, "outUSDper1M": 10.0 }, "snapshot": "gpt-5-2025-08-07", "class": "frontier", "structuredOutput": true, "noTemperature": true },
+      { "id": "gpt-5-mini", "name": "GPT-5 mini", "family": "gpt", "ctx": 272000, "pricing": { "inUSDper1M": 0.25, "outUSDper1M": 2.0 }, "snapshot": "gpt-5-mini-2025-08-07", "class": "small", "structuredOutput": true, "noTemperature": false }
     ],
     "openrouter": [
-      { "id": "meta-llama/llama-3.3-70b-instruct", "name": "Llama 3.3 70B", "family": "llama", "ctx": 131072, "pricing": { "inUSDper1M": 0.5, "outUSDper1M": 0.7 }, "snapshot": "unpinned — serving provider recorded per call", "class": "mid" },
-      { "id": "mistralai/mistral-small-3.1", "name": "Mistral Small 3.1", "family": "mistral", "ctx": 128000, "pricing": { "inUSDper1M": 0.1, "outUSDper1M": 0.3 }, "snapshot": "unpinned — serving provider recorded per call", "class": "small" }
+      { "id": "meta-llama/llama-3.3-70b-instruct", "name": "Llama 3.3 70B", "family": "llama", "ctx": 131072, "pricing": { "inUSDper1M": 0.5, "outUSDper1M": 0.7 }, "snapshot": "unpinned — serving provider recorded per call", "class": "mid", "structuredOutput": true, "noTemperature": false, "params": ["temperature", "top_p", "top_k", "max_tokens", "stop", "frequency_penalty", "presence_penalty", "seed", "response_format", "structured_outputs"] },
+      { "id": "mistralai/mistral-small-3.1", "name": "Mistral Small 3.1", "family": "mistral", "ctx": 128000, "pricing": { "inUSDper1M": 0.1, "outUSDper1M": 0.3 }, "snapshot": "unpinned — serving provider recorded per call", "class": "small", "structuredOutput": false, "noTemperature": false, "params": ["temperature", "top_p", "max_tokens", "stop", "seed"] }
     ],
     "ollama": [
-      { "id": "qwen2.5:7b-instruct", "name": "Qwen 2.5 7B (local)", "family": "qwen", "ctx": 32768, "pricing": { "inUSDper1M": 0, "outUSDper1M": 0 }, "snapshot": "qwen2.5:7b-instruct-q4_K_M", "class": "small", "local": true },
-      { "id": "llama3.1:8b", "name": "Llama 3.1 8B (local)", "family": "llama", "ctx": 131072, "pricing": { "inUSDper1M": 0, "outUSDper1M": 0 }, "snapshot": "llama3.1:8b-instruct-q4_K_M", "class": "small", "local": true }
+      { "id": "qwen2.5:7b-instruct", "name": "Qwen 2.5 7B (local)", "family": "qwen", "ctx": 32768, "pricing": { "inUSDper1M": 0, "outUSDper1M": 0 }, "snapshot": "qwen2.5:7b-instruct-q4_K_M", "class": "small", "local": true, "structuredOutput": false, "noTemperature": false },
+      { "id": "llama3.1:8b", "name": "Llama 3.1 8B (local)", "family": "llama", "ctx": 131072, "pricing": { "inUSDper1M": 0, "outUSDper1M": 0 }, "snapshot": "llama3.1:8b-instruct-q4_K_M", "class": "small", "local": true, "structuredOutput": false, "noTemperature": false }
     ],
     "mock": [
-      { "id": "mock-1", "name": "Mock Model (deterministic)", "family": "mock", "ctx": 128000, "pricing": { "inUSDper1M": 0, "outUSDper1M": 0 }, "snapshot": "mock-1" }
+      { "id": "mock-1", "name": "Mock Model (deterministic)", "family": "mock", "ctx": 128000, "pricing": { "inUSDper1M": 0, "outUSDper1M": 0 }, "snapshot": "mock-1", "structuredOutput": true, "noTemperature": false }
     ]
   },
   "cachedAt": "2026-06-05T08:00:00Z"

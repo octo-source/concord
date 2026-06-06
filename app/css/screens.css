@@ -304,6 +304,13 @@
 .controlrow__item--grow { flex: 1 1 14rem; flex-direction: column; align-items: stretch; }
 .controlrow__item--grow > .overline { align-self: flex-start; }
 
+/* a parameter control the selected model ignores: grayed, never hidden —
+   the value still saves; the provider strips it (instruments judge editor) */
+.paramctl { display: flex; flex-direction: column; gap: var(--s1); }
+.paramctl--ignored .input,
+.paramctl--ignored .overline { opacity: 0.55; }
+.paramctl__note { margin: 0; font-size: var(--fs-micro); color: var(--ink-faint); }
+
 .switch { display: inline-flex; align-items: baseline; gap: var(--s2); font-size: var(--fs-caption); cursor: pointer; }
 .switch input { accent-color: var(--accent); }
 
@@ -796,7 +803,7 @@
   flex-direction: column;
   gap: var(--s1);
 }
-.juror--add { border-left: var(--rule); border-style: dashed; justify-content: center; }
+.juror--add { border-left: var(--rule); border-style: dashed; justify-content: center; grid-column: 1 / -1; }
 .juror__head { display: flex; flex-wrap: wrap; gap: var(--s1); align-items: baseline; }
 .juror__name { font-weight: 500; }
 .juror__meta { margin: 0; font-size: var(--fs-micro); overflow-wrap: anywhere; }

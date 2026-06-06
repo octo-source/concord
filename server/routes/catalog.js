@@ -28,7 +28,18 @@ async function buildCatalog() {
   for (const name of PROVIDERS) {
     try {
       const { adapter } = getAdapter({ privacyMode: "open" }, name);
-      providers[name] = await withTimeout(adapter.catalog(), CATALOG_TIMEOUT_MS);
+      const caps = adapter.capabilities();
+      const models = await withTimeout(adapter.catalog(), CATALOG_TIMEOUT_MS);
+      // Capability fields for the UI (warn + default-filter, never hard-block):
+      // adapters that compute their own per-model flags (openrouter, from
+      // supported_parameters) pass through untouched; static catalogs are
+      // decorated from capabilities(). params null = no per-model list exists.
+      providers[name] = models.map((m) => ({
+        structuredOutput: caps.structuredOutput ?? false,
+        noTemperature: false,
+        params: null,
+        ...m,
+      }));
     } catch {
       providers[name] = []; // unreachable/keyless catalog → empty, never an error
     }

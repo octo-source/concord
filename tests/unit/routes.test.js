@@ -1676,6 +1676,33 @@ test("catalog: aggregated model catalogs with a 1h cache", async () => {
   assert.equal(again.cachedAt, r.cachedAt, "second call serves the cache");
 });
 
+test("catalog: capability fields — static catalogs decorated from capabilities(), adapter-computed fields pass through", async () => {
+  const or = getAdapter({ privacyMode: "open" }, "openrouter").adapter;
+  // what the real openrouter catalog() emits post-mapping (supported_parameters → flags)
+  or.catalog = async () => [{
+    id: "acme/no-frills-1", name: "No Frills", family: "acme", ctx: 8192,
+    pricing: { inUSDper1M: 0.1, outUSDper1M: 0.2 }, snapshot: "acme/no-frills-1",
+    structuredOutput: false, noTemperature: true, params: ["max_tokens"],
+  }];
+  try {
+    const r = await ok("GET", "/api/catalog/models?refresh=1");
+    for (const name of ["anthropic", "openai", "mock"]) {
+      for (const m of r.providers[name]) {
+        assert.equal(m.structuredOutput, true, `${name}/${m.id} structuredOutput`);
+        assert.equal(m.noTemperature, false, `${name}/${m.id} noTemperature`);
+        assert.equal(m.params, null, `${name}/${m.id} params unknown → null`);
+      }
+    }
+    const o = r.providers.openrouter[0];
+    assert.equal(o.structuredOutput, false, "adapter-computed flag must pass through, not be overwritten");
+    assert.equal(o.noTemperature, true);
+    assert.deepEqual(o.params, ["max_tokens"]);
+  } finally {
+    or.catalog = async () => [];
+    await ok("GET", "/api/catalog/models?refresh=1"); // restore a hermetic cache for later tests
+  }
+});
+
 test("settings: keys are masked on GET (sk-…last4) and never echoed in full", async () => {
   const secret = "sk-ant-api-key-1234abcd";
   await ok("PUT", "/api/settings", { keys: { anthropic: secret } });

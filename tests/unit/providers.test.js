@@ -12,7 +12,7 @@ import {
   Adapter, Pool, completeWithRepair, parseRetryAfter, validateSchema, httpJSON,
 } from "../../server/providers/base.js";
 import { AnthropicAdapter } from "../../server/providers/anthropic.js";
-import { OpenAIAdapter } from "../../server/providers/openai.js";
+import { OpenAIAdapter, toOpenAIStrict } from "../../server/providers/openai.js";
 import { OpenRouterAdapter } from "../../server/providers/openrouter.js";
 import { OllamaAdapter } from "../../server/providers/ollama.js";
 import { MockAdapter } from "../../server/providers/mock.js";
@@ -79,6 +79,20 @@ const judgeSchema = {
   properties: {
     rationale: { type: "string" },
     label: { type: "string", enum: ["pay", "management", "workload"] },
+    confidence: { type: "number", minimum: 0, maximum: 1 },
+  },
+};
+
+// The field-confirmed failing case: extraction-construct judge schema —
+// rationale+spans required, confidence OPTIONAL with bounds (judge.js
+// jsonSchemaFor). OpenAI-strict rejects it unless the adapter transforms it.
+const extractionJudgeSchema = {
+  type: "object",
+  additionalProperties: false,
+  required: ["rationale", "spans"],
+  properties: {
+    rationale: { type: "string" },
+    spans: { type: "array", items: { type: "string" } },
     confidence: { type: "number", minimum: 0, maximum: 1 },
   },
 };
@@ -515,6 +529,254 @@ describe("OpenAIAdapter", () => {
   });
 });
 
+// ------------------------------------------------- OpenAI strict dialect
+// Dialect facts live-verified against openai/gpt-4o-mini via OpenRouter
+// (2026-06): strict requires `required` to list EVERY property key at every
+// object level (400 otherwise); `type: [t, "null"]` is the optional marker;
+// minimum/maximum are ACCEPTED; an enum stays valid when its type is unioned
+// with "null"; enum-only properties (no type) are accepted as-is.
+
+describe("toOpenAIStrict", () => {
+  it("requires every property and turns optionals nullable (the exact field-failing case)", () => {
+    assert.deepEqual(toOpenAIStrict(extractionJudgeSchema), {
+      type: "object",
+      additionalProperties: false,
+      required: ["rationale", "spans", "confidence"],
+      properties: {
+        rationale: { type: "string" },
+        spans: { type: "array", items: { type: "string" } },
+        confidence: { type: ["number", "null"], minimum: 0, maximum: 1 }, // bounds kept: live-accepted
+      },
+    });
+  });
+
+  it("does not mutate the input schema", () => {
+    const orig = structuredClone(extractionJudgeSchema);
+    toOpenAIStrict(extractionJudgeSchema);
+    assert.deepEqual(extractionJudgeSchema, orig);
+  });
+
+  it("recurses into nested objects and array items", () => {
+    const out = toOpenAIStrict({
+      type: "object",
+      required: ["rows"],
+      properties: {
+        rows: {
+          type: "array",
+          items: {
+            type: "object",
+            required: ["id"],
+            properties: { id: { type: "string" }, note: { type: "string" } },
+          },
+        },
+        meta: { type: "object", properties: { source: { type: "string" } } },
+      },
+    });
+    assert.deepEqual(out.required, ["rows", "meta"]);
+    assert.equal(out.additionalProperties, false);
+    const item = out.properties.rows.items;
+    assert.deepEqual(item.required, ["id", "note"]);
+    assert.equal(item.additionalProperties, false);
+    assert.equal(item.properties.id.type, "string");
+    assert.deepEqual(item.properties.note.type, ["string", "null"]);
+    // an optional nested object becomes nullable itself; its members transform too
+    assert.deepEqual(out.properties.meta.type, ["object", "null"]);
+    assert.equal(out.properties.meta.additionalProperties, false);
+    assert.deepEqual(out.properties.meta.required, ["source"]);
+    assert.deepEqual(out.properties.meta.properties.source.type, ["string", "null"]);
+  });
+
+  it("handles type arrays without double-null", () => {
+    const out = toOpenAIStrict({
+      type: "object",
+      required: [],
+      properties: {
+        a: { type: ["string", "null"] },
+        b: { type: ["integer"] },
+      },
+    });
+    assert.deepEqual(out.properties.a.type, ["string", "null"]);
+    assert.deepEqual(out.properties.b.type, ["integer", "null"]);
+    assert.deepEqual(out.required, ["a", "b"]);
+  });
+
+  it("enums: required enum-only stays untouched; optional enums keep the enum and union type with null", () => {
+    const out = toOpenAIStrict({
+      type: "object",
+      required: ["label"],
+      properties: {
+        label: { enum: ["pay", "management"] }, // judge label shape — live-accepted as-is
+        mood: { type: "string", enum: ["happy", "sad"] },
+        rank: { enum: [1, 2, 3] }, // enum-only optional: type derived from values, then null
+      },
+    });
+    assert.deepEqual(out.properties.label, { enum: ["pay", "management"] });
+    assert.deepEqual(out.properties.mood, { type: ["string", "null"], enum: ["happy", "sad"] });
+    assert.deepEqual(out.properties.rank, { type: ["number", "null"], enum: [1, 2, 3] });
+    assert.deepEqual(out.required, ["label", "mood", "rank"]);
+  });
+
+  it("keeps minimum/maximum on required numerics (live probe: strict accepts bounds)", () => {
+    const out = toOpenAIStrict({
+      type: "object",
+      required: ["score"],
+      properties: { score: { type: "number", minimum: 0, maximum: 100 } },
+    });
+    assert.deepEqual(out.properties.score, { type: "number", minimum: 0, maximum: 100 });
+  });
+
+  it("adds type:'object' to type-omitted property bags (Director-generated) and forces additionalProperties:false", () => {
+    const out = toOpenAIStrict({
+      properties: { label: { type: "string" } },
+      required: ["label"],
+      additionalProperties: true,
+    });
+    assert.equal(out.type, "object");
+    assert.equal(out.additionalProperties, false);
+    assert.deepEqual(out.required, ["label"]);
+  });
+
+  it("recurses into anyOf members; an optional anyOf gains a null member", () => {
+    const out = toOpenAIStrict({
+      type: "object",
+      required: ["v"],
+      properties: {
+        v: {
+          anyOf: [
+            { type: "object", required: ["a"], properties: { a: { type: "string" }, b: { type: "string" } } },
+            { type: "string" },
+          ],
+        },
+        w: { anyOf: [{ type: "string" }, { type: "number" }] },
+      },
+    });
+    const [obj] = out.properties.v.anyOf;
+    assert.deepEqual(obj.required, ["a", "b"]);
+    assert.deepEqual(obj.properties.b.type, ["string", "null"]);
+    assert.equal(obj.additionalProperties, false);
+    assert.equal(out.properties.v.anyOf.length, 2, "required anyOf must not gain a null member");
+    assert.deepEqual(out.properties.w.anyOf.at(-1), { type: "null" }, "optional anyOf gains a null member");
+  });
+});
+
+describe("OpenAI strict dialect on the wire", () => {
+  it("buildBody sends the TRANSFORMED schema; req.schema stays the original", async () => {
+    await withServer(
+      () => openaiResponse('{"rationale":"r","spans":["The pay is awful"],"confidence":0.8}'),
+      async (srv) => {
+        const adapter = new OpenAIAdapter({ apiKey: "k", baseUrl: srv.url });
+        const req = {
+          model: "gpt-5.2", messages: [{ role: "user", content: "<unit>The pay is awful.</unit>" }],
+          schema: extractionJudgeSchema, temperature: 0, maxTokens: 128,
+        };
+        await adapter.complete(req);
+        const sent = srv.calls[0].body.response_format;
+        assert.equal(sent.type, "json_schema");
+        assert.equal(sent.json_schema.name, "emit");
+        assert.equal(sent.json_schema.strict, true);
+        assert.deepEqual(sent.json_schema.schema, toOpenAIStrict(extractionJudgeSchema));
+        assert.deepEqual(sent.json_schema.schema.required, ["rationale", "spans", "confidence"]);
+        assert.deepEqual(req.schema, extractionJudgeSchema, "request schema must stay untransformed");
+      },
+    );
+  });
+
+  it("explicit null for a transform-nullable field is DELETED from json (downstream sees absent)", async () => {
+    await withServer(
+      () => openaiResponse('{"rationale":"r","spans":["x"],"confidence":null}'),
+      async (srv) => {
+        const adapter = new OpenAIAdapter({ apiKey: "k", baseUrl: srv.url });
+        const res = await adapter.complete({
+          model: "m", messages: [{ role: "user", content: "x" }],
+          schema: extractionJudgeSchema, temperature: 0, maxTokens: 64,
+        });
+        assert.deepEqual(res.json, { rationale: "r", spans: ["x"] });
+        assert.equal("confidence" in res.json, false);
+        assert.deepEqual(validateSchema(res.json, extractionJudgeSchema), [],
+          "null-normalized response must pass the ORIGINAL schema");
+      },
+    );
+  });
+
+  it("null-strip recurses into nested objects and array items", async () => {
+    const schema = {
+      type: "object",
+      required: ["rows"],
+      properties: {
+        rows: {
+          type: "array",
+          items: { type: "object", required: ["id"], properties: { id: { type: "string" }, note: { type: "string" } } },
+        },
+        meta: { type: "object", properties: { source: { type: "string" } } },
+      },
+    };
+    await withServer(
+      () => openaiResponse('{"rows":[{"id":"1","note":null}],"meta":null}'),
+      async (srv) => {
+        const adapter = new OpenAIAdapter({ apiKey: "k", baseUrl: srv.url });
+        const res = await adapter.complete({
+          model: "m", messages: [{ role: "user", content: "x" }], schema, temperature: 0, maxTokens: 64,
+        });
+        assert.deepEqual(res.json, { rows: [{ id: "1" }] });
+        assert.deepEqual(validateSchema(res.json, schema), []);
+      },
+    );
+  });
+
+  it("an ORIGINALLY-nullable field keeps its explicit null", async () => {
+    const schema = {
+      type: "object",
+      required: ["a", "b"],
+      properties: { a: { type: ["string", "null"] }, b: { type: "string" } },
+    };
+    await withServer(
+      () => openaiResponse('{"a":null,"b":"x"}'),
+      async (srv) => {
+        const adapter = new OpenAIAdapter({ apiKey: "k", baseUrl: srv.url });
+        const res = await adapter.complete({
+          model: "m", messages: [{ role: "user", content: "x" }], schema, temperature: 0, maxTokens: 64,
+        });
+        assert.deepEqual(res.json, { a: null, b: "x" });
+        assert.deepEqual(validateSchema(res.json, schema), []);
+      },
+    );
+  });
+
+  it("openrouter inherits the transform and the null-strip from openai", async () => {
+    await withServer(
+      () => openaiResponse('{"rationale":"r","spans":["x"],"confidence":null}', { provider: "Azure" }),
+      async (srv) => {
+        const adapter = new OpenRouterAdapter({ apiKey: "k", baseUrl: srv.url });
+        const res = await adapter.complete({
+          model: "openai/gpt-4o-mini", messages: [{ role: "user", content: "x" }],
+          schema: extractionJudgeSchema, temperature: 0, maxTokens: 64,
+        });
+        assert.deepEqual(
+          srv.calls[0].body.response_format.json_schema.schema,
+          toOpenAIStrict(extractionJudgeSchema),
+          "openrouter must send the same transformed schema as openai",
+        );
+        assert.deepEqual(res.json, { rationale: "r", spans: ["x"] });
+        assert.equal(res.servedBy, "Azure");
+      },
+    );
+  });
+
+  it("the anthropic adapter sends the ORIGINAL schema untransformed (tool-use accepts optionals)", async () => {
+    await withServer(
+      () => anthropicToolResponse({ rationale: "r", spans: ["x"] }),
+      async (srv) => {
+        const adapter = new AnthropicAdapter({ apiKey: "k", baseUrl: srv.url });
+        await adapter.complete({
+          model: "claude-sonnet-4-6", messages: [{ role: "user", content: "x" }],
+          schema: extractionJudgeSchema, temperature: 0, maxTokens: 64,
+        });
+        assert.deepEqual(srv.calls[0].body.tools[0].input_schema, extractionJudgeSchema);
+      },
+    );
+  });
+});
+
 // ---------------------------------------------------------------- OpenRouter
 
 describe("OpenRouterAdapter", () => {
@@ -540,15 +802,17 @@ describe("OpenRouterAdapter", () => {
     );
   });
 
-  it("maps the live model catalog, deriving family from the model prefix", async () => {
+  it("maps the live model catalog, deriving family and capability flags from supported_parameters", async () => {
     await withServer(
       (call) => {
         assert.equal(call.url, "/v1/models");
         return {
           body: {
             data: [
-              { id: "meta-llama/llama-3.3-70b-instruct", name: "Llama 3.3 70B", context_length: 131072, pricing: { prompt: "0.00000012", completion: "0.0000003" } },
-              { id: "openai/gpt-5.2", name: "GPT-5.2", context_length: 400000, pricing: { prompt: "0.00000125", completion: "0.00001" } },
+              { id: "meta-llama/llama-3.3-70b-instruct", name: "Llama 3.3 70B", context_length: 131072, pricing: { prompt: "0.00000012", completion: "0.0000003" }, supported_parameters: ["temperature", "top_p", "structured_outputs", "response_format"] },
+              { id: "openai/gpt-5.2", name: "GPT-5.2", context_length: 400000, pricing: { prompt: "0.00000125", completion: "0.00001" }, supported_parameters: ["response_format", "temperature", "seed"] },
+              { id: "acme/no-frills-1", name: "No Frills", context_length: 8192, pricing: { prompt: "0.0000001", completion: "0.0000002" }, supported_parameters: ["max_tokens"] },
+              { id: "acme/legacy-0", name: "Legacy", context_length: 4096, pricing: { prompt: "0", completion: "0" } },
             ],
           },
         };
@@ -560,9 +824,141 @@ describe("OpenRouterAdapter", () => {
           id: "meta-llama/llama-3.3-70b-instruct", name: "Llama 3.3 70B", family: "meta",
           ctx: 131072, pricing: { inUSDper1M: 0.12, outUSDper1M: 0.3 },
           snapshot: "meta-llama/llama-3.3-70b-instruct",
+          structuredOutput: true, noTemperature: false,
+          params: ["temperature", "top_p", "structured_outputs", "response_format"],
         });
         assert.equal(cat[1].family, "openai");
         assert.equal(cat[1].pricing.inUSDper1M, 1.25);
+        assert.equal(cat[1].structuredOutput, true, "response_format alone counts as structured output");
+        assert.equal(cat[1].noTemperature, false);
+        // no structured_outputs/response_format and no temperature
+        assert.equal(cat[2].structuredOutput, false);
+        assert.equal(cat[2].noTemperature, true);
+        assert.deepEqual(cat[2].params, ["max_tokens"]);
+        // supported_parameters absent → conservative flags, empty params
+        assert.equal(cat[3].structuredOutput, false);
+        assert.equal(cat[3].noTemperature, true);
+        assert.deepEqual(cat[3].params, []);
+      },
+    );
+  });
+});
+
+// ------------------------------------------------- PROVIDER_HTTP error detail
+
+describe("PROVIDER_HTTP error detail reaches the message", () => {
+  // Exact OpenRouter shape captured live (2026-06): outer error.message is a
+  // generic "Provider returned error"; the upstream's real message hides
+  // inside error.metadata.raw as a JSON STRING.
+  const openrouterNested = {
+    error: {
+      message: "Provider returned error",
+      code: 400,
+      metadata: {
+        raw: JSON.stringify({
+          error: {
+            message: "Invalid schema for response_format 'emit': In context=(), 'required' is required to be supplied and to be an array including every key in properties. Missing 'confidence'.",
+            type: "invalid_request_error",
+            param: "response_format",
+            code: null,
+          },
+        }),
+        provider_name: "Azure",
+      },
+    },
+  };
+
+  it("surfaces OpenRouter's nested error.metadata.raw inner message; full body stays in details", async () => {
+    await withServer(
+      () => ({ status: 400, body: openrouterNested }),
+      async (srv) => {
+        await assert.rejects(
+          httpJSON("POST", `${srv.url}/v1/chat/completions`, { body: {} }),
+          (err) => {
+            assert.equal(err.code, "PROVIDER_HTTP");
+            assert.match(err.message, /→ HTTP 400 — Invalid schema for response_format 'emit'/);
+            assert.match(err.message, /Missing 'confidence'/);
+            assert.equal(err.details.status, 400);
+            assert.deepEqual(err.details.body, openrouterNested, "full body must remain in details");
+            return true;
+          },
+        );
+      },
+    );
+  });
+
+  it("plain error.message bodies (OpenAI/Anthropic shape) are appended", async () => {
+    await withServer(
+      () => ({ status: 400, body: { error: { message: "Unsupported parameter: max_completion_tokens", type: "invalid_request_error" } } }),
+      async (srv) => {
+        await assert.rejects(
+          httpJSON("POST", `${srv.url}/v1/x`, { body: {} }),
+          (err) => {
+            assert.match(err.message, /→ HTTP 400 — Unsupported parameter: max_completion_tokens$/);
+            return true;
+          },
+        );
+      },
+    );
+  });
+
+  it("a non-JSON metadata.raw string is used verbatim", async () => {
+    await withServer(
+      () => ({ status: 502, body: { error: { message: "Provider returned error", metadata: { raw: "upstream timed out after 90s" } } } }),
+      async (srv) => {
+        await assert.rejects(
+          httpJSON("POST", `${srv.url}/v1/x`, { body: {} }),
+          (err) => {
+            assert.match(err.message, /→ HTTP 502 — upstream timed out after 90s$/);
+            return true;
+          },
+        );
+      },
+    );
+  });
+
+  it("the extract is whitespace-collapsed and trimmed to ≤200 chars", async () => {
+    const long = `line one\n\n  line two ${"x".repeat(300)}`;
+    await withServer(
+      () => ({ status: 400, body: { error: { message: long } } }),
+      async (srv) => {
+        await assert.rejects(
+          httpJSON("POST", `${srv.url}/v1/x`, { body: {} }),
+          (err) => {
+            const extract = err.message.split(" — ")[1];
+            assert.ok(extract.length <= 200, `extract is ${extract.length} chars`);
+            assert.ok(extract.startsWith("line one line two"), "newlines collapsed to spaces");
+            assert.deepEqual(err.details.body.error.message, long, "details keep the untrimmed body");
+            return true;
+          },
+        );
+      },
+    );
+  });
+
+  it("bodies without an extractable message keep the bare HTTP message", async () => {
+    await withServer(
+      () => ({ status: 503, body: "<html>gateway</html>" }),
+      async (srv) => {
+        await assert.rejects(
+          httpJSON("GET", `${srv.url}/v1/x`, {}),
+          (err) => {
+            assert.ok(err.message.endsWith("→ HTTP 503"), err.message);
+            return true;
+          },
+        );
+      },
+    );
+    await withServer(
+      () => ({ status: 400, body: { error: { type: "invalid_request_error" } } }),
+      async (srv) => {
+        await assert.rejects(
+          httpJSON("GET", `${srv.url}/v1/x`, {}),
+          (err) => {
+            assert.ok(err.message.endsWith("→ HTTP 400"), err.message);
+            return true;
+          },
+        );
       },
     );
   });
