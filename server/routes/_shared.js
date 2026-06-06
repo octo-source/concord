@@ -13,7 +13,7 @@
 import path from "node:path";
 import { mkdir, open, rename, rm, readFile } from "node:fs/promises";
 import { ConcordError } from "../core/errors.js";
-import { loadProject, updateProject, readNdjson, projectDir, projectsDir } from "../core/store.js";
+import { renameWithRetry, loadProject, updateProject, readNdjson, projectDir, projectsDir } from "../core/store.js";
 import { directorCosts } from "../director/director.js";
 import {
   percentAgreement, cohenKappa, krippendorffAlpha, gwetAC1, perClass, confusion,
@@ -129,7 +129,7 @@ export async function writeJsonAtomic(file, obj) {
     await fh.close();
   }
   try {
-    await rename(tmp, file);
+    await renameWithRetry(tmp, file);
   } catch (err) {
     await rm(tmp, { force: true }).catch(() => {});
     throw err;
@@ -149,7 +149,7 @@ export async function writeTextAtomic(file, text) {
     await fh.close();
   }
   try {
-    await rename(tmp, file);
+    await renameWithRetry(tmp, file);
   } catch (err) {
     await rm(tmp, { force: true }).catch(() => {});
     throw err;

@@ -4,6 +4,7 @@
 //   (vault JSON written to vaultPath — caller keeps it OUTSIDE project bundles)
 // reidentify(units, vaultPath) -> restored units.
 import { readFile, writeFile, mkdir, rename } from "node:fs/promises";
+import { renameWithRetry } from "../core/store.js";
 import { dirname } from "node:path";
 import { ConcordError } from "../core/errors.js";
 
@@ -144,7 +145,7 @@ async function writeJsonAtomic(path, obj) {
   await mkdir(dirname(path), { recursive: true });
   const tmp = path + ".tmp";
   await writeFile(tmp, JSON.stringify(obj, null, 2), "utf8");
-  await rename(tmp, path);
+  await renameWithRetry(tmp, path);
 }
 
 const TOKEN_RE = /\[(EMAIL|PHONE|SSN|URL|NAME)_\d+\]/g;

@@ -3,6 +3,7 @@
 // resumed runs hit the cache instead of the provider. Stored as JSON files
 // under <projectDir>/cache/<first2>/<rest> (git-style fan-out).
 import { mkdir, readFile, writeFile, rename, rm } from "node:fs/promises";
+import { renameWithRetry } from "./store.js";
 import path from "node:path";
 import { sha256 } from "./ids.js";
 
@@ -34,7 +35,7 @@ export async function put(projectDir, k, value) {
   const tmp = `${file}.${process.pid}.${tmpSeq++}.tmp`;
   await writeFile(tmp, JSON.stringify(value), "utf8");
   try {
-    await rename(tmp, file);
+    await renameWithRetry(tmp, file);
   } catch (err) {
     // either we lost a same-key race (identical content already landed) or
     // the rename genuinely failed — in both cases the tmp must not linger

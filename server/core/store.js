@@ -36,6 +36,27 @@ function withProjectLock(key, fn) {
 
 let tmpSeq = 0;
 
+// Windows rename fails EPERM/EBUSY/EACCES when ANOTHER program briefly holds
+// the file — Dropbox sync does exactly this to bundles living in a synced
+// folder (field report: a goldset save EPERM'd mid-coding). The lock is
+// transient; retry with backoff before giving up.
+export async function renameWithRetry(from, to, { attempts = 6, baseMs = 40 } = {}) {
+  for (let i = 0; ; i++) {
+    try {
+      return await rename(from, to);
+    } catch (err) {
+      const transient = err?.code === "EPERM" || err?.code === "EBUSY" || err?.code === "EACCES";
+      if (!transient || i >= attempts - 1) {
+        if (transient) {
+          err.message += " — another program (often Dropbox sync) held the file; the action is safe to retry";
+        }
+        throw err;
+      }
+      await new Promise((r) => setTimeout(r, baseMs * 2 ** i));
+    }
+  }
+}
+
 // write tmp (unique name: concurrent writers must never share one), fsync,
 // rename — the §4 atomic-write recipe. tmp is removed if the rename fails.
 async function writeAtomic(file, data) {
@@ -48,7 +69,7 @@ async function writeAtomic(file, data) {
     await fh.close();
   }
   try {
-    await rename(tmp, file);
+    await renameWithRetry(tmp, file);
   } catch (err) {
     await rm(tmp, { force: true }).catch(() => {});
     throw err;
