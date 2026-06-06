@@ -85,7 +85,10 @@
             "u_e73a1d49c8b5f026": "growth",
             "u_92c8b4f6a1e7d503": "pay"
           },
-          "memos": {},
+          "uncodable": ["u_a8f04c6e3b92d715", "u_47a3e9c5d2f1b860"],
+          "memos": {
+            "u_a8f04c6e3b92d715": "Two themes stated with equal weight and no decisive clause — can't pick one."
+          },
           "flagged": []
         }
       ],
@@ -103,10 +106,15 @@
           [0, 0, 0, 1, 0],
           [0, 0, 0, 5, 0],
           [0, 1, 0, 0, 2]
-        ]
+        ],
+        "uncodableUnits": 2,
+        "excludedFromAgreement": 2
       },
       "adjudicated": {
         "u_2847f1a09c3d55b2": "management"
+      },
+      "excluded": {
+        "u_47a3e9c5d2f1b860": true
       }
     }
   ],
@@ -126,7 +134,9 @@
           [0, 0, 0, 1, 0],
           [0, 0, 0, 5, 0],
           [0, 1, 0, 0, 2]
-        ]
+        ],
+        "uncodableUnits": 2,
+        "excludedFromAgreement": 2
       },
       "perInstrument": [
         {

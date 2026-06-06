@@ -6,7 +6,7 @@
 // number Concord actually computed.
 import { test, after } from "node:test";
 import assert from "node:assert/strict";
-import { mkdtemp, rm, writeFile, mkdir } from "node:fs/promises";
+import { mkdtemp, rm, readFile, writeFile, mkdir } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 
@@ -1134,6 +1134,32 @@ test("report: bad layout throws VALIDATION; unknown refs throw NOT_FOUND", async
   await assert.rejects(report.render(F.project, [{ kind: "hologram" }], { projectDir: F.projectDir }), (e) => e instanceof ConcordError && e.code === "VALIDATION");
   await assert.rejects(report.render(F.project, [{ kind: "chart", ref: "an_missing" }], { projectDir: F.projectDir }), (e) => e instanceof ConcordError && e.code === "NOT_FOUND");
   await assert.rejects(report.render(F.project, [{ kind: "chart" }], { projectDir: F.projectDir }), (e) => e instanceof ConcordError && e.code === "VALIDATION");
+});
+
+test("methods: uncodable + excluded counts render one reliability sentence, only when nonzero", async () => {
+  // the untouched fixture has no uncodable marks and no exclusions → silent
+  const clean = await methods.generate(F.project, "an_dsl", { projectDir: F.projectDir });
+  assert.ok(!/uncodable/.test(clean.markdown), "no uncodable claim without uncodable marks");
+  assert.ok(!/excluded from the gold standard/.test(clean.markdown), "no exclusion claim without exclusions");
+
+  // two units carry an uncodable mark from ≥1 coder (one overlaps across
+  // coders and must not double-count); one unit was excluded from gold at
+  // adjudication. The mutation deliberately stays in place: the final
+  // reliability-downgrade test re-runs the per-sentence citation check over
+  // this prose.
+  const goldFile = path.join(F.projectDir, "gold", "gs_gold.json");
+  const gs = JSON.parse(await readFile(goldFile, "utf8"));
+  const [u0, u1, u2] = gs.sample.map((s) => s.unitId);
+  gs.coders[0].uncodable = { [u0]: true, [u1]: true };
+  gs.coders[1].uncodable = { [u0]: true };
+  gs.excluded = [u2];
+  await writeFile(goldFile, JSON.stringify(gs, null, 2), "utf8");
+
+  const { markdown } = await methods.generate(F.project, "an_dsl", { projectDir: F.projectDir });
+  const reliability = markdown.split("## 4. Human reliability")[1]?.split("\n## ")[0] ?? "";
+  assert.match(reliability,
+    /2 units were marked uncodable by at least one coder; 1 unit was excluded from the gold standard after adjudication \[ledger:[0-9a-f]{8}\]\./,
+    "the factual disclosure sentence with correct counts belongs to the reliability section");
 });
 
 // LAST because it appends a ledger event that changes what the generator may

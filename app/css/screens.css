@@ -1073,6 +1073,7 @@
   transition: opacity var(--t-med) var(--ease);
 }
 .adjrow--resolved { opacity: 0.62; }
+.adjrow--excluded .adjrow__quote { text-decoration: line-through; text-decoration-color: var(--ink-faint); }
 .adjrow__labels { display: flex; flex-wrap: wrap; align-items: center; gap: var(--s3); margin-top: var(--s3); }
 .adjpick {
   display: inline-flex;

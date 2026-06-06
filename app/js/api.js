@@ -291,10 +291,13 @@ export const goldsets = {
   sample: (p, g, { design, n, strata } = {}) => post(`${P(p)}/goldsets/${encodeURIComponent(g)}/sample`, { design, n, strata }),
   /** Next unit for a blind coder. */
   next: (p, g, coder) => get_(`${P(p)}/goldsets/${encodeURIComponent(g)}/next`, { query: { coder } }),
-  label: (p, g, { coder, unitId, label, memo, flag } = {}) =>
-    post(`${P(p)}/goldsets/${encodeURIComponent(g)}/label`, { coder, unitId, label, memo, flag }),
+  /** A blind verdict: {label} codes the unit; {uncodable: true} (no label) marks it can't-code. */
+  label: (p, g, { coder, unitId, label, memo, flag, uncodable } = {}) =>
+    post(`${P(p)}/goldsets/${encodeURIComponent(g)}/label`, { coder, unitId, label, memo, flag, uncodable }),
   agreement: (p, g) => get_(`${P(p)}/goldsets/${encodeURIComponent(g)}/agreement`),
-  adjudicate: (p, g, { unitId, label }) => post(`${P(p)}/goldsets/${encodeURIComponent(g)}/adjudicate`, { unitId, label }),
+  /** The final human word: {label} adopts a gold label; {exclude: true} drops the unit from gold permanently. */
+  adjudicate: (p, g, { unitId, label, exclude } = {}) =>
+    post(`${P(p)}/goldsets/${encodeURIComponent(g)}/adjudicate`, { unitId, label, exclude }),
   /** Route a unit to the human queue: joins the sample as {pi: null, queued: true}. Idempotent. */
   queue: (p, g, { unitId }) => post(`${P(p)}/goldsets/${encodeURIComponent(g)}/queue`, { unitId }),
   /** Start (or reuse) the same-process blind coder listener → {url, port, coderId}. */

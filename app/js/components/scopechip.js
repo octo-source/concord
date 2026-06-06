@@ -26,6 +26,15 @@ export function resolveDerived(ref, project = null) {
   return src?.sourceName ?? src?.name ?? String(ref);
 }
 
+/** One-line corpus label for pickers: `name — text: <col> · 1,234 units`. */
+export function optionLabel(corpus, project = null) {
+  if (!corpus) return "";
+  const p = fromCorpus(corpus, project);
+  const units = p.unitCount !== null && p.unitCount !== undefined
+    ? ` · ${fmtCount(p.unitCount)} units` : "";
+  return `${corpus.name ?? corpus.id} — text: ${p.textColumn ?? "not recorded"}${units}`;
+}
+
 /** Normalize a project corpus entry (new or old shape) into render() props. */
 export function fromCorpus(corpus, project = null) {
   if (!corpus) return null;

@@ -1664,6 +1664,140 @@ test("goldsets: queue routes a unit to the human queue (pi null, idempotent) —
 });
 
 // =========================================================================
+// goldsets — the uncodable disposition + adjudication exclusion
+// =========================================================================
+
+test("goldsets: uncodable — recorded outside labels, progress counts it, next skips it, agreement takes the missing-data path", async () => {
+  armMock();
+  const created = await ok("POST", `/api/projects/${S.slug}/goldsets`, {
+    constructId: S.constructId, tier: "gold", corpusId: S.corpusB,
+  });
+  S.uncodableGsId = created.id;
+  const sampled = await ok("POST", `/api/projects/${S.slug}/goldsets/${created.id}/sample`, { design: "srs", n: 4 });
+  const ids = sampled.sample.map((s) => s.unitId);
+  S.uncodableIds = ids;
+
+  // a submission is a label OR uncodable: true — never both, never neither
+  await fail("POST", `/api/projects/${S.slug}/goldsets/${created.id}/label`,
+    { coder: "uc-A", unitId: ids[0], label: "yes", uncodable: true }, 400, "VALIDATION");
+  await fail("POST", `/api/projects/${S.slug}/goldsets/${created.id}/label`,
+    { coder: "uc-A", unitId: ids[0] }, 400, "VALIDATION");
+
+  // coder A cannot code ids[0]; progress.done counts labeled + uncodable
+  const p0 = await ok("POST", `/api/projects/${S.slug}/goldsets/${created.id}/label`,
+    { coder: "uc-A", unitId: ids[0], uncodable: true });
+  assert.deepEqual([p0.done, p0.uncodable, p0.total], [1, 1, 4]);
+
+  // next skips units the coder labeled OR marked uncodable
+  const n0 = await ok("GET", `/api/projects/${S.slug}/goldsets/${created.id}/next?coder=uc-A`);
+  assert.notEqual(n0.unit?.id, ids[0], "next must skip the uncodable unit");
+  for (const id of ids.slice(1)) {
+    await ok("POST", `/api/projects/${S.slug}/goldsets/${created.id}/label`,
+      { coder: "uc-A", unitId: id, label: ORACLE(H.units.get(id).text) });
+  }
+  const fin = await ok("GET", `/api/projects/${S.slug}/goldsets/${created.id}/next?coder=uc-A`);
+  assert.equal(fin.unit, null, "labeled + uncodable exhausts the blind queue");
+  assert.deepEqual([fin.progress.done, fin.progress.uncodable, fin.progress.total], [4, 1, 4]);
+
+  // coder B first marks ids[0] uncodable, then labels it — one disposition
+  // per coder per unit, the later submission wins; ids[1] carries a planted
+  // disagreement so adjudication has something left to resolve
+  const b0 = await ok("POST", `/api/projects/${S.slug}/goldsets/${created.id}/label`,
+    { coder: "uc-B", unitId: ids[0], uncodable: true });
+  assert.deepEqual([b0.done, b0.uncodable], [1, 1]);
+  const b1 = await ok("POST", `/api/projects/${S.slug}/goldsets/${created.id}/label`,
+    { coder: "uc-B", unitId: ids[0], label: ORACLE(H.units.get(ids[0]).text) });
+  assert.deepEqual([b1.done, b1.uncodable], [1, 0], "labeling a unit clears the coder's uncodable mark");
+  for (const id of ids.slice(1)) {
+    const truth = ORACLE(H.units.get(id).text);
+    await ok("POST", `/api/projects/${S.slug}/goldsets/${created.id}/label`,
+      { coder: "uc-B", unitId: id, label: id === ids[1] ? (truth === "yes" ? "no" : "yes") : truth });
+  }
+
+  // the artifact records the disposition OUTSIDE the labels map
+  const full = await ok("GET", `/api/projects/${S.slug}/goldsets/${created.id}`);
+  const a = full.coders.find((c) => c.coderId === "uc-A");
+  assert.deepEqual(a.uncodable, { [ids[0]]: true });
+  assert.ok(!(ids[0] in a.labels), "uncodable never enters the labels map agreement consumes");
+
+  // agreement: ids[0] has NO row for coder A → the engine's missing-data
+  // path (n drops to the 3 doubly-coded units, never inflated noise), and
+  // the human report discloses the counts
+  const r = await ok("GET", `/api/projects/${S.slug}/goldsets/${created.id}/agreement`);
+  assert.equal(r.humanAgreement.n, 3, "the uncodable unit contributes no agreement row");
+  assert.ok(Math.abs(r.humanAgreement.percent - 2 / 3) < 1e-9, `1 planted disagreement in 3 pairable units (got ${r.humanAgreement.percent})`);
+  assert.equal(r.humanAgreement.uncodableUnits, 1);
+  assert.equal(r.humanAgreement.excludedFromAgreement, 1);
+
+  // the ledger records uncodable submissions as dispositions, not labels
+  const ev = await events({ type: "goldset.label", ref: created.id });
+  const unc = ev.filter((e) => e.payload.uncodable === true);
+  assert.equal(unc.length, 2, "coder A's mark + coder B's later-retracted mark");
+  assert.ok(unc.every((e) => e.payload.label === undefined));
+});
+
+test("goldsets: adjudicate exclude — the uncodable-split unit leaves gold and counts as resolved (status completes)", async () => {
+  armMock();
+  const gsId = S.uncodableGsId;
+  const ids = S.uncodableIds;
+
+  // exclude is a disposition, not a label — both together is invalid, and
+  // the unit must be in the sample
+  await fail("POST", `/api/projects/${S.slug}/goldsets/${gsId}/adjudicate`,
+    { unitId: ids[1], label: "yes", exclude: true }, 400, "VALIDATION");
+  await fail("POST", `/api/projects/${S.slug}/goldsets/${gsId}/adjudicate`,
+    { unitId: "u_not_in_sample", exclude: true }, 400, "VALIDATION");
+
+  // the one remaining disagreement (ids[1]) is resolved BY exclusion; every
+  // other unit already has consensus gold → the set auto-completes
+  const r = await ok("POST", `/api/projects/${S.slug}/goldsets/${gsId}/adjudicate`, { unitId: ids[1], exclude: true });
+  assert.equal(r.status, "complete", "an excluded unit counts as resolved");
+  assert.equal(r.excluded, 1);
+  assert.equal(r.adjudicated, 0);
+
+  const gs = await ok("GET", `/api/projects/${S.slug}/goldsets/${gsId}`);
+  assert.deepEqual(gs.excluded, [ids[1]]);
+  assert.equal(gs.status, "complete");
+  assert.equal((await events({ type: "goldset.completed", ref: gsId })).length, 1);
+  const adjEv = await events({ type: "goldset.adjudicated", ref: gsId });
+  assert.equal(adjEv.at(-1).payload.excluded, true);
+  assert.equal(adjEv.at(-1).payload.label, undefined);
+
+  // goldLabelMap: the excluded unit never reaches machine-vs-gold agreement
+  const ag = await ok("GET", `/api/projects/${S.slug}/goldsets/${gsId}/agreement`);
+  assert.equal(ag.goldLabeled, 3, "excluded units are out of the gold label map");
+});
+
+test("goldsets: excluding a designed unit drops it from the DSL gold rows (nGold 24 → 23); a later label re-admits it", async () => {
+  // exclude a π-carrying, previously-adjudicated unit from the ORIGINAL gold
+  // set — exclusion withdraws the adjudicated label rather than orphaning it
+  const victim = S.flipUnits[0];
+  const r = await ok("POST", `/api/projects/${S.slug}/goldsets/${S.goldsetId}/adjudicate`, { unitId: victim, exclude: true });
+  assert.equal(r.status, "complete", "every remaining sample unit is still resolved");
+  assert.equal(r.excluded, 1);
+  assert.equal(r.adjudicated, 2, "the excluded unit's prior adjudicated label is withdrawn");
+
+  const gs = await ok("GET", `/api/projects/${S.slug}/goldsets/${S.goldsetId}`);
+  assert.deepEqual(gs.excluded, [victim]);
+  assert.ok(!(victim in gs.adjudicated));
+  assert.equal((await events({ type: "goldset.completed", ref: S.goldsetId })).length, 1, "no duplicate completion event");
+
+  // the single π-filtered DSL assembly point (analyses goldFor) respects it
+  const a = await ok("POST", `/api/projects/${S.slug}/analyses`, {
+    kind: "model", spec: { x: ["tenure"], family: "logit", runId: S.runId },
+  });
+  assert.equal(a.level, "corrected");
+  assert.equal(a.results.nGold, 23, "the excluded unit is no longer a DSL gold row");
+
+  // adjudicating a label re-admits the unit (the exclusion is withdrawn)
+  const back = await ok("POST", `/api/projects/${S.slug}/goldsets/${S.goldsetId}/adjudicate`,
+    { unitId: victim, label: ORACLE(H.units.get(victim).text) });
+  assert.equal(back.excluded, 0);
+  assert.equal(back.adjudicated, 3);
+  assert.deepEqual((await ok("GET", `/api/projects/${S.slug}/goldsets/${S.goldsetId}`)).excluded, []);
+});
+
+// =========================================================================
 // catalog + settings + coder-listener restriction + final chain verify
 // =========================================================================
 

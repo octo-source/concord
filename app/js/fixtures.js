@@ -117,17 +117,35 @@ function projectGraph() {
   return p;
 }
 
-// live "adjudicated-or-consensus" gold map (routes/_shared.js goldLabelMap)
+// adjudicator-excluded units — permanently out of gold (array or map shape)
+function goldsetExcludes(gs, unitId) {
+  const ex = gs?.excluded;
+  if (Array.isArray(ex)) return ex.includes(unitId);
+  return Boolean(ex && typeof ex === "object" && ex[unitId]);
+}
+
+function coderUncodable(c, unitId) {
+  const u = c?.uncodable;
+  if (Array.isArray(u)) return u.includes(unitId);
+  return Boolean(u && typeof u === "object" && u[unitId]);
+}
+
+// live "adjudicated-or-consensus" gold map (routes/_shared.js goldLabelMap).
+// Excluded units never join; a unit any coder marked uncodable waits for the
+// adjudicator instead of riding the remaining labels to consensus.
 function goldLabelMap(gs) {
   const out = new Map();
-  const coders = (gs.coders ?? []).filter((c) => c.labels && Object.keys(c.labels).length > 0);
+  const coders = (gs.coders ?? []).filter((c) =>
+    (c.labels && Object.keys(c.labels).length > 0) || c.uncodable?.length || (c.uncodable && typeof c.uncodable === "object"));
   for (const s of gs.sample ?? []) {
+    if (goldsetExcludes(gs, s.unitId)) continue;
     const adj = gs.adjudicated?.[s.unitId];
     if (adj !== undefined) {
       out.set(s.unitId, adj);
       continue;
     }
-    const votes = coders.map((c) => c.labels[s.unitId]).filter((v) => v !== undefined);
+    if (coders.some((c) => coderUncodable(c, s.unitId))) continue;
+    const votes = coders.map((c) => c.labels?.[s.unitId]).filter((v) => v !== undefined);
     if (votes.length === 0) continue;
     const first = JSON.stringify(votes[0]);
     if (votes.every((v) => JSON.stringify(v) === first)) out.set(s.unitId, votes[0]);
@@ -545,7 +563,9 @@ function patch() {
       id: newId("gs"), constructId: goldset.constructId,
       tier: goldset.tier ?? "gold", design: goldset.design ?? "srs",
       sample: [], coders: [], status: "sampling",
-      corpusId: goldset.corpusId ?? P.corpora[0]?.id,
+      // most recently created corpus — same default the run preflight and
+      // instrument previews use, so gold is coded on what instruments read
+      corpusId: goldset.corpusId ?? P.corpora.at(-1)?.id,
       createdAt: new Date().toISOString(),
     };
     gsList().push(g);
@@ -577,19 +597,23 @@ function patch() {
     g.status = "coding";
     return { goldsetId: g.id, design: g.design, n: g.sample.length, sample: clone(g.sample) };
   };
-  // live coderNextView: {unit: {id, text, pos}|null, construct, progress}
+  // live coderNextView: {unit: {id, text, pos}|null, construct, progress} —
+  // `next` skips HANDLED units: labeled or marked uncodable
   apiNs.goldsets.next = async (p, id, coder) => {
     const g = gsList().find((x) => x.id === id);
     if (!g) return notFound(`gold set "${id}"`);
     const rec = (g.coders ?? []).find((c) => c.coderId === coder);
     const labeled = new Set(Object.keys(rec?.labels ?? {}));
-    const nextId = (g.sample ?? []).map((s) => s.unitId).find((uid) => !labeled.has(uid)) ?? null;
+    const uncodableCount = (g.sample ?? []).filter((s) => coderUncodable(rec, s.unitId)).length;
+    const nextId = (g.sample ?? []).map((s) => s.unitId)
+      .find((uid) => !labeled.has(uid) && !coderUncodable(rec, uid)) ?? null;
     const construct = constructList().find((c) => c.id === g.constructId) ?? null;
     const progress = {
       coderId: coder,
       done: labeled.size,
+      uncodable: uncodableCount,
       total: g.sample?.length ?? 0,
-      remaining: (g.sample?.length ?? 0) - labeled.size,
+      remaining: (g.sample?.length ?? 0) - labeled.size - uncodableCount,
       flagged: rec?.flagged?.length ?? 0,
     };
     if (!nextId) return { unit: null, construct: clone(construct), progress };
@@ -600,23 +624,34 @@ function patch() {
       progress,
     };
   };
-  // live submitCoderLabel: → progressView {coderId, done, total, remaining, flagged}
-  apiNs.goldsets.label = async (p, id, { coder, unitId, label, memo, flag } = {}) => {
+  // live submitCoderLabel: → progressView {coderId, done, uncodable, total,
+  // remaining, flagged}. {uncodable: true} (no label) marks can't-code; a
+  // later real label supersedes the mark, and vice versa.
+  apiNs.goldsets.label = async (p, id, { coder, unitId, label, memo, flag, uncodable } = {}) => {
     const g = gsList().find((x) => x.id === id);
     if (!g) return notFound(`gold set "${id}"`);
     let rec = g.coders.find((c) => c.coderId === coder);
     if (!rec) {
-      rec = { coderId: coder, blind: true, labels: {}, memos: {}, flagged: [], startedAt: new Date().toISOString(), finishedAt: null };
+      rec = { coderId: coder, blind: true, labels: {}, uncodable: [], memos: {}, flagged: [], startedAt: new Date().toISOString(), finishedAt: null };
       g.coders.push(rec);
     }
-    rec.labels[unitId] = label;
+    rec.uncodable = Array.isArray(rec.uncodable) ? rec.uncodable : [];
+    if (uncodable) {
+      delete rec.labels[unitId];
+      if (!rec.uncodable.includes(unitId)) rec.uncodable.push(unitId);
+    } else {
+      rec.labels[unitId] = label;
+      rec.uncodable = rec.uncodable.filter((u) => u !== unitId);
+    }
     if (memo) rec.memos[unitId] = memo;
     if (flag && !rec.flagged.includes(unitId)) rec.flagged.push(unitId);
-    const done = Object.keys(rec.labels).filter((u) => g.sample.some((s) => s.unitId === u)).length;
+    const inSample = (u) => g.sample.some((s) => s.unitId === u);
+    const done = Object.keys(rec.labels).filter(inSample).length;
+    const cantCode = rec.uncodable.filter(inSample).length;
     const total = g.sample.length;
-    if (done >= total) rec.finishedAt = new Date().toISOString();
+    if (done + cantCode >= total) rec.finishedAt = new Date().toISOString();
     if (g.status === "sampling") g.status = "coding";
-    return { coderId: coder, done, total, remaining: total - done, flagged: rec.flagged.length };
+    return { coderId: coder, done, uncodable: cantCode, total, remaining: total - done - cantCode, flagged: rec.flagged.length };
   };
   // live: → {humanAgreement, perInstrument, goldLabeled}
   apiNs.goldsets.agreement = async (p, id) => {
@@ -624,16 +659,28 @@ function patch() {
     const report = db.goldsets.agreement[id];
     return report ? clone(report) : notFound(`agreement for "${id}"`);
   };
-  // live: → {status, adjudicated: <count>}
-  apiNs.goldsets.adjudicate = async (p, id, { unitId, label } = {}) => {
+  // live: → {status, adjudicated: <count>, excluded: <count>} —
+  // {unitId, label} adopts gold; {unitId, exclude: true} drops the unit from
+  // gold permanently (it counts toward no agreement statistic)
+  apiNs.goldsets.adjudicate = async (p, id, { unitId, label, exclude } = {}) => {
     const g = gsList().find((x) => x.id === id);
     if (!g) return notFound(`gold set "${id}"`);
-    g.adjudicated = g.adjudicated ?? {};
-    g.adjudicated[unitId] = label;
+    if (exclude) {
+      g.excluded = (g.excluded && typeof g.excluded === "object" && !Array.isArray(g.excluded)) ? g.excluded : {};
+      g.excluded[unitId] = true;
+      if (g.adjudicated) delete g.adjudicated[unitId];
+    } else {
+      g.adjudicated = g.adjudicated ?? {};
+      g.adjudicated[unitId] = label;
+    }
     if (g.status === "coding") g.status = "adjudicating";
     const gold = goldLabelMap(g);
-    if ((g.sample ?? []).every((s) => gold.has(s.unitId))) g.status = "complete";
-    return { status: g.status, adjudicated: Object.keys(g.adjudicated).length };
+    if ((g.sample ?? []).every((s) => gold.has(s.unitId) || goldsetExcludes(g, s.unitId))) g.status = "complete";
+    return {
+      status: g.status,
+      adjudicated: Object.keys(g.adjudicated ?? {}).length,
+      excluded: Object.keys(g.excluded ?? {}).length,
+    };
   };
   // live: → {goldsetId, unitId, queued: true, n, already?}
   apiNs.goldsets.queue = async (p, id, { unitId } = {}) => {
@@ -670,23 +717,36 @@ function patch() {
   /* -- runs -- */
   const runList = () => db.runs.runs;
   // live: preflight → {units, calls, inputTokens, outputTokens, estUSD,
-  // etaMin, privacyOk, privacyError?, budget: {capUSD, spentUSD, wouldExceed}}
-  apiNs.runs.preflight = async (p, { instrumentId } = {}) => {
+  // etaMin, privacyOk, privacyError?, budget: {capUSD, spentUSD, wouldExceed}}.
+  // The canned numbers describe the original 2,500-unit corpus; a different
+  // corpusId scales them so the quote follows the chosen corpus honestly.
+  apiNs.runs.preflight = async (p, { instrumentId, corpusId } = {}) => {
     await sleep(700);
-    const pf = db.runs.preflight[instrumentId] ?? db.runs.preflight.inst_judge_s;
-    return clone(pf);
+    const pf = clone(db.runs.preflight[instrumentId] ?? db.runs.preflight.inst_judge_s);
+    const corpus = P.corpora.find((c) => c.id === corpusId);
+    if (corpus?.unitCount && pf.units && corpus.unitCount !== pf.units) {
+      const f = corpus.unitCount / pf.units;
+      pf.units = corpus.unitCount;
+      pf.calls = Math.round(pf.calls * f);
+      pf.inputTokens = Math.round(pf.inputTokens * f);
+      pf.outputTokens = Math.round(pf.outputTokens * f);
+      pf.estUSD = Math.round(pf.estUSD * f * 100) / 100;
+      pf.etaMin = Math.round(pf.etaMin * f);
+    }
+    return pf;
   };
   // live: → {runId, estUSD, total}
   apiNs.runs.start = async (p, { instrumentId, corpusId, capUSD } = {}) => {
     const inst = instList().find((x) => x.id === instrumentId);
     const pf = db.runs.preflight[instrumentId] ?? { estUSD: 1.4, units: db.units.total };
+    const corpus = P.corpora.find((c) => c.id === corpusId) ?? P.corpora.at(-1);
     const run = {
       id: newId("run"),
       instrumentId,
       versionHash: inst?.versionHash ?? "0000000000000000",
-      corpusId: corpusId ?? P.corpora[0]?.id,
+      corpusId: corpus?.id ?? corpusId ?? null,
       status: "running",
-      checkpoint: { done: 0, total: pf.units ?? db.units.total },
+      checkpoint: { done: 0, total: corpus?.unitCount ?? pf.units ?? db.units.total },
       cost: { estUSD: pf.estUSD ?? 0, actualUSD: 0, inputTokens: 0, outputTokens: 0 },
       escalation: { count: 0, directorModel: P.director?.model ?? null },
       quarantine: [],

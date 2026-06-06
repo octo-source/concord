@@ -11,6 +11,7 @@ import * as router from "../router.js";
 import * as toast from "../components/toast.js";
 import * as ladderC from "../components/ladder.js";
 import * as bar from "../components/charts/bar.js";
+import * as scopechip from "../components/scopechip.js";
 import { fmtCost, fmtCount, fmtStat, fmtDuration, fmtDateTime } from "../format.js";
 import { screenHead, section, asyncMount, ensureProject, refreshProject, emptyState, openSheet, kv, kvList } from "./_shared.js";
 
@@ -79,9 +80,16 @@ function instrumentName(instruments, id) {
 
 async function preflightSheet(params, project, instruments, presetInstrument) {
   const s = openSheet({ title: "Preflight", overline: "Price before commitment", wide: true });
+  const corpora = project.corpora ?? [];
   let instrumentId = presetInstrument ?? instruments[0]?.id ?? null;
-  let corpusId = project.corpora?.[0]?.id ?? null;
+  // Default to the MOST RECENTLY CREATED corpus — re-unitized variants
+  // ("… · text=<col>") append to project.corpora, so the latest re-unitization
+  // is what a new run reads unless the researcher picks otherwise here.
+  let corpusId = corpora.at(-1)?.id ?? null;
   let capUSD = null;
+
+  const corpusOf = (id) => corpora.find((c) => c.id === id) ?? null;
+  const textColumnOf = (c) => c?.textColumn ?? c?.unitization?.textColumn ?? null;
 
   const resultHost = el("div", { class: "preflight__result" });
   const startBtn = el("button", { class: "btn btn--primary", type: "button", disabled: true }, "Start the run");
@@ -90,14 +98,24 @@ async function preflightSheet(params, project, instruments, presetInstrument) {
     ...instruments.map((i) => el("option", { value: i.id, selected: i.id === instrumentId }, `${i.name} (${i.level})`)));
   instSelect.addEventListener("change", () => { instrumentId = instSelect.value; runPreflight(); });
 
-  const corpusSelect = el("select", { class: "input", "aria-label": "Corpus" },
-    ...(project.corpora ?? []).map((c) => el("option", { value: c.id }, `${c.name} · ${fmtCount(c.unitCount)} units`)));
-  corpusSelect.addEventListener("change", () => { corpusId = corpusSelect.value; runPreflight(); });
+  // Each corpus owns ONE text column — the option says which, so picking the
+  // corpus IS picking the column the instrument reads.
+  const corpusSelect = el("select", { class: "input", "aria-label": "Corpus — picking a corpus picks the text column the instrument reads" },
+    ...corpora.map((c) => el("option", { value: c.id, selected: c.id === corpusId }, scopechip.optionLabel(c, project))));
+  const scopeHost = el("div", {});
+  const paintScope = () => {
+    clear(scopeHost);
+    const props = scopechip.fromCorpus(corpusOf(corpusId), project);
+    if (props) scopeHost.append(scopechip.render(props));
+  };
+  corpusSelect.addEventListener("change", () => { corpusId = corpusSelect.value; paintScope(); runPreflight(); });
+  paintScope();
 
   s.body.append(
     el("div", { class: "controlrow" },
       el("label", { class: "controlrow__item controlrow__item--grow" }, el("span", { class: "overline" }, "instrument"), instSelect),
       el("label", { class: "controlrow__item controlrow__item--grow" }, el("span", { class: "overline" }, "corpus"), corpusSelect)),
+    scopeHost,
     resultHost,
   );
   s.foot.append(
@@ -122,10 +140,12 @@ async function preflightSheet(params, project, instruments, presetInstrument) {
         "aria-label": "Hard cost cap in USD",
         onchange: (e) => { capUSD = e.target.value === "" ? null : Number(e.target.value); },
       });
+      const textColumn = textColumnOf(corpusOf(corpusId));
       resultHost.append(
         kvList(
           kv("Scope", el("span", { class: "data" },
-            `${fmtCount(pf.units)} units → ${fmtCount(pf.calls)} call${pf.calls === 1 ? "" : "s"}`)),
+            `${fmtCount(pf.units)} units · text from ${textColumn ?? "(column not recorded)"}`),
+            el("span", { class: "faint" }, ` → ${fmtCount(pf.calls)} call${pf.calls === 1 ? "" : "s"}`)),
           kv("Tokens", el("span", { class: "data" }, `~${fmtCount(pf.inputTokens)} in · ~${fmtCount(pf.outputTokens)} out`)),
           kv("Estimated cost", el("span", { class: "data preflight__cost" }, fmtCost(pf.estUSD)),
             el("span", { class: "faint" }, " (±15%)")),

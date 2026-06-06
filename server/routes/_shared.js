@@ -157,9 +157,19 @@ export async function readGoldset(slug, goldsetId) {
 // (π-weighted estimators throw on y-without-pi). The filter lives at the one
 // correction assembly point: routes/analyses.js goldFor, which drops every
 // unit whose piMap value is not a finite number.
+//
+// NOTE on excluded units: goldset.excluded is the array of unit ids the
+// adjudicator removed from the gold standard (POST /adjudicate with
+// {exclude: true} — the uncodable disposition's terminal state). They are
+// skipped HERE, the single gold assembly point, so every consumer — freeze
+// calibration, machine-vs-gold agreement, drift checks and DSL correction
+// rows (via analyses goldFor) — drops them together. Note coders' uncodable
+// marks (coders[].uncodable) do NOT remove a unit by themselves: the other
+// coders' labels can still carry a consensus until adjudication decides.
 export function goldLabelMap(goldset) {
   const out = new Map();
-  const sampleIds = (goldset.sample ?? []).map((s) => s.unitId);
+  const excluded = new Set(goldset.excluded ?? []);
+  const sampleIds = (goldset.sample ?? []).map((s) => s.unitId).filter((id) => !excluded.has(id));
   const coders = (goldset.coders ?? []).filter((c) => c.labels && Object.keys(c.labels).length > 0);
   for (const unitId of sampleIds) {
     const adj = goldset.adjudicated?.[unitId];

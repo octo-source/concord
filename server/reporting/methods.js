@@ -9,9 +9,10 @@
 // canonical form of the FULL tuple the prose reads — the analysis object, the
 // construct, corpus metadata, the run's {id, status, cost, escalation,
 // quarantine, pinned, model, snapshot}, the goldset's {id, design, n,
-// piSummary, coderIds, humanAgreement} and the instrument's {versionHash,
-// frozen, certificate, stability}. Changing ANY of those between exports
-// yields a different stateHash, so the chain closes over what was claimed.
+// piSummary, coderIds, humanAgreement, uncodableUnits, excluded} and the
+// instrument's {versionHash, frozen, certificate, stability}. Changing ANY of
+// those between exports yields a different stateHash, so the chain closes
+// over what was claimed.
 //
 // generatePreview() renders the same prose WITHOUT appending to the ledger:
 // citations resolve against existing events only (the latest export-of-record
@@ -192,6 +193,8 @@ async function compose(project, analysisId, { projectDir } = {}, mode) {
       piSummary: goldPis.length ? { min: Math.min(...goldPis), max: Math.max(...goldPis) } : null,
       coderIds: (goldset.coders ?? []).map((c) => c.coderId ?? null),
       humanAgreement: goldset.humanAgreement ?? null,
+      uncodableUnits: [...new Set((goldset.coders ?? []).flatMap((c) => Object.keys(c.uncodable ?? {})))].sort(),
+      excluded: goldset.excluded ?? null,
     } : null,
     instrument: instrument ? {
       versionHash: instrument.versionHash ?? null, frozen: instrument.frozen ?? false,
@@ -340,12 +343,26 @@ async function compose(project, analysisId, { projectDir } = {}, mode) {
     if (typeof ha.percent === "number") bits.push(`raw agreement of ${fmtPct(ha.percent)}`);
     if (typeof ha.kappa === "number") bits.push(`Cohen's kappa = ${fmt(ha.kappa)}`);
     if (typeof ha.alpha === "number") bits.push(`Krippendorff's alpha = ${fmt(ha.alpha)}${fmtCI(ha.ci) ? `, 95% CI ${fmtCI(ha.ci)} (${ha.ci.method ?? "bootstrap"})` : ""}`);
-    para(
+    const sentences = [
       s(orderProven
         ? "Inter-coder reliability was computed before any machine output was compared to the human labels"
         : `Inter-coder reliability was computed from the ${blindCoders ? "blind " : ""}double-coded sample`, agreeEv),
-      s(`On the ${ha.n ?? goldset?.sample?.length ?? "gold"} jointly coded units the coders reached ${bits.join(", ")}`, agreeEv)
-    );
+      s(`On the ${ha.n ?? goldset?.sample?.length ?? "gold"} jointly coded units the coders reached ${bits.join(", ")}`, agreeEv),
+    ];
+    // The uncodable channel, disclosed factually whenever it was used: units
+    // a coder marked uncodable contribute no agreement row for that coder
+    // (missing data, never a forced binary guess), and adjudication-excluded
+    // units are out of the gold standard everywhere. Counts are object state
+    // recorded at export time, so the sentence cites the export anchor.
+    const uncodableN = new Set((goldset?.coders ?? []).flatMap((c) => Object.keys(c.uncodable ?? {}))).size;
+    const excludedN = (goldset?.excluded ?? []).length;
+    if (uncodableN > 0 || excludedN > 0) {
+      const clauses = [];
+      if (uncodableN > 0) clauses.push(`${count(uncodableN, "unit")} ${uncodableN === 1 ? "was" : "were"} marked uncodable by at least one coder`);
+      if (excludedN > 0) clauses.push(`${count(excludedN, "unit")} ${excludedN === 1 ? "was" : "were"} excluded from the gold standard after adjudication`);
+      sentences.push(s(clauses.join("; "), anchorEvent));
+    }
+    para(...sentences);
   }
 
   // ---- 5. Instrument

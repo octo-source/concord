@@ -2,6 +2,13 @@
 // on every sample row), blind coding (next/label), agreement (HUMAN FIRST,
 // machine second), adjudication, and same-process coder-session listeners.
 //
+// The uncodable channel: a coder may submit {uncodable: true} instead of a
+// label (stored in coders[].uncodable, never in labels), which keeps the
+// unit out of that coder's agreement rows — missing data, not forced noise.
+// At adjudication, {exclude: true} removes a unit from the gold standard
+// (goldset.excluded); goldLabelMap skips excluded units for every consumer,
+// and both counts are disclosed in the report/certificate/methods prose.
+//
 // Blindness is enforced server-side and structurally: the coder-facing
 // payloads are built by coderNextView/progressView, which only ever read the
 // requesting coder's own labels and the unit text — machine outputs and other
@@ -160,11 +167,15 @@ function coderEntry(gs, coderId) {
   return entry;
 }
 
+// A coder is finished with a unit by labeling it OR by marking it uncodable
+// (coders[].uncodable — the explicit "can't code" disposition). done counts
+// both; uncodable is also reported on its own so the screens can show it.
 function progressView(gs, coderId) {
   const total = gs.sample?.length ?? 0;
   const entry = (gs.coders ?? []).find((c) => c.coderId === coderId);
-  const done = entry ? Object.keys(entry.labels ?? {}).length : 0;
-  return { coderId, done, total, remaining: total - done, flagged: entry?.flagged?.length ?? 0 };
+  const uncodable = entry ? Object.keys(entry.uncodable ?? {}).length : 0;
+  const done = (entry ? Object.keys(entry.labels ?? {}).length : 0) + uncodable;
+  return { coderId, done, uncodable, total, remaining: total - done, flagged: entry?.flagged?.length ?? 0 };
 }
 
 // The blind payload: the requesting coder's progress, the codebook entry, and
@@ -175,8 +186,8 @@ export async function coderNextView(slug, goldsetId, coderId) {
   findOr404(project.goldsets, goldsetId, "gold set");
   const gs = await readGoldset(slug, goldsetId);
   const entry = (gs.coders ?? []).find((c) => c.coderId === coderId);
-  const labeled = new Set(Object.keys(entry?.labels ?? {}));
-  const nextId = (gs.sample ?? []).map((s) => s.unitId).find((id) => !labeled.has(id)) ?? null;
+  const finished = new Set([...Object.keys(entry?.labels ?? {}), ...Object.keys(entry?.uncodable ?? {})]);
+  const nextId = (gs.sample ?? []).map((s) => s.unitId).find((id) => !finished.has(id)) ?? null;
 
   const construct = (project.constructs ?? []).find((c) => c.id === gs.constructId) ?? null;
   const codebook = construct ? {
@@ -199,11 +210,21 @@ export async function coderNextView(slug, goldsetId, coderId) {
   };
 }
 
-export async function submitCoderLabel(slug, goldsetId, { coder, unitId, label, memo, flag }) {
+// A submission is exactly one disposition: a label, or uncodable: true (the
+// coder cannot honestly assign any category). Uncodable marks live in
+// coders[].uncodable — NEVER in the labels map — so agreement statistics see
+// an absent row (the stats engine's missing-data path) instead of a forced
+// guess. The later submission wins either way: labeling clears a prior
+// uncodable mark and vice versa.
+export async function submitCoderLabel(slug, goldsetId, { coder, unitId, label, memo, flag, uncodable }) {
   if (!coder) throw new ConcordError("VALIDATION", "label submission requires a coder id", {});
   if (!unitId) throw new ConcordError("VALIDATION", "label submission requires a unitId", {});
-  if (label === undefined || label === null || label === "") {
-    throw new ConcordError("VALIDATION", "label submission requires a label", {});
+  const hasLabel = !(label === undefined || label === null || label === "");
+  if (uncodable && hasLabel) {
+    throw new ConcordError("VALIDATION", "a submission is either a label or uncodable: true, not both", { unitId });
+  }
+  if (!uncodable && !hasLabel) {
+    throw new ConcordError("VALIDATION", "label submission requires a label (or uncodable: true)", {});
   }
   let progress;
   await mutateGoldset(slug, goldsetId, (gs) => {
@@ -211,7 +232,14 @@ export async function submitCoderLabel(slug, goldsetId, { coder, unitId, label, 
       throw new ConcordError("VALIDATION", `unit '${unitId}' is not part of this gold set's sample`, { unitId });
     }
     const entry = coderEntry(gs, coder);
-    entry.labels[unitId] = label;
+    if (uncodable) {
+      entry.uncodable = entry.uncodable ?? {};
+      entry.uncodable[unitId] = true;
+      delete entry.labels[unitId];
+    } else {
+      entry.labels[unitId] = label;
+      if (entry.uncodable) delete entry.uncodable[unitId];
+    }
     if (memo !== undefined && memo !== null && memo !== "") {
       entry.memos = entry.memos ?? {};
       entry.memos[unitId] = memo;
@@ -220,14 +248,14 @@ export async function submitCoderLabel(slug, goldsetId, { coder, unitId, label, 
       entry.flagged = entry.flagged ?? [];
       if (!entry.flagged.includes(unitId)) entry.flagged.push(unitId);
     }
-    if (Object.keys(entry.labels).length >= (gs.sample?.length ?? 0)) {
+    if (Object.keys(entry.labels).length + Object.keys(entry.uncodable ?? {}).length >= (gs.sample?.length ?? 0)) {
       entry.finishedAt = new Date().toISOString();
     }
     if (gs.status === "sampling") gs.status = "coding";
     progress = progressView(gs, coder);
   });
   await ledger.append(pdirOf(slug), "human", "goldset.label", { goldsetId, coderId: coder, unitId }, {
-    label,
+    ...(uncodable ? { uncodable: true } : { label }),
     ...(flag ? { flagged: true } : {}),
   });
   return progress;
@@ -259,6 +287,7 @@ export function coderRoutes(projectSlug, goldsetId, coderId) {
           label: body.label,
           memo: body.memo,
           flag: body.flag,
+          uncodable: body.uncodable,
         });
       },
     },
@@ -467,6 +496,9 @@ export default [
       }
 
       // ---- 1. the human report, persisted + ledgered BEFORE anything machine
+      // Uncodable marks contribute NO row for that coder: an absent row is
+      // the stats engine's missing-data path, so an uncodable unit can only
+      // shrink n — it never forces a binary guess into the coefficients.
       const humanRows = [];
       for (const c of coders) {
         for (const [unitId, label] of Object.entries(c.labels)) {
@@ -476,6 +508,19 @@ export default [
       const humanAgreement = agreementReport(humanRows, construct, {
         pairCoders: coders.length === 2 ? [coders[0].coderId, coders[1].coderId] : undefined,
       });
+      // Disclosure counts for the report, certificate and methods prose:
+      // uncodableUnits = sample units ≥1 coder marked uncodable;
+      // excludedFromAgreement = sample units with <2 codable labels (they
+      // cannot form an agreement pair and are surfaced for adjudication).
+      const allCoders = gsBefore.coders ?? [];
+      let uncodableUnits = 0;
+      let excludedFromAgreement = 0;
+      for (const s of gsBefore.sample ?? []) {
+        if (allCoders.some((c) => c.uncodable?.[s.unitId])) uncodableUnits += 1;
+        if (allCoders.filter((c) => c.labels?.[s.unitId] !== undefined).length < 2) excludedFromAgreement += 1;
+      }
+      humanAgreement.uncodableUnits = uncodableUnits;
+      humanAgreement.excludedFromAgreement = excludedFromAgreement;
       const gs = await mutateGoldset(params.p, params.g, (g) => {
         g.humanAgreement = humanAgreement;
         if (g.status === "coding") g.status = "adjudicating";
@@ -486,6 +531,8 @@ export default [
         kappa: humanAgreement.kappa,
         alpha: humanAgreement.alpha,
         coders: coders.map((c) => c.coderId),
+        ...(uncodableUnits > 0 ? { uncodableUnits } : {}),
+        ...(excludedFromAgreement > 0 ? { excludedFromAgreement } : {}),
       });
 
       // ---- 2. machine comparison vs adjudicated-or-consensus gold
@@ -534,37 +581,65 @@ export default [
     },
   },
   {
+    // Adjudication resolves a unit with exactly one of two dispositions:
+    //   {label}          → the gold label (adjudicated[unitId] = label);
+    //   {exclude: true}  → the unit leaves the gold standard (g.excluded,
+    //                      an array of unit ids — the terminal state of the
+    //                      uncodable channel). goldLabelMap skips excluded
+    //                      units, so freeze/agreement/drift/DSL all drop
+    //                      them at the single assembly point in _shared.js.
+    // The dispositions are mutually exclusive per unit and the later call
+    // wins: excluding withdraws a prior adjudicated label, and adjudicating
+    // a label re-admits a previously excluded unit. Either disposition
+    // counts as RESOLVED for status auto-completion.
     method: "POST",
     pattern: "/api/projects/:p/goldsets/:g/adjudicate",
     handler: async (req, res, params) => {
       const body = requireBody(req, ["unitId"]);
-      if (body.label === undefined || body.label === null || body.label === "") {
-        throw new ConcordError("VALIDATION", "adjudication requires a label", {});
+      const exclude = body.exclude === true;
+      const hasLabel = !(body.label === undefined || body.label === null || body.label === "");
+      if (exclude && hasLabel) {
+        throw new ConcordError("VALIDATION", "adjudication takes either a label or exclude: true, not both", { unitId: body.unitId });
+      }
+      if (!exclude && !hasLabel) {
+        throw new ConcordError("VALIDATION", "adjudication requires a label (or exclude: true)", {});
       }
       let completedNow = false;
       const gs = await mutateGoldset(params.p, params.g, (g) => {
         if (!(g.sample ?? []).some((s) => s.unitId === body.unitId)) {
           throw new ConcordError("VALIDATION", `unit '${body.unitId}' is not in this gold set's sample`, { unitId: body.unitId });
         }
-        g.adjudicated = g.adjudicated ?? {};
-        g.adjudicated[body.unitId] = body.label;
+        if (exclude) {
+          g.excluded = g.excluded ?? [];
+          if (!g.excluded.includes(body.unitId)) g.excluded.push(body.unitId);
+          if (g.adjudicated) delete g.adjudicated[body.unitId];
+        } else {
+          g.adjudicated = g.adjudicated ?? {};
+          g.adjudicated[body.unitId] = body.label;
+          if (g.excluded) g.excluded = g.excluded.filter((u) => u !== body.unitId);
+        }
         if (g.status === "coding") g.status = "adjudicating";
         const gold = goldLabelMap(g);
-        if ((g.sample ?? []).every((s) => gold.has(s.unitId)) && g.status !== "complete") {
+        const excludedSet = new Set(g.excluded ?? []);
+        if ((g.sample ?? []).every((s) => gold.has(s.unitId) || excludedSet.has(s.unitId)) && g.status !== "complete") {
           g.status = "complete";
           completedNow = true;
         }
       });
       const pdir = pdirOf(params.p);
-      await ledger.append(pdir, "human", "goldset.adjudicated", { goldsetId: params.g, unitId: body.unitId }, {
-        label: body.label,
-      });
+      await ledger.append(pdir, "human", "goldset.adjudicated", { goldsetId: params.g, unitId: body.unitId },
+        exclude ? { excluded: true } : { label: body.label });
       if (completedNow) {
         await ledger.append(pdir, "human", "goldset.completed", { goldsetId: params.g, constructId: gs.constructId }, {
           n: gs.sample?.length ?? 0,
+          ...(gs.excluded?.length ? { excluded: gs.excluded.length } : {}),
         });
       }
-      return { status: gs.status, adjudicated: Object.keys(gs.adjudicated ?? {}).length };
+      return {
+        status: gs.status,
+        adjudicated: Object.keys(gs.adjudicated ?? {}).length,
+        excluded: gs.excluded?.length ?? 0,
+      };
     },
   },
   {

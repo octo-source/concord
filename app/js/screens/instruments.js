@@ -23,6 +23,7 @@ import * as ladderC from "../components/ladder.js";
 import * as pipeline from "../components/pipeline.js";
 import * as quotecard from "../components/quotecard.js";
 import * as modelpicker from "../components/modelpicker.js";
+import * as scopechip from "../components/scopechip.js";
 import * as line from "../components/charts/line.js";
 import { fmt, fmtStat, fmtCost, fmtCount, fmtDateTime } from "../format.js";
 import { screenHead, section, asyncMount, ensureProject, refreshProject, emptyState, openSheet, sheetBusy, buttonBusy, kv, kvList, markedValue } from "./_shared.js";
@@ -40,12 +41,40 @@ const AGG_RULES = {
   reliabilityWeighted: "Votes weighted by each juror's measured agreement with silver or gold.",
 };
 
-/* The first few corpus units serve as the live preview sample. */
-async function sampleUnits(slug, project, n = 5) {
-  const corpusId = project?.corpora?.[0]?.id;
-  if (!corpusId) return [];
-  const page = await api.corpora.units(slug, corpusId, { limit: n }).catch(() => null);
+/* The first few units of the CHOSEN corpus serve as the live preview sample. */
+async function sampleUnits(slug, corpus, n = 5) {
+  if (!corpus?.id) return [];
+  const page = await api.corpora.units(slug, corpus.id, { limit: n }).catch(() => null);
   return page?.units ?? [];
+}
+
+/* Which corpus previews read. Default: the MOST RECENTLY CREATED one —
+   re-unitized variants ("… · text=<col>") append to project.corpora, so a
+   fresh re-unitization is what previews pick up unless changed in the picker.
+   One scope per editor: the dictionary live preview and the Preview action
+   read the same corpus, and both say so. */
+function makePreviewScope(project) {
+  const corpora = project?.corpora ?? [];
+  const listeners = new Set();
+  return {
+    corpora,
+    corpusId: corpora.at(-1)?.id ?? null,
+    corpus() { return corpora.find((c) => c.id === this.corpusId) ?? null; },
+    set(id) { this.corpusId = id; for (const fn of listeners) fn(); },
+    onChange(fn) { listeners.add(fn); },
+  };
+}
+
+function textColumnOf(corpus) {
+  return corpus?.textColumn ?? corpus?.unitization?.textColumn ?? null;
+}
+
+/* The one line every preview result opens with — what was read, from where. */
+function readLine(corpus, n) {
+  return el("p", { class: "screen__hint faint" },
+    "Read ", el("span", { class: "data" }, fmtCount(n)),
+    " units from ", el("span", { class: "data" }, corpus?.name ?? corpus?.id ?? "—"),
+    " (text: ", el("span", { class: "data" }, textColumnOf(corpus) ?? "not recorded"), ").");
 }
 
 export function render(mount, params, query = {}) {
@@ -160,6 +189,7 @@ export function render(mount, params, query = {}) {
 function instrumentEditor(main, params, instRaw, constructs, catalog, project = null) {
   const inst = JSON.parse(JSON.stringify(instRaw));
   const construct = constructs.find((c) => c.id === inst.constructId);
+  const previewScope = makePreviewScope(project);
   let dirty = false;
 
   /* -- pipeline strip: where this instrument sits, and the ONE next step.
@@ -242,7 +272,7 @@ function instrumentEditor(main, params, instRaw, constructs, catalog, project = 
   }
 
   /* -- kind-specific editor -- */
-  if (inst.kind === "dictionary") dictionaryEditor(main, params, inst, touch, () => dirty);
+  if (inst.kind === "dictionary") dictionaryEditor(main, params, inst, touch, () => dirty, previewScope);
   else if (inst.kind === "judge") judgeEditor(main, params, inst, catalog, construct, touch);
   else if (inst.kind === "panel") panelEditor(main, params, inst, catalog, touch);
 
@@ -259,6 +289,7 @@ function instrumentEditor(main, params, instRaw, constructs, catalog, project = 
   /* -- actions -- */
   actions = actionRow(main, params, inst, {
     onPreviewed: () => { previewed = true; paintStrip(); },
+    previewScope,
   });
   main.append(section("Actions", actions.el));
   paintStrip();
@@ -288,7 +319,7 @@ async function openGoldFlow(e, params, inst, project) {
 
 /* ================= dictionary ====================================================== */
 
-function dictionaryEditor(main, params, inst, touch, isDirty = () => false) {
+function dictionaryEditor(main, params, inst, touch, isDirty = () => false, previewScope = null) {
   const payload = inst.payload ?? (inst.payload = { categories: [], negation: { enabled: false, window: 3 }, scoring: "percentOfWords" });
   const ro = inst.frozen;
 
@@ -383,6 +414,7 @@ function dictionaryEditor(main, params, inst, touch, isDirty = () => false) {
     clearTimeout(previewTimer);
     previewTimer = setTimeout(runPreview, 350);
   }
+  previewScope?.onChange(schedulePreview); // the Actions corpus picker re-aims this preview too
   async function runPreview() {
     // Saved instruments preview server-side — POST instruments/:i/preview →
     // {outputs, cost, quarantine, missing}; dictionary outputs carry hit
@@ -392,13 +424,19 @@ function dictionaryEditor(main, params, inst, touch, isDirty = () => false) {
     const draft = !ro && isDirty() === true;
     clear(previewWrap).append(el("p", { class: "faint" }, draft ? "scoring the draft locally…" : "previewing…"));
     try {
-      const project = window.concord?.store?.get?.("project");
-      const units = await sampleUnits(params.slug, project, 5);
+      const corpus = previewScope?.corpus() ?? null;
+      const units = await sampleUnits(params.slug, corpus, 5);
       const res = draft || units.length === 0
         ? null
         : await api.instruments.preview(params.slug, inst.id, { unitIds: units.map((u) => u.id) }).catch(() => null);
       const outputs = res?.outputs ?? [];
       clear(previewWrap);
+      if (!units.length) {
+        previewWrap.append(el("p", { class: "faint" },
+          `No sample units available${corpus ? ` in ${corpus.name ?? corpus.id}` : ""}.`));
+        return;
+      }
+      previewWrap.append(readLine(corpus, units.length));
       if (draft) {
         previewWrap.append(el("p", { class: "dictpreview__draftnote faint" },
           el("span", { class: "chip chip--ghost" }, "draft preview"),
@@ -415,7 +453,6 @@ function dictionaryEditor(main, params, inst, touch, isDirty = () => false) {
             : null,
         ));
       }
-      if (!previewWrap.children.length) previewWrap.append(el("p", { class: "faint" }, "No sample units available."));
     } catch (err) {
       clear(previewWrap).append(el("p", { class: "faint" }, "Preview unavailable: ", String(err.message ?? err)));
     }
@@ -727,7 +764,7 @@ function silverCurve(iterations) {
 
 /* ================= actions =========================================================== */
 
-function actionRow(main, params, inst, { onPreviewed } = {}) {
+function actionRow(main, params, inst, { onPreviewed, previewScope = null } = {}) {
   const out = el("div", { class: "actionout" });
   const row = el("div", { class: "actionrow" });
 
@@ -825,13 +862,15 @@ function actionRow(main, params, inst, { onPreviewed } = {}) {
       const stop = buttonBusy(preview, (sec) => `Previewing · ${sec}s`);
       clear(out).append(el("p", { class: "faint", role: "status" }, "previewing on 5 sample units (nothing persists)…"));
       try {
-        const project = window.concord?.store?.get?.("project");
-        const units = await sampleUnits(params.slug, project, 5);
-        if (units.length === 0) throw new Error("no corpus units to preview on");
+        const corpus = previewScope?.corpus() ?? null;
+        const units = await sampleUnits(params.slug, corpus, 5);
+        if (units.length === 0) throw new Error(corpus ? `no units to preview on in ${corpus.name ?? corpus.id}` : "no corpus units to preview on");
         // live envelope: {outputs, cost, quarantine, missing}
         const res = await api.instruments.preview(params.slug, inst.id, { unitIds: units.map((u) => u.id) });
         const outputs = (res?.outputs ?? []).filter((o) => o.label !== undefined);
-        clear(out).append(el("table", { class: "table table--mini" },
+        clear(out).append(
+          readLine(corpus, units.length),
+          el("table", { class: "table table--mini" },
           el("caption", { class: "sr-only" }, "Preview outputs"),
           el("thead", {}, el("tr", {},
             el("th", { scope: "col" }, "unit"), el("th", { scope: "col" }, "label"),
@@ -855,9 +894,23 @@ function actionRow(main, params, inst, { onPreviewed } = {}) {
     onclick: () => freezeSheet(params, inst),
   }, inst.frozen ? "Frozen ●" : "Freeze → ●");
 
-  row.append(compile, silver, stability, preview, freeze);
+  row.append(compile, silver, stability, preview);
+  // More than one corpus → say (and choose) which one previews read. With a
+  // single corpus the readLine on every preview result still names it.
+  const corpora = previewScope?.corpora ?? [];
+  if (corpora.length > 1) {
+    row.append(el("select", {
+      class: "input input--inline", "aria-label": "Corpus the preview reads",
+      onchange: (e) => previewScope.set(e.target.value),
+    }, ...corpora.map((c) => el("option", { value: c.id, selected: c.id === previewScope.corpusId }, scopechip.optionLabel(c)))));
+  }
+  row.append(freeze);
   return {
-    el: el("div", {}, row, out),
+    el: el("div", {},
+      row,
+      el("p", { class: "screen__hint faint" },
+        "An instrument reads a corpus's unit text. To measure a different column, re-unitize the corpus on that column (Instant Read → change)."),
+      out),
     clickPreview: () => {
       row.scrollIntoView({ behavior: "smooth", block: "center" });
       if (!preview.disabled) preview.click();

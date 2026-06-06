@@ -19,6 +19,20 @@
       "junk": { "na": 38, "short": 16, "dup": 24, "bot": 7 },
       "metaColumns": 6,
       "sourceName": "techcorp-exit-survey.csv"
+    },
+    {
+      "id": "corp_exit2025_mgrnote",
+      "name": "techcorp-exit-survey.csv · text=manager_note",
+      "source": { "filename": "techcorp-exit-survey.csv", "format": "csv", "rows": 2500 },
+      "unitization": { "scheme": "response", "textColumn": "manager_note" },
+      "unitCount": 2294,
+      "createdAt": "2026-06-02T14:05:00Z",
+      "textColumn": "manager_note",
+      "scheme": "response",
+      "junk": { "na": 11, "short": 41, "dup": 6, "bot": 0 },
+      "metaColumns": 6,
+      "sourceName": "techcorp-exit-survey.csv",
+      "derivedFrom": "corp_exit2025"
     }
   ],
   "analyses": [

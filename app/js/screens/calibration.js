@@ -2,8 +2,9 @@
 // the right to be believed. Four panes follow the goldset's life:
 //   Sample     design picker (SRS/stratified/uncertainty), n with guidance, π note
 //   Code       THE SPRINT — full-bleed, large-type serif unit, pinned definition,
-//              j/k travel, number keys label, f flags, m memos, progress + timer,
-//              and one quiet typographic completion moment. No confetti.
+//              j/k travel, number keys label, u can't-code, f flags, m memos,
+//              progress + timer, and one quiet typographic completion moment.
+//              No confetti.
 //   Test       human–human κ/α FIRST (with CI and benchmark band), then
 //              per-instrument columns with clickable confusion heat-tables,
 //              iteration log with κ sparkline and the McNemar honesty note.
@@ -25,20 +26,50 @@ const PANES = ["sample", "code", "test", "adjudicate"];
 
 let sprintCleanup = null;
 
+/* An uncodable mark is a verdict too — a distinct pseudo-value, never a gold
+   label. It renders as "can't code" and a split against a real label IS a
+   disagreement. */
+export const UNCODABLE = "__uncodable__";
+
+/** A coder's can't-code marks, tolerant of array or {unitId: true} shapes. */
+function uncodableSetOf(coder) {
+  const u = coder?.uncodable;
+  if (Array.isArray(u)) return new Set(u);
+  if (u && typeof u === "object") return new Set(Object.keys(u).filter((k) => u[k]));
+  return new Set();
+}
+
+/** Adjudicator-excluded units (out of gold permanently), array or map shape. */
+export function isExcluded(goldset, unitId) {
+  const ex = goldset?.excluded;
+  if (Array.isArray(ex)) return ex.includes(unitId);
+  if (ex && typeof ex === "object") return Boolean(ex[unitId]);
+  return false;
+}
+
 /* The live goldset artifact carries no disagreement list — the queue is
-   DERIVED: units where ≥2 coders labeled and split, resolved when an
-   adjudicated label exists. {unitId, labels: {coderId: label}, resolved} */
+   DERIVED: units where ≥2 coders gave verdicts (a label or an uncodable mark)
+   and split; resolved when an adjudicated label exists, settled also when the
+   adjudicator excluded the unit from gold.
+   {unitId, labels: {coderId: label | UNCODABLE}, resolved, excluded} */
 export function disagreementsOf(goldset) {
-  const coders = (goldset.coders ?? []).filter((c) => c.labels && Object.keys(c.labels).length > 0);
+  const coders = (goldset.coders ?? []).map((c) => ({ rec: c, uncodable: uncodableSetOf(c) }))
+    .filter(({ rec, uncodable }) => (rec.labels && Object.keys(rec.labels).length > 0) || uncodable.size > 0);
   const out = [];
   for (const s of goldset.sample ?? []) {
     const labels = {};
-    for (const c of coders) {
-      if (c.labels[s.unitId] !== undefined) labels[c.coderId] = c.labels[s.unitId];
+    for (const { rec, uncodable } of coders) {
+      if (uncodable.has(s.unitId)) labels[rec.coderId] = UNCODABLE;
+      else if (rec.labels?.[s.unitId] !== undefined) labels[rec.coderId] = rec.labels[s.unitId];
     }
     const values = Object.values(labels).map((v) => JSON.stringify(v));
     if (values.length >= 2 && new Set(values).size > 1) {
-      out.push({ unitId: s.unitId, labels, resolved: goldset.adjudicated?.[s.unitId] ?? null });
+      out.push({
+        unitId: s.unitId,
+        labels,
+        resolved: goldset.adjudicated?.[s.unitId] ?? null,
+        excluded: isExcluded(goldset, s.unitId),
+      });
     }
   }
   return out;
@@ -89,7 +120,7 @@ export function render(mount, params, query) {
     for (const pane of PANES) {
       const open = (pane === "sample") || goldset.sample?.length;
       const openCount = pane === "adjudicate" && disagreements.length
-        ? disagreements.filter((d) => !d.resolved).length
+        ? disagreements.filter((d) => !d.resolved && !d.excluded).length
         : null;
       tabs.append(el("button", {
         class: "panetab", role: "tab", type: "button",
@@ -201,11 +232,13 @@ function codePane(host, params, goldset, construct) {
       ? el("ul", { class: "coderlist", role: "list" },
           ...coders.map((c) => {
             const done = Object.keys(c.labels ?? {}).length;
+            const cantCode = uncodableSetOf(c).size;
             return el("li", { class: "coderrow" },
               el("span", { class: "chip chip--gold" }, c.coderId),
               el("span", { class: "coderrow__bar", aria: { hidden: "true" } },
-                el("span", { class: "coderrow__fill", style: { width: `${Math.round((done / total) * 100)}%` } })),
+                el("span", { class: "coderrow__fill", style: { width: `${Math.round(((done + cantCode) / total) * 100)}%` } })),
               el("span", { class: "data" }, `${done}/${total}`),
+              cantCode ? el("span", { class: "chip chip--ghost data" }, `${cantCode} can't-code`) : null,
               c.finishedAt ? el("span", { class: "chip chip--ghost" }, "complete") : null,
               c.flagged?.length ? el("span", { class: "chip chip--signal data" }, `${c.flagged.length} flagged`) : null);
           }))
@@ -225,7 +258,7 @@ function codePane(host, params, goldset, construct) {
       }, "Begin the sprint")),
     el("p", { class: "screen__hint faint" },
       "Full bleed. ", kbd("j"), "/", kbd("k"), " next/previous · ", kbd("1"), "–", kbd("9"), " label · ",
-      kbd("f"), " flag · ", kbd("m"), " memo · ", kbd("Esc"), " leave. The definition stays pinned.")));
+      kbd("u"), " can't code · ", kbd("f"), " flag · ", kbd("m"), " memo · ", kbd("Esc"), " leave. The definition stays pinned.")));
 }
 
 function continuingCoder(goldset) {
@@ -236,10 +269,14 @@ function continuingCoder(goldset) {
 function startSprint(params, goldset, construct, coder) {
   const categories = construct?.categories ?? [];
   const rec = (goldset.coders ?? []).find((c) => c.coderId === coder);
-  const already = rec ? Object.keys(rec.labels ?? {}) : [];
-  const queue = goldset.sample.map((s) => s.unitId).filter((id) => !already.includes(id));
+  const labeled = new Set(Object.keys(rec?.labels ?? {}));
+  const uncodableMarks = uncodableSetOf(rec);
+  const sampleIds = goldset.sample.map((s) => s.unitId);
+  // handled = labeled OR marked can't-code; both leave the queue
+  const queue = sampleIds.filter((id) => !labeled.has(id) && !uncodableMarks.has(id));
   const total = goldset.sample.length;
-  let doneCount = total - queue.length;
+  let codedCount = sampleIds.filter((id) => labeled.has(id)).length;
+  let cantCount = sampleIds.filter((id) => uncodableMarks.has(id)).length;
   let idx = 0;
   const session = { startedAt: Date.now(), labeled: 0 };
   const history = []; // for k (previous)
@@ -248,8 +285,13 @@ function startSprint(params, goldset, construct, coder) {
   const root = el("div", { class: "sprint", role: "application", aria: { label: "Coding sprint" } });
   document.body.append(root);
 
-  const progressFill = el("span", { class: "sprint__progressfill", style: { width: `${(doneCount / total) * 100}%` } });
-  const progressText = el("span", { class: "sprint__progresstext data", aria: { live: "polite" } }, `${doneCount} / ${total}`);
+  const progressLine = () => `${codedCount} coded${cantCount ? ` · ${cantCount} can't-code` : ""} / ${total}`;
+  const progressFill = el("span", { class: "sprint__progressfill", style: { width: `${((codedCount + cantCount) / total) * 100}%` } });
+  const progressText = el("span", { class: "sprint__progresstext data", aria: { live: "polite" } }, progressLine());
+  const paintProgress = () => {
+    progressFill.style.width = `${((codedCount + cantCount) / total) * 100}%`;
+    progressText.textContent = progressLine();
+  };
   const timerEl = el("span", { class: "sprint__timer data" }, "0:00");
   const timer = setInterval(() => {
     timerEl.textContent = fmtClock((Date.now() - session.startedAt) / 1000);
@@ -265,7 +307,9 @@ function startSprint(params, goldset, construct, coder) {
         : null,
       construct?.criteria?.exclude?.length
         ? el("p", { class: "sprint__defrule" }, el("strong", {}, "Exclude: "), construct.criteria.exclude.join(" · "))
-        : null));
+        : null,
+      el("p", { class: "sprint__defrule" },
+        kbd("u"), " marks a unit as uncodable — it is excluded from agreement statistics and queued for adjudication.")));
 
   const keyRow = el("div", { class: "sprint__keys", role: "toolbar", aria: { label: "Labels" } },
     ...categories.map((cat, i) =>
@@ -276,6 +320,12 @@ function startSprint(params, goldset, construct, coder) {
       },
         el("kbd", {}, String(i + 1)),
         el("span", { class: "sprint__keylabel" }, cat.label ?? cat.value))),
+    el("button", {
+      class: "sprint__key sprint__key--meta", type: "button",
+      dataset: { value: UNCODABLE },
+      title: "Mark this unit uncodable — excluded from agreement statistics, queued for adjudication",
+      onclick: () => uncodable(),
+    }, el("kbd", {}, "u"), el("span", { class: "sprint__keylabel" }, "can't code")),
     el("button", { class: "sprint__key sprint__key--meta", type: "button", onclick: () => flag() }, el("kbd", {}, "f"), el("span", { class: "sprint__keylabel" }, "flag")),
     el("button", { class: "sprint__key sprint__key--meta", type: "button", onclick: () => memo() }, el("kbd", {}, "m"), el("span", { class: "sprint__keylabel" }, "memo")),
   );
@@ -327,10 +377,30 @@ function startSprint(params, goldset, construct, coder) {
       return;
     }
     history.push(unitId);
-    doneCount += 1;
+    codedCount += 1;
     session.labeled += 1;
-    progressFill.style.width = `${(doneCount / total) * 100}%`;
-    progressText.textContent = `${doneCount} / ${total}`;
+    paintProgress();
+    queue.splice(idx, 1);
+    if (idx >= queue.length) idx = Math.max(0, queue.length - 1);
+    drawUnit();
+  }
+
+  /* Can't-code is a verdict, not a skip: {uncodable: true} (no label) saves,
+     the unit leaves the queue, agreement will exclude it, adjudication gets it. */
+  async function uncodable() {
+    const unitId = currentUnitId();
+    if (!unitId) return;
+    pulseKey(UNCODABLE);
+    try {
+      await api.goldsets.label(params.slug, goldset.id, { coder, unitId, uncodable: true, memo: memoText || undefined, flag: flagged || undefined });
+    } catch (err) {
+      toast.error("Can't-code did not save.", { detail: String(err.message ?? err) });
+      return;
+    }
+    history.push(unitId);
+    cantCount += 1;
+    session.labeled += 1;
+    paintProgress();
     queue.splice(idx, 1);
     if (idx >= queue.length) idx = Math.max(0, queue.length - 1);
     drawUnit();
@@ -370,6 +440,7 @@ function startSprint(params, goldset, construct, coder) {
     if (e.key === "Escape") { leave(); return; }
     if (e.key === "j") { move(1); return; }
     if (e.key === "k") { move(-1); return; }
+    if (e.key === "u") { uncodable(); return; }
     if (e.key === "f") { flag(); return; }
     if (e.key === "m") { memo(); return; }
     const num = Number(e.key);
@@ -451,6 +522,14 @@ function testPane(host, params, goldset) {
         benchmarkBand(h.alpha),
         el("p", { class: "humanbanner__note faint" }, "Low human agreement is a construct problem before it is anyone's instrument problem.")));
 
+      /* -- uncodable units sit outside every statistic above -- */
+      const uncodableUnits = h.uncodableUnits ?? report.uncodableUnits ?? 0;
+      if (uncodableUnits > 0) {
+        wrap.append(el("p", { class: "screen__hint faint" },
+          el("span", { class: "data" }, fmtCount(uncodableUnits)),
+          ` unit${uncodableUnits === 1 ? "" : "s"} marked uncodable by at least one coder — excluded from these statistics.`));
+      }
+
       /* -- per-instrument columns -- */
       const cols = el("div", { class: "testcols" });
       for (const inst of report.perInstrument ?? []) {
@@ -523,13 +602,13 @@ function benchmarkBand(alpha, ci) {
 /* ================= Adjudicate ========================================================== */
 
 function adjudicatePane(host, params, goldset, construct, disagreements = []) {
-  const open = disagreements.filter((d) => !d.resolved);
-  const resolved = disagreements.filter((d) => d.resolved);
+  const open = disagreements.filter((d) => !d.resolved && !d.excluded);
+  const settled = disagreements.filter((d) => d.resolved || d.excluded);
 
   if (!disagreements.length) {
     host.append(emptyState({
       title: "No disagreements.",
-      body: "When two coders split on a unit, it queues here for the final human word.",
+      body: "When two coders split on a unit — including one saying can't code where the other labeled — it queues here for the final human word.",
     }));
     return;
   }
@@ -538,7 +617,8 @@ function adjudicatePane(host, params, goldset, construct, disagreements = []) {
   host.append(section(`Disagreement queue · ${open.length} open`, queueEl));
 
   const drawRow = (d) => {
-    const row = el("div", { class: `adjrow${d.resolved ? " adjrow--resolved" : ""}` });
+    const settledNow = Boolean(d.resolved || d.excluded);
+    const row = el("div", { class: `adjrow${settledNow ? " adjrow--resolved" : ""}${d.excluded ? " adjrow--excluded" : ""}` });
     const quoteHost = el("div", { class: "adjrow__quote" });
     api.evidence.get(params.slug, d.unitId)
       .then((dossier) => {
@@ -547,12 +627,17 @@ function adjudicatePane(host, params, goldset, construct, disagreements = []) {
       .catch(() => quoteHost.append(el("p", { class: "data faint" }, d.unitId)));
 
     const finalInput = el("input", { class: "input input--inline", placeholder: "or enter a label…", "aria-label": "Final label" });
+    const settle = () => {
+      row.classList.add("adjrow--resolved");
+      for (const b of row.querySelectorAll(".adjpick")) b.disabled = true;
+      row.querySelector(".adjrow__enter")?.remove();
+    };
     const decide = async (label) => {
       try {
         // live response: {status, adjudicated: <count>}
         const res = await api.goldsets.adjudicate(params.slug, goldset.id, { unitId: d.unitId, label });
         d.resolved = label;
-        row.classList.add("adjrow--resolved");
+        settle();
         row.querySelector(".adjrow__final")?.replaceChildren(
           el("span", { class: "chip chip--gold" }, `final: ${label}`));
         toast.success("Adjudicated.", { detail: `${d.unitId} → ${label}${res?.status === "complete" ? " · gold set complete" : ""}`, data: true });
@@ -560,33 +645,62 @@ function adjudicatePane(host, params, goldset, construct, disagreements = []) {
         toast.error("Adjudication failed.", { detail: String(err.message ?? err) });
       }
     };
+    const exclude = async () => {
+      try {
+        // live response: {status, adjudicated, excluded} — the unit leaves gold permanently
+        const res = await api.goldsets.adjudicate(params.slug, goldset.id, { unitId: d.unitId, exclude: true });
+        d.excluded = true;
+        settle();
+        row.classList.add("adjrow--excluded");
+        row.querySelector(".adjrow__final")?.replaceChildren(
+          el("span", { class: "chip chip--ghost" }, "excluded"));
+        toast.success("Excluded from gold.", { detail: `${d.unitId} counts toward no agreement statistic and no gold label${res?.status === "complete" ? " · gold set complete" : ""}`, data: true });
+      } catch (err) {
+        toast.error("Exclusion failed.", { detail: String(err.message ?? err) });
+      }
+    };
 
     row.append(
       quoteHost,
       el("div", { class: "adjrow__labels" },
-        ...Object.entries(d.labels ?? {}).map(([coderId, label]) =>
-          el("button", {
-            class: "adjpick", type: "button", title: `Adopt ${coderId}'s label`,
-            onclick: () => decide(label),
-            disabled: Boolean(d.resolved),
-          },
-            el("span", { class: "chip chip--gold" }, coderId),
-            el("span", { class: "adjpick__label" }, label))),
+        ...Object.entries(d.labels ?? {}).map(([coderId, label]) => label === UNCODABLE
+          // a can't-code mark is not adoptable as gold — pick the other label,
+          // enter one, or exclude the unit
+          ? el("button", {
+              class: "adjpick", type: "button", disabled: true,
+              title: `${coderId} could not code this unit — adopt the other label, enter one, or exclude it from gold`,
+            },
+              el("span", { class: "chip chip--gold" }, coderId),
+              el("span", { class: "adjpick__label" }, "can't code"))
+          : el("button", {
+              class: "adjpick", type: "button", title: `Adopt ${coderId}'s label`,
+              onclick: () => decide(label),
+              disabled: settledNow,
+            },
+              el("span", { class: "chip chip--gold" }, coderId),
+              el("span", { class: "adjpick__label" }, label))),
         el("span", { class: "adjrow__final" },
-          d.resolved ? el("span", { class: "chip chip--gold" }, `final: ${d.resolved}`) : null),
-        !d.resolved
+          d.excluded
+            ? el("span", { class: "chip chip--ghost" }, "excluded")
+            : d.resolved ? el("span", { class: "chip chip--gold" }, `final: ${d.resolved}`) : null),
+        !settledNow
           ? el("span", { class: "adjrow__enter" },
               finalInput,
               el("button", {
                 class: "btn", type: "button",
                 onclick: () => { if (finalInput.value.trim()) decide(finalInput.value.trim()); },
-              }, "Set"))
+              }, "Set"),
+              el("button", {
+                class: "btn btn--quiet", type: "button",
+                title: "Drop this unit from the gold set — it will count toward no agreement statistic and no gold label",
+                onclick: () => exclude(),
+              }, "Exclude from gold"))
           : null),
     );
     return row;
   };
 
-  for (const d of [...open, ...resolved]) queueEl.append(drawRow(d));
+  for (const d of [...open, ...settled]) queueEl.append(drawRow(d));
 
   if (construct?.categories?.length) {
     host.append(el("p", { class: "screen__hint faint" },
