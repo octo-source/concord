@@ -6,8 +6,9 @@
 //   - routes mutate projects ONLY through store.updateProject;
 //   - cost roll-up is the route layer's job: addSpend()/withDirectorSpend()
 //     accumulate project.budget.spentUSD after each costed operation;
-//   - gold labels are "adjudicated-or-consensus": an adjudicated label wins,
-//     else a unit's label is the coders' unanimous verdict, else no gold;
+//   - gold labels are "adjudicated-or-consensus": an adjudicated label wins;
+//     else a unit is gold only when ≥2 coders cast identical label votes and
+//     no coder holds a can't-code mark on it; else no gold;
 //   - agreement reports pass the construct's declared category order into
 //     order-sensitive statistics (ordinal α / weighted κ / AC2).
 import path from "node:path";
@@ -225,6 +226,13 @@ export async function readGoldset(slug, goldsetId) {
 
 // adjudicated-or-consensus gold labels: Map unitId → label.
 //
+// THE CONSENSUS RULE: an adjudicated label always wins. Otherwise a unit is
+// gold only when ≥2 coders cast label votes, every vote is identical, AND no
+// coder holds a can't-code mark on the unit. A single coder's vote is not
+// consensus — one voice corroborates nothing. A label opposed by another
+// coder's can't-code mark is an OPEN disagreement (it sits in the
+// adjudication queue) and belongs to the adjudicator, not the gold standard.
+//
 // NOTE on human-queue rows: the goldsets queue route appends sample rows of
 // the form {unitId, pi: null, queued: true}. Their labels DO appear here —
 // plain agreement needs no π — but they must NEVER become DSL gold rows
@@ -237,24 +245,27 @@ export async function readGoldset(slug, goldsetId) {
 // {exclude: true} — the uncodable disposition's terminal state). They are
 // skipped HERE, the single gold assembly point, so every consumer — freeze
 // calibration, machine-vs-gold agreement, drift checks and DSL correction
-// rows (via analyses goldFor) — drops them together. Note coders' uncodable
-// marks (coders[].uncodable) do NOT remove a unit by themselves: the other
-// coders' labels can still carry a consensus until adjudication decides.
+// rows (via analyses goldFor) — drops them together.
 export function goldLabelMap(goldset) {
   const out = new Map();
   const excluded = new Set(goldset.excluded ?? []);
   const sampleIds = (goldset.sample ?? []).map((s) => s.unitId).filter((id) => !excluded.has(id));
-  const coders = (goldset.coders ?? []).filter((c) => c.labels && Object.keys(c.labels).length > 0);
+  const coders = goldset.coders ?? [];
+  const labelers = coders.filter((c) => c.labels && Object.keys(c.labels).length > 0);
+  const cantCode = (c, unitId) =>
+    (Array.isArray(c.uncodable) ? c.uncodable.includes(unitId) : Boolean(c.uncodable?.[unitId]));
   for (const unitId of sampleIds) {
     const adj = goldset.adjudicated?.[unitId];
     if (adj !== undefined) {
       out.set(unitId, adj);
       continue;
     }
-    const votes = coders.map((c) => c.labels[unitId]).filter((v) => v !== undefined);
-    if (votes.length === 0) continue;
+    const votes = labelers.map((c) => c.labels[unitId]).filter((v) => v !== undefined);
+    if (votes.length < 2) continue; // a single voice is not consensus
     const first = labelKey(votes[0]);
-    if (votes.every((v) => labelKey(v) === first)) out.set(unitId, votes[0]);
+    if (!votes.every((v) => labelKey(v) === first)) continue;
+    if (coders.some((c) => cantCode(c, unitId))) continue; // can't-code vs label → adjudicate
+    out.set(unitId, votes[0]);
   }
   return out;
 }
@@ -352,9 +363,11 @@ export function finalJurorOf(instrument) {
 }
 
 // One final verdict per unit out of a run's output lines (the judge line, or
-// the aggregate line for panels).
+// the aggregate line for panels). Keyed on the hash the run RAN under —
+// the instrument's current hash drifts on unfrozen edits and would blank
+// past runs' finals.
 export async function readFinalOutputs(slug, run, instrument) {
-  const fin = finalJurorOf(instrument);
+  const fin = instrument.kind === "panel" ? "aggregate" : (run?.versionHash ?? instrument.versionHash);
   return readNdjson(runOutputsFile(slug, run.id), { filter: (o) => o.juror === fin });
 }
 

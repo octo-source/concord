@@ -28,9 +28,12 @@ import * as engineMod from "../runs/engine.js";
 import {
   findOr404, requireBody, pdirOf, readCorpusUnits, unitsById, metaColumnNames,
   goldsetFile, readGoldset, goldLabelMap, agreementReport, statValue,
-  finalsOf, addSpend, writeJsonAtomic, readNdjson, runOutputsFile, finalJurorOf,
+  finalsOf, addSpend, writeJsonAtomic, readNdjson, runOutputsFile,
   validateName,
 } from "./_shared.js";
+import { finalJurorOfRun } from "../runs/engine.js";
+import { bootstrapCI } from "../stats/boot.js";
+import { krippendorffAlpha } from "../stats/agreement.js";
 
 // ------------------------------------------------------------ persistence
 
@@ -149,8 +152,13 @@ function srsSample(units, n, seed) {
   return seededShuffle(units, seed).slice(0, take).map((u) => ({ unitId: u.id, pi }));
 }
 
-// Proportional allocation (largest remainder) within meta-key strata;
-// π is per-stratum: taken_h / N_h.
+// Proportional allocation (largest remainder) within meta-key strata, with a
+// MIN-1 floor: every non-empty stratum takes at least one unit, so the design
+// actually guarantees the coverage the screens promise ("every <column> value
+// appears"). The floor is funded by walking units back from the largest
+// allocations, so big strata absorb the cost. π stays per-stratum taken_h/N_h
+// — the floor changes take_h, never the π bookkeeping. When n cannot cover
+// every stratum, refuse loudly rather than silently dropping strata.
 function stratifiedSample(units, n, by, seed) {
   const strata = new Map();
   for (const u of units) {
@@ -162,6 +170,13 @@ function stratifiedSample(units, n, by, seed) {
   const entries = [...strata.entries()].sort((a, b) => (a[0] < b[0] ? -1 : 1));
   const total = units.length;
   const target = Math.min(n, total);
+  if (target < entries.length) {
+    throw new ConcordError(
+      "VALIDATION",
+      `n = ${target} cannot cover the ${entries.length} "${by}" strata — raise n to at least ${entries.length} so every stratum appears`,
+      { n: target, strata: entries.length, by },
+    );
+  }
   const alloc = entries.map(([key, members]) => {
     const exact = (target * members.length) / total;
     return { key, members, take: Math.floor(exact), frac: exact - Math.floor(exact) };
@@ -173,6 +188,24 @@ function stratifiedSample(units, n, by, seed) {
       a.take += 1;
       assigned += 1;
     }
+  }
+  // min-1 floor: lift every zero-take stratum to one unit…
+  for (const a of alloc) {
+    if (a.take === 0) {
+      a.take = 1;
+      assigned += 1;
+    }
+  }
+  // …and walk the surplus back from the largest allocations (ties resolve in
+  // key order — deterministic for a given corpus and column).
+  while (assigned > target) {
+    let donor = null;
+    for (const a of alloc) {
+      if (a.take >= 2 && (donor === null || a.take > donor.take)) donor = a;
+    }
+    if (!donor) break; // every stratum at 1 → assigned === #strata ≤ target
+    donor.take -= 1;
+    assigned -= 1;
   }
   const sample = [];
   for (const a of alloc) {
@@ -198,8 +231,11 @@ async function uncertaintySample(project, gs, units, n, seed) {
     .sort((a, b) => String(b.startedAt ?? "").localeCompare(String(a.startedAt ?? "")));
   for (const run of runs) {
     const inst = instruments.find((i) => i.id === run.instrumentId);
+    // keyed on the hash the run RAN under — an unfrozen instrument edited
+    // after the run must not silently empty the uncertainty candidate pool
+    const fin = finalJurorOfRun(run, inst);
     const outputs = await readNdjson(runOutputsFile(project.slug, run.id), {
-      filter: (o) => o.juror === finalJurorOf(inst),
+      filter: (o) => o.juror === fin,
     }).catch(() => []);
     if (outputs.length === 0) continue;
     for (const o of outputs) {
@@ -242,16 +278,25 @@ function progressView(gs, coderId) {
   return { coderId, done, uncodable, total, remaining: total - done, flagged: entry?.flagged?.length ?? 0 };
 }
 
-// The blind payload: the requesting coder's progress, the codebook entry, and
-// ONE unlabeled unit (id + text + source position — no metadata, no flags, no
-// machine output, no other coder anywhere on this code path).
-export async function coderNextView(slug, goldsetId, coderId) {
+// The blind payload: the requesting coder's progress, the codebook entry
+// (including the construct's worked examples — authored codebook content the
+// model coder already receives, so human coders read the same instrument),
+// and ONE unlabeled unit (id + text + source position — no metadata, no
+// flags, no machine output, no other coder anywhere on this code path).
+//
+// {queue: true} (the studio sprint's route) additionally returns `remaining`:
+// the SAME blind fields ({id, text, pos}) for every unit still in this
+// coder's queue, in sample order, so the in-app sprint can offer j/k travel
+// without ever touching an unblinded unit source. The restricted coder
+// listener keeps the lean one-unit contract.
+export async function coderNextView(slug, goldsetId, coderId, { queue = false } = {}) {
   const project = await loadProject(slug);
   findOr404(project.goldsets, goldsetId, "gold set");
   const gs = await readGoldset(slug, goldsetId);
   const entry = (gs.coders ?? []).find((c) => c.coderId === coderId);
   const finished = new Set([...Object.keys(entry?.labels ?? {}), ...Object.keys(entry?.uncodable ?? {})]);
-  const nextId = (gs.sample ?? []).map((s) => s.unitId).find((id) => !finished.has(id)) ?? null;
+  const remainingIds = (gs.sample ?? []).map((s) => s.unitId).filter((id) => !finished.has(id));
+  const nextId = remainingIds[0] ?? null;
 
   const construct = (project.constructs ?? []).find((c) => c.id === gs.constructId) ?? null;
   const codebook = construct ? {
@@ -260,18 +305,59 @@ export async function coderNextView(slug, goldsetId, coderId) {
     definition: construct.definition,
     criteria: construct.criteria,
     edgeCases: construct.edgeCases,
+    ...(construct.examples?.length ? { examples: construct.examples } : {}),
     ...(construct.categories ? { categories: construct.categories } : {}),
     ...(construct.scale ? { scale: construct.scale } : {}),
   } : null;
 
-  if (!nextId) return { unit: null, construct: codebook, progress: progressView(gs, coderId) };
-  const found = await unitsById(project, [nextId], { corpusId: gs.corpusId });
-  const u = found.get(nextId);
-  return {
-    unit: u ? { id: u.id, text: u.text, pos: u.pos ?? null } : { id: nextId, text: null, pos: null },
-    construct: codebook,
-    progress: progressView(gs, coderId),
-  };
+  const progress = progressView(gs, coderId);
+  if (!nextId) {
+    return { unit: null, construct: codebook, progress, ...(queue ? { remaining: [] } : {}) };
+  }
+  const blindUnit = (id, u) => (u ? { id: u.id, text: u.text, pos: u.pos ?? null } : { id, text: null, pos: null });
+  if (!queue) {
+    const found = await unitsById(project, [nextId], { corpusId: gs.corpusId });
+    return { unit: blindUnit(nextId, found.get(nextId)), construct: codebook, progress };
+  }
+  const found = await unitsById(project, remainingIds, { corpusId: gs.corpusId });
+  const remaining = remainingIds.map((id) => blindUnit(id, found.get(id)));
+  return { unit: remaining[0], construct: codebook, progress, remaining };
+}
+
+// New human verdicts must be utterable in the construct's label space — a
+// typo'd gold label forks the category space for every downstream consumer
+// (machine-vs-gold agreement, DSL correction, reliability). Categories
+// validate by value (arrays element-wise for multilabel); continuous
+// validates against the declared scale bounds; extraction and other free
+// types stay unvalidated. Only NEW submissions pass through here — stored
+// labels are never retro-validated.
+function validateLabelForConstruct(construct, label, what = "label") {
+  if (!construct) return;
+  const cats = construct.categories;
+  if (Array.isArray(cats) && cats.length > 0) {
+    const values = cats.map((c) => String(c.value));
+    for (const v of Array.isArray(label) ? label : [label]) {
+      if (!values.includes(String(v))) {
+        throw new ConcordError(
+          "VALIDATION",
+          `${what} "${v}" is not a category of "${construct.name}" — valid labels: ${values.join(", ")}`,
+          { label: v, valid: values },
+        );
+      }
+    }
+    return;
+  }
+  if (construct.type === "continuous" && construct.scale) {
+    const num = Number(label);
+    const { min, max } = construct.scale;
+    if (!Number.isFinite(num) || num < min || num > max) {
+      throw new ConcordError(
+        "VALIDATION",
+        `${what} "${label}" is outside the scale of "${construct.name}" — enter a number between ${min} and ${max}`,
+        { label, min, max },
+      );
+    }
+  }
 }
 
 // A submission is exactly one disposition: a label, or uncodable: true (the
@@ -291,9 +377,13 @@ export async function submitCoderLabel(slug, goldsetId, { coder, unitId, label, 
     throw new ConcordError("VALIDATION", "label submission requires a label (or uncodable: true)", {});
   }
   let progress;
-  await mutateGoldset(slug, goldsetId, (gs) => {
+  await mutateGoldset(slug, goldsetId, (gs, p) => {
     if (!(gs.sample ?? []).some((s) => s.unitId === unitId)) {
       throw new ConcordError("VALIDATION", `unit '${unitId}' is not part of this gold set's sample`, { unitId });
+    }
+    if (!uncodable) {
+      const construct = (p.constructs ?? []).find((c) => c.id === gs.constructId) ?? null;
+      validateLabelForConstruct(construct, label, "label");
     }
     const entry = coderEntry(gs, coder);
     if (uncodable) {
@@ -504,7 +594,14 @@ export default [
       const units = await readCorpusUnits(params.p, corpusId);
       if (units.length === 0) throw new ConcordError("VALIDATION", `corpus '${corpusId}' has no units`, { corpusId });
 
-      const seed = `sample|${params.g}|${design}|${n}`;
+      // The seed carries a persisted per-goldset draw counter so a redraw
+      // with unchanged parameters actually draws a NEW sample (the discard
+      // dialog says "drawing a new sample" — it must be true). Draw 0 omits
+      // the salt, keeping first draws bit-identical to the historical seed.
+      const drawIndex = Number.isInteger(current.sampleDraws) && current.sampleDraws > 0
+        ? current.sampleDraws
+        : 0;
+      const seed = `sample|${params.g}|${design}|${n}${drawIndex > 0 ? `|draw${drawIndex}` : ""}`;
       let sample;
       if (design === "srs") {
         sample = srsSample(units, n, seed);
@@ -554,6 +651,7 @@ export default [
         g.corpusId = corpusId;
         g.sample = sample;
         g.status = "coding";
+        g.sampleDraws = drawIndex + 1; // salt for the NEXT draw with these params
       });
       const pis = [...new Set(sample.map((s) => s.pi))];
       if (discarded) {
@@ -607,12 +705,16 @@ export default [
     },
   },
   {
+    // The studio sprint's unit source: blind by construction (coderNextView),
+    // WITH the remaining-queue extension so the sprint can travel j/k without
+    // an unblinded fetch. The restricted coder listener (coderRoutes above)
+    // keeps the lean one-unit payload.
     method: "GET",
     pattern: "/api/projects/:p/goldsets/:g/next",
     handler: async (req, res, params) => {
       const coder = req.query.coder;
       if (!coder) throw new ConcordError("VALIDATION", "next requires ?coder=<coderId>", {});
-      return coderNextView(params.p, params.g, coder);
+      return coderNextView(params.p, params.g, coder, { queue: true });
     },
   },
   {
@@ -633,7 +735,12 @@ export default [
       findOr404(project.goldsets, params.g, "gold set");
       const gsBefore = await readGoldset(params.p, params.g);
       const construct = (project.constructs ?? []).find((c) => c.id === gsBefore.constructId) ?? null;
-      const coders = (gsBefore.coders ?? []).filter((c) => Object.keys(c.labels ?? {}).length > 0);
+      // Adjudicator-excluded units are out of the gold standard AND out of
+      // every agreement statistic ("counts toward no agreement statistic and
+      // no gold label") — drop their labels before anything is computed.
+      const excludedIds = new Set(gsBefore.excluded ?? []);
+      const coders = (gsBefore.coders ?? []).filter((c) =>
+        Object.keys(c.labels ?? {}).some((unitId) => !excludedIds.has(unitId)));
       if (coders.length < 2) {
         throw new ConcordError("VALIDATION", "agreement needs at least two coders with labels", { coders: coders.length });
       }
@@ -645,20 +752,37 @@ export default [
       const humanRows = [];
       for (const c of coders) {
         for (const [unitId, label] of Object.entries(c.labels)) {
+          if (excludedIds.has(unitId)) continue;
           humanRows.push({ unitId, coder: c.coderId, value: statValue(label) });
         }
       }
       const humanAgreement = agreementReport(humanRows, construct, {
         pairCoders: coders.length === 2 ? [coders[0].coderId, coders[1].coderId] : undefined,
       });
+      // Percentile bootstrap CI for the headline α over the same human rows
+      // (boot.js resamples units; its default B bounds the work). Degenerate
+      // row sets (too few units, too many degenerate replicates) simply carry
+      // no interval — the point estimate stands alone.
+      const alphaLevel = construct?.type === "ordinal" ? "ordinal"
+        : construct?.type === "continuous" ? "interval" : "nominal";
+      const order = construct?.categories?.map((c) => String(c.value));
+      try {
+        humanAgreement.ci = bootstrapCI(humanRows, (rows) => krippendorffAlpha(rows, {
+          level: alphaLevel,
+          ...(alphaLevel !== "nominal" && order ? { order } : {}),
+        }), { seed: parseInt(sha256(`bootci|${params.g}`).slice(0, 8), 16) });
+      } catch { /* no interval — never block the report */ }
       // Disclosure counts for the report, certificate and methods prose:
       // uncodableUnits = sample units ≥1 coder marked uncodable;
       // excludedFromAgreement = sample units with <2 codable labels (they
       // cannot form an agreement pair and are surfaced for adjudication).
+      // Adjudicator-excluded units are out of both — they are disclosed by
+      // the goldset's own excluded count, not double-counted here.
       const allCoders = gsBefore.coders ?? [];
       let uncodableUnits = 0;
       let excludedFromAgreement = 0;
       for (const s of gsBefore.sample ?? []) {
+        if (excludedIds.has(s.unitId)) continue;
         if (allCoders.some((c) => c.uncodable?.[s.unitId])) uncodableUnits += 1;
         if (allCoders.filter((c) => c.labels?.[s.unitId] !== undefined).length < 2) excludedFromAgreement += 1;
       }
@@ -748,9 +872,15 @@ export default [
         throw new ConcordError("VALIDATION", "adjudication requires a label (or exclude: true)", {});
       }
       let completedNow = false;
-      const gs = await mutateGoldset(params.p, params.g, (g) => {
+      const gs = await mutateGoldset(params.p, params.g, (g, p) => {
         if (!(g.sample ?? []).some((s) => s.unitId === body.unitId)) {
           throw new ConcordError("VALIDATION", `unit '${body.unitId}' is not in this gold set's sample`, { unitId: body.unitId });
+        }
+        if (!exclude) {
+          // a typo'd gold label forks the category space downstream — refuse
+          // anything the construct cannot utter (categories / scale bounds)
+          const construct = (p.constructs ?? []).find((c) => c.id === g.constructId) ?? null;
+          validateLabelForConstruct(construct, body.label, "adjudicated label");
         }
         if (exclude) {
           g.excluded = g.excluded ?? [];

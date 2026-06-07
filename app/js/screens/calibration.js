@@ -52,8 +52,10 @@ export function isExcluded(goldset, unitId) {
 
 /* The live goldset artifact carries no disagreement list — the queue is
    DERIVED: units where ≥2 coders gave verdicts (a label or an uncodable mark)
-   and split; resolved when an adjudicated label exists, settled also when the
-   adjudicator excluded the unit from gold.
+   and split, PLUS units where every verdict is can't-code — those can never
+   become consensus gold, so without a human disposition (a label or an
+   exclusion) they would block the set forever. Resolved when an adjudicated
+   label exists, settled also when the adjudicator excluded the unit from gold.
    {unitId, labels: {coderId: label | UNCODABLE}, resolved, excluded} */
 export function disagreementsOf(goldset) {
   const coders = (goldset.coders ?? []).map((c) => ({ rec: c, uncodable: uncodableSetOf(c) }))
@@ -65,8 +67,11 @@ export function disagreementsOf(goldset) {
       if (uncodable.has(s.unitId)) labels[rec.coderId] = UNCODABLE;
       else if (rec.labels?.[s.unitId] !== undefined) labels[rec.coderId] = rec.labels[s.unitId];
     }
-    const values = Object.values(labels).map((v) => JSON.stringify(v));
-    if (values.length >= 2 && new Set(values).size > 1) {
+    const verdicts = Object.values(labels);
+    const values = verdicts.map((v) => JSON.stringify(v));
+    const split = values.length >= 2 && new Set(values).size > 1;
+    const allUncodable = verdicts.length >= 1 && verdicts.every((v) => v === UNCODABLE);
+    if (split || allUncodable) {
       out.push({
         unitId: s.unitId,
         labels,
@@ -123,7 +128,7 @@ export function render(mount, params, query) {
           }
         },
       }),
-      lede: "Draw a sample, code it blind by hand, then compare: human–human agreement first, every instrument against the adjudicated gold after. This is what turns ◌ numbers into ● numbers.",
+      lede: "Draw a sample, code it blind by hand, then compare: human–human agreement first, every instrument against gold — units that are adjudicated, or that two or more coders labeled unanimously — after. This is what turns ◌ numbers into ● numbers.",
       actions: [coderLauncherBtn(params, goldset)],
     }));
 
@@ -154,7 +159,7 @@ export function render(mount, params, query) {
       }
       if (state.pane === "sample") samplePane(paneHost, params, goldset, construct, { columns, project });
       else if (state.pane === "code") codePane(paneHost, params, goldset, construct);
-      else if (state.pane === "test") testPane(paneHost, params, goldset);
+      else if (state.pane === "test") testPane(paneHost, params, goldset, construct);
       else adjudicatePane(paneHost, params, goldset, construct, disagreements);
     };
 
@@ -255,10 +260,18 @@ function samplePane(host, params, goldset, construct, { columns = [], project = 
       " units. Because the sample is drawn with known inclusion probabilities (π), agreement statistics and corrected estimates computed from it generalize to the whole corpus.")));
 
   if (goldset.sample?.length) {
+    // π varies by stratum under stratified designs — show the real range,
+    // never just the first row's value
+    const piValues = [...new Set(goldset.sample
+      .map((s) => s.pi)
+      .filter((x) => typeof x === "number" && Number.isFinite(x)))];
+    const piChipText = piValues.length === 0 ? "π = —"
+      : piValues.length === 1 ? `π = ${piValues[0]}`
+      : `π = ${fmtStat(Math.min(...piValues), 3)}–${fmtStat(Math.max(...piValues), 3)} by stratum`;
     host.append(section("Current sample",
       el("p", { class: "screen__hint" },
         el("span", { class: "data" }, fmtCount(goldset.sample.length)), ` units · design: ${goldset.design} · π stored per unit `,
-        el("span", { class: "chip chip--ghost data" }, `π = ${goldset.sample[0]?.pi ?? "—"}`)),
+        el("span", { class: "chip chip--ghost data" }, piChipText)),
       el("p", { class: "faint screen__hint" }, goldset.piNote ?? "Inclusion probabilities are stored at sampling time — they are what make design-based correction (◉) possible later.")));
   }
 
@@ -284,8 +297,8 @@ function samplePane(host, params, goldset, construct, { columns = [], project = 
         ` set the chance-agreement term (pe = ${fmtStat(pe)}).`)
     : el("p", { class: "screen__hint faint" },
         k === 2
-          ? `No run has measured this construct yet — assuming a 50/50 label split (pe = ${fmtStat(pe)}).`
-          : `No run has measured this construct yet — assuming uniform shares over ${k} categories (pe = ${fmtStat(pe)}).`);
+          ? `Planning assumes a 50/50 label split (pe = ${fmtStat(pe)}); a run's recorded label shares replace this once available.`
+          : `Planning assumes uniform shares over ${k} categories (pe = ${fmtStat(pe)}); a run's recorded label shares replace this once available.`);
 
   host.append(section("What a given n buys",
     precisionLive,
@@ -298,14 +311,14 @@ function samplePane(host, params, goldset, construct, { columns = [], project = 
     peLine,
     el("p", { class: "screen__hint faint" },
       "Planning approximation (Cohen 1960 large-sample SE", cite("cohen1960"), cite("donner1992"),
-      "); the Test pane reports exact bootstrap CIs after coding.")));
+      "); the Test pane reports bootstrap (percentile) CIs after coding.")));
 
   /* -- design — all three code a subset; π is recorded in every case -- */
   const strataExample = categoricalCols[0]?.name ?? "group";
   const designs = [
     { value: "srs", label: "Simple random", hint: "every unit equally likely — the cleanest π" },
-    { value: "stratified", label: "Stratified", hint: `guarantees coverage across a metadata split (e.g., every ${strataExample} appears); π varies by stratum, stored per unit`, needsColumns: true },
-    { value: "uncertainty", label: "Uncertainty", hint: "oversamples units the instrument is least sure about — efficient for finding failure modes; π still recorded" },
+    { value: "stratified", label: "Stratified", hint: `guarantees coverage across a metadata split (e.g., every ${strataExample} appears — n must be at least the number of groups); π varies by stratum, stored per unit`, needsColumns: true },
+    { value: "uncertainty", label: "Uncertainty", hint: "oversamples units the instrument is least sure about — efficient for finding failure modes; π still recorded. Not corpus-representative: π is recorded as nominal n/N over a deterministic ranking, so corrected estimates from this design are not design-unbiased. Use it for finding hard cases, not for correction." },
   ];
   const strataSelect = el("select", {
     class: "input input--inline", "aria-label": "Stratify by — the corpus's categorical columns",
@@ -373,13 +386,15 @@ function samplePane(host, params, goldset, construct, { columns = [], project = 
 
   /* The 409 CONFIRM_REQUIRED sheet: state exactly what exists (the server's
      counts ride error.details) and what proceeding does; "Keep labels" cancels,
-     the discard button repeats the draw with force: true. */
+     the discard button repeats the draw with force: true. The server's
+     `labels` count is per-coder handled units — labels AND can't-code marks —
+     so the sheet says "units handled", not "labels". */
   function confirmDiscardAndResample(err) {
     const d = err.details?.details ?? null; // ApiError.details = envelope error; its .details = counts
     const s_ = (k) => (k === 1 ? "" : "s");
     const parts = [];
     if (d) {
-      if (d.labels > 0) parts.push(`${d.labels} human label${s_(d.labels)} from ${d.coders} coder${s_(d.coders)}`);
+      if (d.labels > 0) parts.push(`${d.labels} unit${s_(d.labels)} handled (labels and can't-codes) by ${d.coders} coder${s_(d.coders)}`);
       if (d.adjudicated > 0) parts.push(`${d.adjudicated} adjudication${s_(d.adjudicated)}`);
       if (d.excluded > 0) parts.push(`${d.excluded} exclusion${s_(d.excluded)}`);
     }
@@ -397,13 +412,13 @@ function samplePane(host, params, goldset, construct, { columns = [], project = 
           toast.error("Sampling failed.", { detail: String(err2.message ?? err2) });
         }
       },
-    }, d?.labels > 0 ? `Discard ${d.labels} label${s_(d.labels)} and resample`
+    }, d?.labels > 0 ? `Discard ${d.labels} handled unit${s_(d.labels)} and resample`
       : d?.adjudicated > 0 ? `Discard ${d.adjudicated} adjudication${s_(d.adjudicated)} and resample`
         : "Discard coded work and resample");
     sheet.body.append(
       el("p", {}, what
-        ? `This gold set has ${what}. Drawing a new sample discards all of them.`
-        : String(err.message ?? "This gold set has committed coding work. Drawing a new sample discards it.")),
+        ? `This gold set has ${what}. Drawing a new sample discards all of it — memos and flags are wiped with the labels.`
+        : String(err.message ?? "This gold set has committed coding work. Drawing a new sample discards it, including memos and flags.")),
       el("p", { class: "screen__hint" },
         "The discard is written to the project ledger. To keep the coded units instead, keep the current sample and continue in the Code pane."),
     );
@@ -438,7 +453,7 @@ function codePane(host, params, goldset, construct) {
               c.finishedAt ? el("span", { class: "chip chip--ghost" }, "complete") : null,
               c.flagged?.length ? el("span", { class: "chip chip--signal data" }, `${c.flagged.length} flagged`) : null);
           }))
-      : el("p", { class: "faint" }, "No one has coded yet. Blindness is enforced by the server role, not by promise.")));
+      : el("p", { class: "faint" }, "No one has coded yet. The sprint reads units through the blind coder route — only unit text, the codebook, and your own progress reach this screen.")));
 
   const nameInput = el("input", { class: "input input--inline", placeholder: "coder id (e.g. sam)", "aria-label": "Coder id", value: continuingCoder(goldset) ?? "" });
   host.append(section("Begin",
@@ -464,15 +479,16 @@ function continuingCoder(goldset) {
 
 function startSprint(params, goldset, construct, coder) {
   const categories = construct?.categories ?? [];
-  const rec = (goldset.coders ?? []).find((c) => c.coderId === coder);
-  const labeled = new Set(Object.keys(rec?.labels ?? {}));
-  const uncodableMarks = uncodableSetOf(rec);
-  const sampleIds = goldset.sample.map((s) => s.unitId);
-  // handled = labeled OR marked can't-code; both leave the queue
-  const queue = sampleIds.filter((id) => !labeled.has(id) && !uncodableMarks.has(id));
   const total = goldset.sample.length;
-  let codedCount = sampleIds.filter((id) => labeled.has(id)).length;
-  let cantCount = sampleIds.filter((id) => uncodableMarks.has(id)).length;
+  /* The sprint's unit source is the BLIND coder route (GET goldsets/:g/next):
+     one fetch returns this coder's remaining queue as {id, text, pos} plus
+     the codebook and own progress — no machine output, no other coder, and
+     no adjudicated label is on that code path. Verdicts submit through the
+     same blind /label route. */
+  const queue = []; // remaining unit ids, in sample order — filled by loadQueue
+  const texts = new Map(); // unitId → {id, text, pos} from the blind payload
+  let codedCount = 0;
+  let cantCount = 0;
   let idx = 0;
   const session = { startedAt: Date.now(), labeled: 0 };
   const history = []; // for k (previous)
@@ -503,6 +519,14 @@ function startSprint(params, goldset, construct, coder) {
         : null,
       construct?.criteria?.exclude?.length
         ? el("p", { class: "sprint__defrule" }, el("strong", {}, "Exclude: "), construct.criteria.exclude.join(" · "))
+        : null,
+      // the worked examples the model coder receives, word for word — human
+      // coders read the same instrument (collapsed: glance, don't lean)
+      construct?.examples?.length
+        ? el("details", { class: "sprint__defexamples" },
+            el("summary", { class: "sprint__defsummary" }, `Worked examples (${construct.examples.length})`),
+            ...construct.examples.map((ex) => el("p", { class: "sprint__defrule" },
+              el("strong", {}, `${ex.label}: `), ex.text)))
         : null,
       el("p", { class: "sprint__defrule" },
         kbd("u"), " marks a unit as uncodable — it is excluded from agreement statistics and queued for adjudication.")));
@@ -545,23 +569,29 @@ function startSprint(params, goldset, construct, coder) {
     return queue[idx];
   }
 
-  async function drawUnit() {
+  // One blind fetch fills the whole queue; drawUnit then renders locally.
+  // The evidence dossier is NOT used here on purpose — it carries machine
+  // labels, other coders' labels and the adjudicated label.
+  async function loadQueue() {
+    const view = await api.goldsets.next(params.slug, goldset.id, coder);
+    cantCount = view.progress?.uncodable ?? 0;
+    codedCount = Math.max(0, (view.progress?.done ?? 0) - cantCount);
+    for (const u of view.remaining ?? (view.unit ? [view.unit] : [])) {
+      queue.push(u.id);
+      texts.set(u.id, u);
+    }
+    paintProgress();
+    drawUnit();
+  }
+
+  function drawUnit() {
     clear(unitHost);
     flagged = false;
     memoText = "";
     const id = currentUnitId();
     if (!id) { complete(); return; }
     unitHost.append(el("p", { class: "faint data sprint__unitid" }, id));
-    try {
-      // scope the dossier to THIS gold set's corpus so the coder reads the
-      // column under analysis — not whichever corpus shares the id first
-      const dossier = await api.evidence.get(params.slug, id, { corpusId: goldset.corpusId });
-      const u = dossier?.unit ?? { id, text: "(unit unavailable)" };
-      // blind: only the text and position — no machine readings, no meta that biases
-      unitHost.append(el("blockquote", { class: "sprint__text", lang: dossier?.lang || undefined }, u.text));
-    } catch {
-      unitHost.append(el("blockquote", { class: "sprint__text" }, "(unit text unavailable)"));
-    }
+    unitHost.append(el("blockquote", { class: "sprint__text" }, texts.get(id)?.text ?? "(unit text unavailable)"));
   }
 
   async function label(value) {
@@ -662,17 +692,26 @@ function startSprint(params, goldset, construct, coder) {
     window.dispatchEvent(new HashChangeEvent("hashchange"));
   }
 
-  function complete() {
+  async function complete() {
     // the quiet flourish: the rule fills, the room exhales, one line in Fraunces italic
     progressFill.style.width = "100%";
     const minutes = Math.max(1, Math.round((Date.now() - session.startedAt) / 60000));
     clear(unitHost);
     root.querySelector(".sprint__keys")?.remove();
     defPanel.remove();
-    unitHost.append(el("div", { class: "sprint__done" },
-      el("p", { class: "sprint__doneline" }, `Gold set complete · ${minutes} min`),
-      el("p", { class: "sprint__donesub faint" }, `${session.labeled} units this session as ${coder}.`),
-      el("button", {
+    // an empty queue means THIS coder's pass is done — the SET is complete
+    // only when every unit is gold or excluded, so name the moment honestly
+    let fresh = goldset;
+    try { fresh = await api.goldsets.get(params.slug, goldset.id); } catch { /* stale copy is still honest about status */ }
+    const codersWithLabels = (fresh.coders ?? []).filter((c) => Object.keys(c.labels ?? {}).length > 0);
+    const headline = fresh.status === "complete" ? "Gold set complete" : "Your coding pass is complete";
+    const done = el("div", { class: "sprint__done" },
+      el("p", { class: "sprint__doneline" }, `${headline} · ${minutes} min`),
+      el("p", { class: "sprint__donesub faint" },
+        `${session.labeled} units this session as ${coder}. Gold set status: ${fresh.status}.`));
+    if (codersWithLabels.length >= 2) {
+      // agreement computes only when two coders' labels overlap
+      done.append(el("button", {
         class: "btn btn--primary", type: "button",
         onclick: () => {
           teardown();
@@ -680,11 +719,22 @@ function startSprint(params, goldset, construct, coder) {
           location.hash = `#/p/${params.slug}/goldsets/${goldset.id}?pane=test`;
           window.dispatchEvent(new HashChangeEvent("hashchange"));
         },
-      }, "See the agreement")));
+      }, "See the agreement"));
+    } else {
+      done.append(
+        el("p", { class: "sprint__donesub faint" },
+          "Agreement needs labels from a second coder — waiting on the second coder."),
+        el("button", { class: "btn", type: "button", onclick: () => leave() }, "Back to the studio"));
+    }
+    unitHost.append(done);
     unitHost.querySelector("button")?.focus();
   }
 
-  drawUnit();
+  unitHost.append(el("p", { class: "faint", role: "status" }, "loading the blind queue…"));
+  loadQueue().catch((err) => {
+    toast.error("Could not load the coding queue.", { detail: String(err.message ?? err) });
+    leave();
+  });
 }
 
 function kbd(k) {
@@ -694,16 +744,20 @@ function kbd(k) {
 /* ================= Test ================================================================ */
 
 // Live report (GET goldsets/:g/agreement):
-//   humanAgreement: {n, coders, percent, kappa, alpha, ac1, confusion?, labels?}
+//   humanAgreement: {n, coders, percent, kappa, alpha, ac1, ci?, confusion?,
+//                    labels?, uncodableUnits, excludedFromAgreement}
 //   perInstrument:  [{instrumentId, name, kind, level, versionHash,
 //                     agreement: {n, coders, percent, kappa, alpha, ac1,
 //                     perClass, confusion?, labels?}} | {…, error: {code,
 //                     message}}]
-//   goldLabeled:    count of adjudicated-or-consensus gold units
-function testPane(host, params, goldset) {
+//   goldLabeled:    count of gold units (adjudicated, or ≥2 coders unanimous)
+function testPane(host, params, goldset, construct) {
   const wrap = el("div", {});
   host.append(wrap);
   wrap.append(el("p", { class: "faint", role: "status" }, "computing agreement…"));
+
+  // ordinal κ is linear-weighted (the server's convention) — label it so
+  const kappaLabel = construct?.type === "ordinal" ? "κw (linear)" : "κ";
 
   api.goldsets.agreement(params.slug, goldset.id)
     .then((report) => {
@@ -720,18 +774,25 @@ function testPane(host, params, goldset) {
       wrap.append(el("div", { class: "humanbanner" },
         el("p", { class: "overline humanbanner__label" }, "Human–human agreement · computed before any machine comparison"),
         el("p", { class: "humanbanner__stat" },
-          el("span", { class: "humanbanner__big data" }, `κ = ${fmtStat(h.kappa)}`),
+          el("span", { class: "humanbanner__big data" }, `${kappaLabel} = ${fmtStat(h.kappa)}`),
           el("span", { class: "humanbanner__big data" }, `α = ${fmtStat(h.alpha)}`),
           el("span", { class: "data faint" }, `${fmtStat(h.percent)} raw agree · n = ${h.n ?? "—"} · ${(h.coders ?? []).join(" + ")}`)),
-        benchmarkBand(h.alpha),
+        h.ci
+          ? el("p", { class: "data faint humanbanner__ci" },
+              `α 95% CI [${fmtStat(h.ci.lo)}, ${fmtStat(h.ci.hi)}] — bootstrap (percentile)`)
+          : null,
+        benchmarkBand(h.alpha, h.ci),
         el("p", { class: "humanbanner__note faint" }, "Low human agreement is a construct problem before it is anyone's instrument problem.")));
 
-      /* -- uncodable units sit outside every statistic above -- */
+      /* -- can't-code marks sit outside every statistic above -- */
       const uncodableUnits = h.uncodableUnits ?? report.uncodableUnits ?? 0;
       if (uncodableUnits > 0) {
+        const dropped = h.excludedFromAgreement ?? 0;
         wrap.append(el("p", { class: "screen__hint faint" },
           el("span", { class: "data" }, fmtCount(uncodableUnits)),
-          ` unit${uncodableUnits === 1 ? "" : "s"} marked uncodable by at least one coder — excluded from these statistics.`));
+          ` unit${uncodableUnits === 1 ? "" : "s"} carry a can't-code mark — those marks contribute no agreement rows; a unit drops out entirely only when fewer than two coders labeled it (`,
+          el("span", { class: "data" }, fmtCount(dropped)),
+          ` dropped here).`));
       }
 
       /* -- per-instrument columns -- */
@@ -747,7 +808,7 @@ function testPane(host, params, goldset) {
         const col = el("section", { class: "testcol" },
           el("h3", { class: "testcol__name" }, inst.name, " ", ladderC.render({ level: inst.level, size: "sm" })),
           el("p", { class: "testcol__stats data" },
-            `κ ${fmtStat(a.kappa)} · α ${fmtStat(a.alpha)} · AC1 ${fmtStat(a.ac1)} · ${fmtStat(a.percent)} agree`),
+            `${kappaLabel} ${fmtStat(a.kappa)} · α ${fmtStat(a.alpha)} · AC1 ${fmtStat(a.ac1)} · ${fmtStat(a.percent)} agree`),
           a.perClass?.length
             ? el("table", { class: "table table--mini" },
                 el("caption", { class: "sr-only" }, `${inst.name} per-class metrics`),
@@ -767,7 +828,7 @@ function testPane(host, params, goldset) {
             ? confusion.render({
                 labels: a.labels ?? [],
                 matrix: a.confusion,
-                caption: `${inst.name} vs adjudicated gold (n = ${a.n})`,
+                caption: `${inst.name} vs gold — adjudicated, or ≥2 coders unanimous (n = ${a.n})`,
               })
             : null,
         );
@@ -777,7 +838,7 @@ function testPane(host, params, goldset) {
         el("p", { class: "screen__hint faint" },
           "AC1 rides beside κ and α because it stays stable under prevalence paradoxes — skewed label shares that crater κ", cite("gwet2014"), "."),
         report.goldLabeled !== undefined
-          ? el("p", { class: "faint screen__hint data" }, `${fmtCount(report.goldLabeled)} gold units (adjudicated or consensus) backed this comparison`)
+          ? el("p", { class: "faint screen__hint data" }, `${fmtCount(report.goldLabeled)} gold units (adjudicated, or ≥2 coders unanimous with no can't-code mark) backed this comparison`)
           : null));
     })
     .catch((err) => {
@@ -832,14 +893,14 @@ function adjudicatePane(host, params, goldset, construct, disagreements = []) {
 
   if (!disagreements.length) {
     host.append(emptyState({
-      title: "No disagreements.",
-      body: "When two coders split on a unit — including one saying can't code where the other labeled — it queues here for the final human word.",
+      title: "Nothing to adjudicate.",
+      body: "Split verdicts — including one coder saying can't code where another labeled — and units everyone marked can't-code queue here for the final human word: assign a label or exclude the unit from gold.",
     }));
     return;
   }
 
   const queueEl = el("div", { class: "adjqueue" });
-  host.append(section(`Disagreement queue · ${open.length} open`, queueEl));
+  host.append(section(`Adjudication queue · ${open.length} open`, queueEl));
 
   const drawRow = (d) => {
     const settledNow = Boolean(d.resolved || d.excluded);
@@ -949,7 +1010,10 @@ function openCoderSheet(params, goldset) {
   const out = el("div", { class: "codersession", aria: { live: "polite" } });
 
   s.body.append(
-    el("p", {}, "A coder session serves ", el("strong", {}, "only"), " the coding screen. Machine labels and other coders' labels are stripped server-side — blindness is enforced by the role, not by convention."),
+    el("p", {}, "A coder session starts a second listener on this machine that answers ",
+      el("strong", {}, "only"), " the blind /api/coder/* API for one coder on this gold set: next unit, label submission, progress. Machine output, other coders' labels and adjudications are never on those code paths."),
+    el("p", { class: "screen__hint faint" },
+      "There is no human coding screen behind the URL yet (it is on the roadmap) — point a scripted or external coder client at it, or code in this studio's sprint, which uses the same blind route."),
     el("div", { class: "controlrow" },
       el("label", { class: "controlrow__item" }, el("span", { class: "overline" }, "coder"), input),
       el("button", {
@@ -965,12 +1029,12 @@ function openCoderSheet(params, goldset) {
             const session = await api.goldsets.coderSession(params.slug, goldset.id, coderId);
             clear(out).append(
               el("p", { class: "screen__hint" },
-                `Listener up for ${coderId}${session.existing ? " (already running)" : ""} — hand over this URL:`),
+                `Listener up for ${coderId}${session.existing ? " (already running)" : ""} — point the coder client at this URL:`),
               el("div", { class: "codeline" },
                 el("code", { class: "data" }, session.url),
                 copyBtn(session.url)),
               el("p", { class: "screen__hint faint" },
-                "It answers only /api/coder/* for this coder on this gold set."),
+                "It answers only /api/coder/* for this coder on this gold set, and binds 127.0.0.1 — the URL works only on this machine."),
               el("button", {
                 class: "btn btn--quiet", type: "button",
                 onclick: async (ev) => {

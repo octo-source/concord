@@ -1490,7 +1490,9 @@ test("reliability: pairwise matrix across instruments, gold and coders — κ/α
   armMock(); // restore the shared ORACLE for everything downstream
 
   // a third coder on a DISJOINT 12-unit slice (via the human queue): a
-  // qualifying source (≥10 labels) whose overlap with coder-A is 0
+  // qualifying source (≥10 labels) whose overlap with coder-A is 0. A fourth
+  // coder seconds every label — the consensus rule requires ≥2 unanimous
+  // votes before a unit is gold, so the slice still lands in the gold source.
   const gsC = await ok("POST", `/api/projects/${S.slug}/goldsets`, {
     constructId: S.constructId, tier: "gold", corpusId: S.corpusB,
   });
@@ -1499,9 +1501,11 @@ test("reliability: pairwise matrix across instruments, gold and coders — κ/α
   const slice = S.unitsB.filter((u) => !inGs1.has(u.id)).slice(0, 12);
   for (const u of slice) {
     await ok("POST", `/api/projects/${S.slug}/goldsets/${gsC.id}/queue`, { unitId: u.id });
-    await ok("POST", `/api/projects/${S.slug}/goldsets/${gsC.id}/label`, {
-      coder: "coder-C", unitId: u.id, label: ORACLE(u.text),
-    });
+    for (const coder of ["coder-C", "coder-C2"]) {
+      await ok("POST", `/api/projects/${S.slug}/goldsets/${gsC.id}/label`, {
+        coder, unitId: u.id, label: ORACLE(u.text),
+      });
+    }
   }
 
   const ledgerBefore = (await events()).length;
@@ -1523,7 +1527,7 @@ test("reliability: pairwise matrix across instruments, gold and coders — κ/α
   assert.equal(sInst1.level, "calibrated");
   const sGold = rel.sources.find((s) => s.key === "gold");
   assert.equal(sGold.kind, "gold");
-  assert.equal(sGold.n, 36, "24 adjudicated/consensus + 12 single-coder consensus units");
+  assert.equal(sGold.n, 36, "24 adjudicated/consensus + 12 two-coder consensus units");
   assert.equal(rel.sources.find((s) => s.key === "coder:coder-C").n, 12);
 
   // every source combination appears exactly once
@@ -2245,12 +2249,19 @@ test("goldsets: adjudicate exclude — the uncodable-split unit leaves gold and 
   await fail("POST", `/api/projects/${S.slug}/goldsets/${gsId}/adjudicate`,
     { unitId: "u_not_in_sample", exclude: true }, 400, "VALIDATION");
 
+  // ids[0] is a label-vs-can't-code conflict (uc-A marked it uncodable,
+  // uc-B labeled it) — under the consensus rule that is an OPEN disagreement,
+  // not gold, so it takes an adjudication before the set can complete
+  await ok("POST", `/api/projects/${S.slug}/goldsets/${gsId}/adjudicate`,
+    { unitId: ids[0], label: ORACLE(H.units.get(ids[0]).text) });
+
   // the one remaining disagreement (ids[1]) is resolved BY exclusion; every
-  // other unit already has consensus gold → the set auto-completes
+  // other unit is adjudicated or two-coder consensus gold → the set
+  // auto-completes
   const r = await ok("POST", `/api/projects/${S.slug}/goldsets/${gsId}/adjudicate`, { unitId: ids[1], exclude: true });
   assert.equal(r.status, "complete", "an excluded unit counts as resolved");
   assert.equal(r.excluded, 1);
-  assert.equal(r.adjudicated, 0);
+  assert.equal(r.adjudicated, 1, "the conflict adjudication above");
 
   const gs = await ok("GET", `/api/projects/${S.slug}/goldsets/${gsId}`);
   assert.deepEqual(gs.excluded, [ids[1]]);
