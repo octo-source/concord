@@ -6,8 +6,8 @@ READ THIS FIRST when resuming. Companion docs: `docs/plans/2026-06-05-concord-v1
 
 ## State
 
-- ~56 commits, **710/711 tests green** (`npm test`; 1 intentional skip: reporting artifact dump). Route suite
-  lives at `tests/unit/routes.test.js`; wave-1 feature tests at `tests/server/*.test.js` (dir created 06-06).
+- ~65 commits, **777/778 tests green** (`npm test`; 1 intentional skip: reporting artifact dump). Route suite
+  lives at `tests/unit/routes.test.js`; feature/audit tests at `tests/server/*.test.js`.
 - Server: run DETACHED — `Start-Process cmd "/c node server\index.js > server-boot.log 2>&1" -WorkingDirectory <repo> -WindowStyle Hidden`. Kill prior port owners first (`Get-NetTCPConnection -LocalPort 7341`). Listens on 127.0.0.1 AND ::1. start.bat = the user's entry. NEVER serve via the preview tool (its servers get reaped → zombies).
 - After every server change: restart detached + tell Ethan to FULL-reload (Ctrl+F5).
 - His projects on disk: `test-2` (favorite_books_people.csv; ordinal construct "Book Enthusiasm Level"; gold set `gs_mq1y81ut0j0zz658oe` in adjudication; one complete gemini run), `new-survey` (Gender for Tech.xlsx, reunitized to abouttxt). OpenRouter key in config/keys.json (he will rotate it).
@@ -39,10 +39,34 @@ masking already covered the promoted column); `pii` rides reunitize response + d
 `corpus.unitized` payload, `pii.pseudonymized` ledgered on masked reunitize; reunitize toast reuses import's
 `piiSummary` line. Tests: `tests/server/pii-reunitize.test.js`, meta cases in pii-import + ingest suites.
 
-**Deferred roadmap** (explicitly promised or flagged): mid-run/resume budget re-check; evidence-dossier
-test ~1/240 flake; incremental brief streaming (one Director call, 30–60s composing wait); no goldset
-delete UI exists (server route + guarded wrapper ready). Gotcha for contracts:
-`api.imports.confirm` destructures known fields and DROPS extras — never assume body passthrough in api.js.
+**Shipped 2026-06-06 (alt judges + accuracy-audit campaign):** stability checks accept ≤4 alternate models
+(same compiled prompt, same sample, once each) → Reliability `alt:<inst>:<provider>/<model>` rows incl.
+alt-vs-gold; "Duplicate with another model" promotes a winner. Then a 6-auditor sweep traced EVERY UI claim
+to code (~25 HIGH/~32 MED) and 5 parallel fixers closed them — system fixes: consensus gold needs ≥2
+unanimous + no conflict; excluded units leave human agreement; unanimous-uncodable queues for adjudication;
+sprint structurally blind via /next (examples now shown to humans); resample seed salted; adjudication
+validates labels; stratified min-1/stratum; bootstrap CI on agreement (`humanAgreement.ci`); outputs keyed
+on run.versionHash everywhere (finalJurorOfRun — instrument edits can't blank runs/exports/resume/gold
+comparisons); escalation failures classified (no billing-while-failed zombies); run.error rendered; raw
+numbers never wear ◉ (per-bar provenance; χ²-on-raw disclosed); quarantines tick the monitor; labelDist
+persisted; uncertainty-design gold never mints ◉; judge prompts render declared scale bounds; Director
+repair attempts metered; column role "ignore" drops from meta/prompts/exports (corpus.columnRoles);
+import reports skipped rows; replication scripts binarize per recorded positive + per-cell + label filter
+(reproduce.py EXECUTED in tests to 1e-6); methods prose conditioned on what's enforced (snapshot recorded-
+not-verified, per-provider seed clauses, Director-conditional escalation, "as recorded at export time",
+nominal-π disclosure, weighted-κ naming, ledger-proven silver-before-gold); methods PREVIEW route (visits
+stop minting export events); gold-verbatims opt-out (?goldText=0); stability response carries `level` (no
+false ◑ claims); stability artifacts version-stamped ("earlier version" marking); + New construct button.
+
+**Deferred roadmap** (explicitly promised or flagged): human coder screen (coder-session URL serves a blind
+API only — copy now says so); per-attempt provider usage metering (base.js); corrected-regression refit
+codegen in replication; inductive-origin sentence in methods (draftedFrom now stamped); refresh legacy
+phrasing pins in tests/unit/reporting.test.js (~:692-703) to the new honest wording; reunitize copying
+columnRoles provenance to derived corpora; fixtures.js api.exports.methodsPreview patch; Instant Read
+chart evidence wiring (bins → unit ids); mid-run/resume budget re-check; evidence-dossier test ~1/240
+flake; incremental brief streaming; no goldset delete UI. Gotchas: `api.imports.confirm` destructures
+known fields and DROPS extras — never assume body passthrough in api.js; test files are shared ground —
+fixers editing the same test file concurrently works but watch for last-writer pins.
 
 ## Recurring error classes + the approaches that beat them
 

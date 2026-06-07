@@ -845,7 +845,11 @@ test("calibration.js: agreement report nests — humanAgreement {n, coders, perc
   assert.equal(typeof h.percent, "number");
   assert.ok(Math.abs(h.percent - 26 / 30) < 1e-9, `po = 26/30 exactly (got ${h.percent})`);
   assert.ok("kappa" in h && "alpha" in h && "ac1" in h, "κ/α/AC1 on the human report");
-  assert.equal(h.ci, undefined, "no CI on the live agreement report");
+  // the bootstrap CI rides the human report — {lo, hi, method}, percentile
+  assert.ok(h.ci && typeof h.ci.lo === "number" && typeof h.ci.hi === "number",
+    "bootstrap CI {lo, hi} on the live agreement report");
+  assert.equal(h.ci.method, "bootstrap-percentile");
+  assert.ok(h.ci.lo <= h.alpha + 1e-9 && h.alpha <= h.ci.hi + 1e-9, "CI brackets the headline α");
 
   assert.ok(Array.isArray(r.perInstrument) && r.perInstrument.length >= 2, "judge + dictionary tested");
   for (const inst of r.perInstrument) {

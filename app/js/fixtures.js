@@ -146,7 +146,7 @@ function goldLabelMap(gs) {
     }
     if (coders.some((c) => coderUncodable(c, s.unitId))) continue;
     const votes = coders.map((c) => c.labels?.[s.unitId]).filter((v) => v !== undefined);
-    if (votes.length === 0) continue;
+    if (votes.length < 2) continue; // consensus needs ≥2 agreeing coders (live rule)
     const first = JSON.stringify(votes[0]);
     if (votes.every((v) => JSON.stringify(v) === first)) out.set(s.unitId, votes[0]);
   }
@@ -549,7 +549,9 @@ function patch() {
         handlers.onClose?.();
       },
     });
-  // live: → {alpha, pass} (k/n persist onto instrument.stability)
+  // live: → {alpha, pass, level} (k/n persist onto instrument.stability;
+  // level = the instrument's level AFTER the check, so the screen never
+  // claims a promotion that did not happen)
   apiNs.instruments.stability = async (p, id) => {
     await sleep(1600);
     const inst = instList().find((x) => x.id === id);
@@ -558,6 +560,7 @@ function patch() {
       inst.stability = { alpha: res.alpha, k: 3, n: 100, ranAt: new Date().toISOString() };
       if (res.pass && inst.silver && inst.level === "exploratory") inst.level = "stabilized";
     }
+    res.level = inst ? inst.level : null;
     return res;
   };
   // live: → the certificate {frozenAt, goldsetId, agreement, humanAgreement,
