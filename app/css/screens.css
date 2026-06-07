@@ -741,6 +741,7 @@
 
 .extable__text { width: 50%; }
 .extable__input { font-size: var(--fs-caption); min-height: 2.4rem; }
+.extable__labelpick { min-width: 11rem; max-width: 16rem; font-size: var(--fs-caption); }
 .kindchips { display: inline-flex; gap: var(--s1); }
 .kindchip { cursor: pointer; opacity: 0.62; transition: opacity var(--t-fast) var(--ease), border-color var(--t-fast) var(--ease); }
 .kindchip--on { opacity: 1; }

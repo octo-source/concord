@@ -29,6 +29,13 @@ export const routes = ["p/:slug/constructs", "p/:slug/constructs/:id"];
 export const title = "Constructs";
 
 const KINDS = ["positive", "negative", "nearmiss"];
+// What each kind teaches the coder — shown as chip tooltips and in the
+// section hint. The example line reaches the coder as `Label: X (<kind> example)`.
+const KIND_HELP = {
+  positive: "A clear case — teaches the center of its label.",
+  negative: "Looks relevant but does not qualify — the label carries the correct answer (e.g. absent, no).",
+  nearmiss: "A borderline case — the label shows which side of the line it falls.",
+};
 const TYPES = ["binary", "nominal", "ordinal", "continuous", "multilabel", "extraction"];
 
 export function render(mount, params, query) {
@@ -163,6 +170,11 @@ function editor(pane, params, construct, query = {}) {
       : { label: "Compile a judge instrument →", href: compileHref },
   }));
 
+  // sections whose copy/controls depend on the construct type re-render when
+  // the type select changes (assigned where each section is built)
+  let redrawCategories = () => {};
+  let redrawExamples = () => {};
+
   pane.append(el("header", { class: "editor__head" },
     el("h3", { class: "editor__title" },
       el("input", {
@@ -173,7 +185,7 @@ function editor(pane, params, construct, query = {}) {
     el("div", { class: "editor__headactions" },
       el("select", {
         class: "input input--inline", "aria-label": "Construct type",
-        onchange: (e) => { k.type = e.target.value; touch(); },
+        onchange: (e) => { k.type = e.target.value; touch(); redrawCategories(); redrawExamples(); },
       }, ...TYPES.map((t) => el("option", { value: t, selected: t === k.type }, t))),
       saveBtn),
   ));
@@ -216,6 +228,8 @@ function editor(pane, params, construct, query = {}) {
   /* criteria */
   const criteria = k.criteria ?? (k.criteria = { include: [], exclude: [] });
   pane.append(section("Criteria",
+    el("p", { class: "screen__hint faint" },
+      "Decision rules, sent to the coder word for word. Include when… — conditions that make a label apply. Exclude when… — evidence the coder must set aside."),
     el("div", { class: "twocol" },
       editList("Include when…", criteria.include, touch, {
         placeholder: "e.g. “Names pay, equity, or the comp process as a reason for leaving.”",
@@ -224,12 +238,22 @@ function editor(pane, params, construct, query = {}) {
         placeholder: "e.g. “Mentions pay only to dismiss it (‘the pay was fine’).”",
       }))));
 
-  /* categories with order */
-  if (k.categories) {
-    pane.append(section("Categories — order matters",
-      el("p", { class: "screen__hint faint" }, "This order feeds ordinal statistics (weighted κ, ordinal α) and sets the coding-sprint number keys."),
-      categoriesEditor(k, touch)));
-  }
+  /* categories — whether the order carries statistical meaning depends on
+     the construct type, so the section re-renders when the type changes */
+  const categoriesWrap = el("div");
+  redrawCategories = () => {
+    clear(categoriesWrap);
+    if (!k.categories) return;
+    categoriesWrap.append(k.type === "ordinal"
+      ? section("Categories — order matters",
+          el("p", { class: "screen__hint faint" }, "This order feeds ordinal statistics (weighted κ, ordinal α) and sets the coding-sprint number keys."),
+          categoriesEditor(k, touch))
+      : section("Categories",
+          el("p", { class: "screen__hint faint" }, "Statistics treat these categories as unordered. The order here only sets the coding-sprint number keys (1, 2, 3…)."),
+          categoriesEditor(k, touch)));
+  };
+  redrawCategories();
+  pane.append(categoriesWrap);
 
   /* edge cases — rules for borderline units, so coders (human or model)
      stop guessing */
@@ -242,7 +266,12 @@ function editor(pane, params, construct, query = {}) {
 
   /* worked examples */
   k.examples = k.examples ?? [];
-  pane.append(section("Worked examples", examplesTable(k, touch)));
+  const exTable = examplesTable(k, touch);
+  redrawExamples = exTable.redraw;
+  pane.append(section("Worked examples",
+    el("p", { class: "screen__hint faint" },
+      "Sent to the coder word for word as text → label pairs. Label = the correct answer, exactly as the coder should give it. Kind: positive = a clear case · nearmiss = borderline, the label shows which side of the line · negative = looks relevant but does not qualify, the label carries the correct answer."),
+    exTable.node));
 
   if (dirty) saveBtn.disabled = false;
 }
@@ -323,6 +352,55 @@ function categoriesEditor(k, touch) {
 
 function examplesTable(k, touch) {
   const wrap = el("div", { class: "exwrap" });
+
+  // The label control follows the construct's answer space: categories → a
+  // picker (multilabel: toggle every category that applies), continuous → a
+  // number, otherwise text. Free text here invites labels no coder is
+  // allowed to answer with.
+  const labelField = (ex, i, redraw) => {
+    const cats = k.categories ?? null;
+    if (cats && k.type === "multilabel") {
+      const current = Array.isArray(ex.label) ? ex.label : (ex.label == null || ex.label === "" ? [] : [ex.label]);
+      return el("span", { class: "kindchips", role: "group", aria: { label: `Example ${i + 1} labels — every category that applies` } },
+        ...cats.map((c) => {
+          const on = current.includes(c.value);
+          return el("button", {
+            class: `chip kindchip${on ? " kindchip--on" : ""}`,
+            type: "button", "aria-pressed": on ? "true" : "false",
+            title: `stored as ${JSON.stringify(c.value)}`,
+            onclick: () => {
+              ex.label = on ? current.filter((v) => v !== c.value) : [...current, c.value];
+              touch(); redraw();
+            },
+          }, c.label);
+        }));
+    }
+    if (cats) {
+      const empty = ex.label == null || ex.label === "";
+      const known = !empty && cats.some((c) => c.value === ex.label);
+      return el("select", {
+        class: "input extable__labelpick", "aria-label": `Example ${i + 1} label`,
+        onchange: (e) => { ex.label = e.target.value; touch(); },
+      },
+        ...(empty ? [el("option", { value: "", selected: true, disabled: true }, "pick its correct label")] : []),
+        ...(!empty && !known ? [el("option", { value: String(ex.label), selected: true }, `${String(ex.label)} — not a current category`)] : []),
+        ...cats.map((c) => el("option", { value: c.value, selected: ex.label === c.value, title: `stored as ${JSON.stringify(c.value)}` }, c.label)));
+    }
+    if (k.type === "continuous") {
+      return el("input", {
+        class: "input extable__labelpick", type: "number", value: ex.label ?? "",
+        ...(k.scale != null ? { min: k.scale.min, max: k.scale.max, placeholder: `${k.scale.min}–${k.scale.max}` } : { placeholder: "number" }),
+        "aria-label": `Example ${i + 1} label`,
+        oninput: (e) => { ex.label = e.target.value === "" ? "" : Number(e.target.value); touch(); },
+      });
+    }
+    return el("input", {
+      class: "input extable__labelpick", value: ex.label ?? "", "aria-label": `Example ${i + 1} label`,
+      placeholder: k.type === "extraction" ? "the exact span(s) the coder should extract" : "the correct answer — e.g. yes",
+      oninput: (e) => { ex.label = e.target.value; touch(); },
+    });
+  };
+
   const redraw = () => {
     clear(wrap);
     const tbl = el("table", { class: "table extable" },
@@ -341,18 +419,14 @@ function examplesTable(k, touch) {
                 placeholder: "paste a real unit — e.g. “Base salary sat 18% under market and the refresh grants never came.”",
                 oninput: (e) => { ex.text = e.target.value; touch(); },
               }, ex.text ?? "")),
-            el("td", {},
-              el("input", {
-                class: "input", value: ex.label ?? "", "aria-label": `Example ${i + 1} label`,
-                placeholder: "its correct label — e.g. pay",
-                oninput: (e) => { ex.label = e.target.value; touch(); },
-              })),
+            el("td", {}, labelField(ex, i, redraw)),
             el("td", {},
               el("span", { class: "kindchips", role: "radiogroup", aria: { label: `Example ${i + 1} kind` } },
                 ...KINDS.map((kind) =>
                   el("button", {
                     class: `chip kindchip kindchip--${kind}${ex.kind === kind ? " kindchip--on" : ""}`,
                     type: "button",
+                    title: KIND_HELP[kind],
                     "aria-pressed": ex.kind === kind ? "true" : "false",
                     onclick: () => { ex.kind = kind; touch(); redraw(); },
                   }, kind)))),
@@ -370,7 +444,7 @@ function examplesTable(k, touch) {
       }, "+ add example"));
   };
   redraw();
-  return wrap;
+  return { node: wrap, redraw };
 }
 
 /* ---- flows: draft / import / inductive --------------------------------------------- */
