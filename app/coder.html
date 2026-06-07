@@ -1,0 +1,44 @@
+<!doctype html>
+<!-- The human coder page. Served by the RESTRICTED coder listener
+     (server/index.js startCoderListener) at /coder.html?coder=<id> — the id
+     in the query is display only; the listener binds the real coder id.
+     This page talks to /api/coder/next and /api/coder/label and nothing
+     else: machine labels, other coders' labels and adjudicated answers are
+     not on this listener at all. -->
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="color-scheme" content="light dark">
+  <title>Blind coding — you cannot see other coders' or model labels</title>
+  <link rel="stylesheet" href="css/tokens.css">
+  <link rel="stylesheet" href="css/base.css">
+  <link rel="stylesheet" href="css/components.css">
+  <link rel="stylesheet" href="css/screens.css">
+  <script>
+    // theme boots before first paint: stored choice, else the system's
+    (function () {
+      try {
+        var t = localStorage.getItem("concord-theme");
+        if (t === "dark" || (t !== "light" && matchMedia("(prefers-color-scheme: dark)").matches)) {
+          document.documentElement.setAttribute("data-theme", "dark");
+        }
+      } catch (e) { /* storage unavailable — stay on paper */ }
+    })();
+  </script>
+</head>
+<body class="coderpage">
+  <main class="coder">
+    <header class="coder__head">
+      <p class="overline">Concord · coder session</p>
+      <h1 class="coder__title">Blind coding</h1>
+      <p class="coder__contract">You cannot see other coders' or model labels. This page serves the codebook, your next unit, and your own progress — nothing else.</p>
+    </header>
+    <div id="coder-mount">
+      <noscript><p>This page needs JavaScript to fetch units and submit labels.</p></noscript>
+      <p class="faint" role="status">Loading your queue…</p>
+    </div>
+  </main>
+  <script type="module" src="js/coder.js"></script>
+</body>
+</html>

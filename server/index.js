@@ -4,6 +4,7 @@
 import http from "node:http";
 import { readFile, readdir } from "node:fs/promises";
 import { fileURLToPath, pathToFileURL } from "node:url";
+import os from "node:os";
 import path from "node:path";
 import { createRouter, sendJson } from "./router.js";
 import { ConcordError } from "./core/errors.js";
@@ -163,18 +164,39 @@ export async function startServer({
 // GET /api/coder/progress for the bound (project, goldset, coder). The
 // restricted handlers live in routes/goldsets.js and never expose machine
 // labels or other coders' labels.
+//
+// The session URL is the human coding page (app/coder.html) with the coder id
+// in the query for display — the API ignores it; the coder is bound here.
+//
+// {host} is the researcher's explicit network choice: "127.0.0.1" (default —
+// the link works only on this machine) or "0.0.0.0" (opt-in — anyone on the
+// local network can read the sampled units and submit labels). A shared
+// listener also reports lanUrl, the page address on the machine's first
+// non-internal IPv4, when one exists.
 export async function startCoderListener(projectSlug, goldsetId, coderId, {
   appDir = path.join(repoRoot, "app"),
+  host = "127.0.0.1",
 } = {}) {
   if (!projectSlug || !goldsetId || !coderId) {
     throw new ConcordError("VALIDATION", "startCoderListener requires projectSlug, goldsetId and coderId", {});
   }
+  if (host !== "127.0.0.1" && host !== "0.0.0.0") {
+    throw new ConcordError("VALIDATION", 'coder listeners bind "127.0.0.1" (default) or "0.0.0.0" (explicit network sharing)', { host });
+  }
+  const shared = host === "0.0.0.0";
   const { coderRoutes } = await import("./routes/goldsets.js");
   const router = createRouter({ appDir });
   for (const { method, pattern, handler } of coderRoutes(projectSlug, goldsetId, coderId)) {
     router.addRoute(method, pattern, handler);
   }
   const server = http.createServer((req, res) => {
+    // The router's DNS-rebinding guard (router.js) refuses any non-local Host
+    // header. A SHARED listener exists precisely to answer requests addressed
+    // to a LAN host (Host: 192.168.x.x:port), and the researcher explicitly
+    // accepted that exposure for this restricted surface — static files plus
+    // /api/coder/* for ONE bound coder. Present a local host to the guard on
+    // the shared listener only; the default loopback listener keeps it armed.
+    if (shared) req.headers.host = "127.0.0.1";
     router.handle(req, res).catch(() => {
       if (!res.writableEnded) {
         try { res.statusCode = 500; res.end(); } catch { /* socket gone */ }
@@ -183,13 +205,26 @@ export async function startCoderListener(projectSlug, goldsetId, coderId, {
   });
   await new Promise((resolve, reject) => {
     server.once("error", reject);
-    server.listen(0, "127.0.0.1", resolve);
+    server.listen(0, host, resolve);
   });
   const port = server.address().port;
+  const page = `/coder.html?coder=${encodeURIComponent(coderId)}`;
+  // First non-internal IPv4 — the address a colleague on the same network can
+  // actually reach. Loopback binding has no reachable LAN address, so lanUrl
+  // exists only on the shared listener (and only when the machine has one).
+  let lanUrl;
+  if (shared) {
+    for (const nets of Object.values(os.networkInterfaces())) {
+      const lan = (nets ?? []).find((n) => !n.internal && (n.family === "IPv4" || n.family === 4));
+      if (lan) { lanUrl = `http://${lan.address}:${port}${page}`; break; }
+    }
+  }
   return {
     server,
     port,
-    url: `http://127.0.0.1:${port}`,
+    host,
+    url: `http://127.0.0.1:${port}${page}`,
+    ...(lanUrl ? { lanUrl } : {}),
     coderId,
     goldsetId,
     close: () => new Promise((resolve) => {

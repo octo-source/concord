@@ -1666,3 +1666,141 @@
 
 /* the test pane's door to the construct-wide reliability matrix */
 .testpane__allsources { display: flex; align-items: baseline; gap: var(--s2); flex-wrap: wrap; }
+
+/* ============================================================================
+   Blind coder page (app/coder.html — served by the restricted coder
+   listener, outside the app shell; everything namespaced .coder*)
+   ========================================================================= */
+
+.coderpage { overflow-y: auto; }
+
+.coder {
+  max-width: 72rem;
+  margin: 0 auto;
+  padding: var(--s5) clamp(var(--s4), 4vw, var(--s6)) var(--s8);
+  display: flex;
+  flex-direction: column;
+  gap: var(--s5);
+}
+
+.coder__head { border-bottom: var(--rule); padding-bottom: var(--s4); }
+.coder__title { font-size: var(--fs-title); margin-top: var(--s1); }
+.coder__contract { margin-top: var(--s1); font-size: var(--fs-caption); color: var(--ink-muted); }
+
+.coder__grid {
+  display: grid;
+  grid-template-columns: minmax(15rem, 20rem) minmax(0, 1fr);
+  gap: var(--s6);
+  align-items: start;
+}
+@media (max-width: 56rem) { .coder__grid { grid-template-columns: 1fr; } }
+
+/* -- the pinned codebook -- */
+.coder__book {
+  position: sticky;
+  top: var(--s4);
+  border: var(--rule);
+  border-radius: var(--r-md);
+  background: var(--paper-raised);
+  padding: var(--s4);
+  font-size: var(--fs-caption);
+  display: flex;
+  flex-direction: column;
+  gap: var(--s2);
+}
+.coder__bookname { font-size: var(--fs-section); }
+.coder__bookdef { color: var(--ink); }
+.coder__bookrule { color: var(--ink-muted); font-size: var(--fs-micro); }
+.coder__edgelist { margin: var(--s1) 0 0; padding-left: 1.1em; list-style: disc; color: var(--ink-muted); }
+.coder__edgelist li { margin-bottom: 2px; }
+.coder__examples { border-top: var(--rule); padding-top: var(--s2); }
+.coder__booksummary {
+  cursor: pointer;
+  font-weight: 600;
+  font-size: var(--fs-micro);
+  color: var(--ink-muted);
+  text-transform: uppercase;
+  letter-spacing: var(--track-caps);
+}
+.coder__examples > .coder__bookrule { margin-top: var(--s2); }
+.coder__bookcats { border-top: var(--rule); padding-top: var(--s2); }
+.coder__catlist { display: flex; flex-direction: column; gap: var(--s1); margin-top: var(--s1); }
+.coder__catrow { display: flex; align-items: baseline; gap: var(--s2); font-size: var(--fs-caption); }
+
+/* -- the unit and its controls -- */
+.coder__work { max-width: 62ch; display: flex; flex-direction: column; }
+.coder__progress { display: flex; align-items: center; gap: var(--s3); margin-bottom: var(--s5); }
+.coder__progresstrack {
+  flex: 1 1 auto;
+  height: 3px;
+  background: var(--rule-color);
+  border-radius: var(--r-pill);
+  overflow: hidden;
+  display: block;
+}
+.coder__progressfill {
+  display: block;
+  height: 100%;
+  background: var(--gold);
+  transition: width var(--t-slow) var(--ease);
+}
+.coder__progresstext { color: var(--ink-muted); white-space: nowrap; }
+
+.coder__unitid { margin-bottom: var(--s3); }
+.coder__text {
+  font-family: var(--font-serif);
+  font-size: clamp(1.25rem, 2.2vw, 1.6rem);
+  line-height: 1.65;
+  color: var(--ink);
+  margin: 0 0 var(--s6);
+}
+
+.coder__keys { display: flex; flex-wrap: wrap; gap: var(--s2); align-items: center; }
+.coder__key {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--s2);
+  padding: 0.45rem 0.8rem;
+  border: var(--rule-strong);
+  border-radius: var(--r-md);
+  background: var(--paper-raised);
+  font-size: var(--fs-caption);
+  transition: border-color var(--t-fast) var(--ease), background var(--t-fast) var(--ease);
+}
+.coder__key:hover { border-color: var(--gold); }
+.coder__key--hit { border-color: var(--gold); background: var(--gold-wash); }
+.coder__key--meta { opacity: 0.8; }
+.coder__freelabel { width: 11rem; }
+
+.coder__extras {
+  margin-top: var(--s5);
+  padding-top: var(--s4);
+  border-top: var(--rule);
+  display: flex;
+  flex-direction: column;
+  gap: var(--s3);
+}
+.coder__extra { display: flex; flex-direction: column; gap: var(--s1); }
+.coder__memo { max-width: 100%; }
+.coder__flag { display: inline-flex; align-items: center; gap: var(--s2); font-size: var(--fs-caption); color: var(--ink-muted); }
+.coder__flag input { accent-color: var(--accent); }
+
+/* -- done / error -- */
+.coder__done { padding-top: clamp(var(--s7), 16vh, 8rem); text-align: center; }
+.coder__doneline {
+  font-family: var(--font-serif);
+  font-style: italic;
+  font-size: var(--fs-title);
+  color: var(--ink);
+  margin-bottom: var(--s3);
+}
+.coder__error {
+  border: var(--rule-strong);
+  border-left: 3px solid var(--signal);
+  border-radius: var(--r-md);
+  background: var(--paper-raised);
+  padding: var(--s4);
+  margin-bottom: var(--s4);
+  font-size: var(--fs-caption);
+}
+.coder__error p { margin-bottom: var(--s2); }

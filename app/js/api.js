@@ -314,8 +314,10 @@ export const goldsets = {
     post(`${P(p)}/goldsets/${encodeURIComponent(g)}/adjudicate`, { unitId, label, exclude }),
   /** Route a unit to the human queue: joins the sample as {pi: null, queued: true}. Idempotent. */
   queue: (p, g, { unitId }) => post(`${P(p)}/goldsets/${encodeURIComponent(g)}/queue`, { unitId }),
-  /** Start (or reuse) the same-process blind coder listener → {url, port, coderId}. */
-  coderSession: (p, g, coderId) => post(`${P(p)}/goldsets/${encodeURIComponent(g)}/coder-session`, { coderId }),
+  /** Start (or reuse) the same-process blind coder listener → {url, lanUrl?, port, coderId}.
+      {share: true} is the researcher's explicit opt-in to bind all interfaces (LAN). */
+  coderSession: (p, g, coderId, { share } = {}) =>
+    post(`${P(p)}/goldsets/${encodeURIComponent(g)}/coder-session`, { coderId, ...(share ? { share: true } : {}) }),
   /** Close coder listeners for this gold set (one coder, or all when omitted) → {closed}. */
   endCoderSession: (p, g, coderId) =>
     request("DELETE", `${P(p)}/goldsets/${encodeURIComponent(g)}/coder-session`, { query: { coderId } }),

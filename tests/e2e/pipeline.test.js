@@ -684,9 +684,12 @@ test("step 6b: two scripted blind coders label through coder-session listeners (
   assert.ok(sessA.port > 0 && sessB.port > 0 && sessA.port !== sessB.port, "each coder gets an isolated listener");
 
   async function codeAll(sess, flips, otherCoder) {
+    // session.url is the human coding page; the scripted coder hits the API
+    // at the listener's origin
+    const api = `http://127.0.0.1:${sess.port}`;
     let labeled = 0;
     for (;;) {
-      const res = await fetch(`${sess.url}/api/coder/next`);
+      const res = await fetch(`${api}/api/coder/next`);
       const raw = await res.text();
       assert.equal(res.status, 200);
       // blindness: no machine labels, no other coder, ever
@@ -698,7 +701,7 @@ test("step 6b: two scripted blind coders label through coder-session listeners (
       if (!data.unit) break;
       const truth = payTruth(data.unit.text);
       const label = flips.has(data.unit.id) ? (truth === "yes" ? "no" : "yes") : truth;
-      const post = await fetch(`${sess.url}/api/coder/label`, {
+      const post = await fetch(`${api}/api/coder/label`, {
         method: "POST",
         headers: { "content-type": "application/json" },
         body: JSON.stringify({ unitId: data.unit.id, label }),

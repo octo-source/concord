@@ -928,12 +928,23 @@ export default [
       const key = `${params.p}|${params.g}|${body.coderId}`;
       const existing = sessions.get(key);
       if (existing) {
-        return { url: existing.url, port: existing.port, coderId: body.coderId, existing: true };
+        return {
+          url: existing.url, port: existing.port, coderId: body.coderId, existing: true,
+          ...(existing.lanUrl ? { lanUrl: existing.lanUrl } : {}),
+        };
       }
       const { startCoderListener } = await import("../index.js");
-      const session = await startCoderListener(params.p, params.g, body.coderId);
+      // share: true is the researcher's explicit opt-in to bind all
+      // interfaces; the default stays loopback-only. A shared listener
+      // reports lanUrl (the page on the machine's first external IPv4).
+      const session = await startCoderListener(params.p, params.g, body.coderId, {
+        host: body.share === true ? "0.0.0.0" : "127.0.0.1",
+      });
       sessions.set(key, session);
-      return { url: session.url, port: session.port, coderId: body.coderId };
+      return {
+        url: session.url, port: session.port, coderId: body.coderId,
+        ...(session.lanUrl ? { lanUrl: session.lanUrl } : {}),
+      };
     },
   },
   {

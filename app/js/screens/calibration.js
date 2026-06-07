@@ -183,6 +183,9 @@ export function render(mount, params, query) {
           : null));
     }
     drawPane();
+
+    // the set-level destructive act sits quietly under the working surface
+    mount.append(deleteGoldsetFooter(params, goldset));
   }, "Opening the studio…");
 
   return {
@@ -1007,34 +1010,57 @@ function coderLauncherBtn(params, goldset) {
 function openCoderSheet(params, goldset) {
   const s = openSheet({ title: "Launch a coder session", overline: "Blind by construction" });
   const input = el("input", { class: "input input--inline", placeholder: "coder id (e.g. sam)", "aria-label": "Coder id" });
+  const shareBox = el("input", { type: "checkbox" });
   const out = el("div", { class: "codersession", aria: { live: "polite" } });
 
   s.body.append(
-    el("p", {}, "A coder session starts a second listener on this machine that answers ",
-      el("strong", {}, "only"), " the blind /api/coder/* API for one coder on this gold set: next unit, label submission, progress. Machine output, other coders' labels and adjudications are never on those code paths."),
-    el("p", { class: "screen__hint faint" },
-      "There is no human coding screen behind the URL yet (it is on the roadmap) — point a scripted or external coder client at it, or code in this studio's sprint, which uses the same blind route."),
+    el("p", {}, "A coder session starts a second listener on this machine that serves a blind coding page for ",
+      el("strong", {}, "one"), " coder on this gold set: the codebook, their next unit, and their own progress. Machine output, other coders' labels and adjudications are never on its API."),
     el("div", { class: "controlrow" },
-      el("label", { class: "controlrow__item" }, el("span", { class: "overline" }, "coder"), input),
+      el("label", { class: "controlrow__item" }, el("span", { class: "overline" }, "coder"), input)),
+    el("label", { class: "choice" },
+      shareBox,
+      el("span", { class: "choice__text" },
+        el("span", { class: "choice__label" }, "Share on local network"),
+        el("span", { class: "choice__hint" },
+          "Anyone on your network with this link can read the sampled units and submit labels for this gold set. Localhost-only otherwise."))),
+    el("div", { class: "controlrow" },
       el("button", {
         class: "btn btn--primary", type: "button",
         onclick: async (e) => {
           const coderId = input.value.trim();
           if (!coderId) { input.focus(); return; }
+          const share = shareBox.checked;
           e.target.disabled = true;
           clear(out).append(el("p", { class: "faint", role: "status" }, "starting the listener…"));
           try {
-            // POST goldsets/:g/coder-session → {url, port} (same-process
-            // restricted listener; the coder id is bound server-side)
-            const session = await api.goldsets.coderSession(params.slug, goldset.id, coderId);
+            // POST goldsets/:g/coder-session → {url, lanUrl?, port} (same-
+            // process restricted listener; the coder id is bound server-side,
+            // share: true binds all interfaces instead of loopback)
+            const session = await api.goldsets.coderSession(params.slug, goldset.id, coderId, { share });
             clear(out).append(
               el("p", { class: "screen__hint" },
-                `Listener up for ${coderId}${session.existing ? " (already running)" : ""} — point the coder client at this URL:`),
+                `Listener up for ${coderId}${session.existing ? " (already running)" : ""} — the coder opens this link:`),
               el("div", { class: "codeline" },
                 el("code", { class: "data" }, session.url),
                 copyBtn(session.url)),
+              session.lanUrl
+                ? el("div", {},
+                    el("p", { class: "screen__hint" }, "On your network:"),
+                    el("div", { class: "codeline" },
+                      el("code", { class: "data" }, session.lanUrl),
+                      copyBtn(session.lanUrl)))
+                : null,
               el("p", { class: "screen__hint faint" },
-                "It answers only /api/coder/* for this coder on this gold set, and binds 127.0.0.1 — the URL works only on this machine."),
+                session.lanUrl
+                  ? "Shared on your local network — anyone with the link can read the sampled units and submit labels until you end the session."
+                  : share
+                    ? (session.existing
+                        ? "This session was started without network sharing — end it and start a new one to share."
+                        : "No external IPv4 address was found on this machine — the link works only here.")
+                    : "Bound to 127.0.0.1 — the link works only on this machine."),
+              el("p", { class: "screen__hint faint" },
+                "The page is blind: it serves the codebook, this coder's next unit, and their own progress. Other coders' labels, model labels and adjudications are not on its API."),
               el("button", {
                 class: "btn btn--quiet", type: "button",
                 onclick: async (ev) => {
@@ -1081,4 +1107,78 @@ function copyBtn(text) {
       }
     },
   }, "copy");
+}
+
+/* ================= delete — the set-level destructive act =============================== */
+
+function deleteGoldsetFooter(params, goldset) {
+  return el("p", { class: "screen__hint faint" },
+    el("button", {
+      class: "btn btn--quiet", type: "button",
+      onclick: (e) => deleteGoldset(params, goldset, e.target),
+    }, "Delete this gold set"),
+    " Removes it from the project — the sample, labels, and adjudications go with it; the corpus is untouched.");
+}
+
+async function deleteGoldset(params, goldset, btn) {
+  btn.disabled = true;
+  try {
+    // first ask WITHOUT force — a fresh set deletes outright; committed
+    // coding work answers 409 CONFIRM_REQUIRED with the real counts
+    await api.goldsets.remove(params.slug, goldset.id);
+    afterGoldsetDelete(params, goldset);
+  } catch (err) {
+    btn.disabled = false;
+    if (err?.code === "CONFIRM_REQUIRED") confirmDeleteGoldset(params, goldset, err);
+    else toast.error("Delete failed.", { detail: String(err.message ?? err) });
+  }
+}
+
+function afterGoldsetDelete(params, goldset) {
+  toast.success("Gold set deleted.", { detail: goldset.name || goldset.id, data: false });
+  refreshProject(params.slug).catch(() => {});
+  location.hash = `#/p/${params.slug}`;
+}
+
+/* The 409 CONFIRM_REQUIRED sheet for delete — same shape as the resample
+   confirm above: the server's committed-work counts ride error.details, and
+   the destructive button repeats the call with force. The server's `labels`
+   count is per-coder handled units — labels AND can't-code marks — so the
+   sheet says "units handled", not "labels". */
+function confirmDeleteGoldset(params, goldset, err) {
+  const d = err.details?.details ?? null; // ApiError.details = envelope error; its .details = counts
+  const s_ = (k) => (k === 1 ? "" : "s");
+  const parts = [];
+  if (d) {
+    if (d.labels > 0) parts.push(`${d.labels} unit${s_(d.labels)} handled (labels and can't-codes) by ${d.coders} coder${s_(d.coders)}`);
+    if (d.adjudicated > 0) parts.push(`${d.adjudicated} adjudication${s_(d.adjudicated)}`);
+    if (d.excluded > 0) parts.push(`${d.excluded} exclusion${s_(d.excluded)}`);
+  }
+  const what = parts.length <= 2 ? parts.join(" and ") : `${parts.slice(0, -1).join(", ")}, and ${parts.at(-1)}`;
+  const sheet = openSheet({ title: "Delete this gold set?", overline: "This gold set is already coded" });
+  sheet.body.append(
+    el("p", {}, what
+      ? `This gold set has ${what}. Deleting it discards all of that — labels, memos, flags, and adjudications.`
+      : String(err.message ?? "This gold set has committed coding work. Deleting it discards that work.")),
+    el("p", { class: "screen__hint" },
+      "The deletion is written to the project ledger. The corpus and its units are untouched — only the gold standard built on them is removed."),
+  );
+  sheet.foot.append(
+    el("button", { class: "btn btn--quiet", type: "button", onclick: () => sheet.close() }, "Keep this gold set"),
+    el("button", {
+      class: "btn btn--primary", type: "button",
+      onclick: async (e) => {
+        e.target.disabled = true;
+        try {
+          await api.goldsets.remove(params.slug, goldset.id, { force: true });
+          sheet.close();
+          afterGoldsetDelete(params, goldset);
+        } catch (err2) {
+          e.target.disabled = false;
+          toast.error("Delete failed.", { detail: String(err2.message ?? err2) });
+        }
+      },
+    }, d?.labels > 0 ? `Discard ${d.labels} handled unit${s_(d.labels)} and delete`
+      : d?.adjudicated > 0 ? `Discard ${d.adjudicated} adjudication${s_(d.adjudicated)} and delete`
+        : "Delete and discard the coded work"));
 }
