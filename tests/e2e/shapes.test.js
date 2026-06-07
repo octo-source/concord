@@ -499,6 +499,27 @@ test("constructs.js: POST/GET constructs round-trip the full construct; inductiv
   const list = await ok("GET", `/api/projects/${S.slug}/constructs`);
   assert.ok(Array.isArray(list) && list.some((k) => k.id === pay.id));
 
+  // origin provenance: the inductive accept path sends origin: "inductive"
+  // (+ draftedFrom), the Director draft accept path sends origin: "draft" —
+  // both round-trip; absent stays absent; anything else rejects
+  const adopted = await ok("POST", `/api/projects/${S.slug}/constructs`, {
+    name: "Adopted theme", type: "binary",
+    categories: [{ value: "present", label: "Present" }, { value: "absent", label: "Absent" }],
+    authoredBy: "director", humanTouched: false,
+    origin: "inductive", draftedFrom: S.corpusId,
+  });
+  assert.equal(adopted.origin, "inductive", "origin round-trips on the created construct");
+  assert.equal(adopted.draftedFrom, S.corpusId, "draftedFrom rides beside origin");
+  const adoptedGot = await ok("GET", `/api/projects/${S.slug}/constructs/${adopted.id}`);
+  assert.equal(adoptedGot.origin, "inductive", "origin persists through GET");
+  assert.equal(pay.origin, undefined, "constructs created without an origin carry none");
+  const badOrigin = await call("POST", `/api/projects/${S.slug}/constructs`, {
+    name: "Bad origin", type: "binary", origin: "telepathy",
+  });
+  assert.equal(badOrigin.status, 400, "unknown origin values reject");
+  assert.equal(badOrigin.json?.error?.code, "VALIDATION");
+  await ok("DELETE", `/api/projects/${S.slug}/constructs/${adopted.id}`);
+
   // the inductive flow: the screen maps taxonomy THEMES to draft constructs
   const taxonomy = await ok("POST", `/api/projects/${S.slug}/constructs/inductive`, { corpusId: S.corpusId, n: 24 });
   assert.equal(Array.isArray(taxonomy), false, "inductive returns one artifact, not an array of proposals");

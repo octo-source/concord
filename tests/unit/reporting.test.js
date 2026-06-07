@@ -688,19 +688,24 @@ test("methods: overclaimed sentences are conditioned on recorded evidence", asyn
   const { markdown } = await methods.generate(F.project, "an_dsl", { projectDir: F.projectDir });
   // (a) fixture ledger proves agreement preceded machine comparison -> strong claim allowed
   assert.ok(markdown.includes("before any machine output was compared"), "order-proven reliability sentence missing");
-  // (b) blindness states exactly what the coder flags record
-  assert.ok(markdown.includes("blind to machine labels and to each other's labels"), "honest blindness phrasing missing");
+  // (b) blindness is the INTERFACE's structural claim, asserted in full so a
+  // bare "blind to machine labels" overclaim (pre-audit wording) fails here
+  assert.ok(markdown.includes("labels were collected through Concord's blind coding interface, which serves coders no machine labels and no co-coder labels, so each coder was blind to machine labels and to each other's labels"),
+    "honest interface-blindness sentence missing (a bare coder-blindness claim is the old overclaim)");
   assert.ok(!/enforced by the serving role/.test(markdown), "blindness-enforcement overclaim must be gone");
   // (c) the fixture run escalated 1 unit: no exactly-one claim; escalation described
   assert.ok(!markdown.includes("exactly one machine judgment"), "exactly-one claim despite escalations");
   assert.ok(/1 unit was escalated/.test(markdown), "escalation sentence (count) missing");
-  assert.ok(/Director model \(not recorded\)/.test(markdown), "null Director model must render as not recorded");
-  // (d) pinning is the run's recorded fact
-  assert.ok(markdown.includes("pinned for every call in this run"), "run.pinned=true sentence missing");
+  assert.ok(/the run names no Director model \(not recorded\), so flags carry no second opinion and escalated units keep the primary judgment/.test(markdown),
+    "null Director must render as not recorded WITH the no-second-opinion consequence (a bare '(not recorded)' is not enough)");
+  // (d) pinning is the run's recorded fact — recorded and reported, never verified
+  assert.ok(markdown.includes("A model snapshot identifier was recorded for every juror (mock-judge-1@2026-05) and is reported as pinned for every call in this run; Concord records but does not verify"),
+    "run.pinned=true must render as recorded-and-reported-not-verified (a bare 'pinned for every call' is the old overclaim)");
   // (e) all three codebook slots present in the fixture template -> verbatim claim earned
   assert.ok(markdown.includes("injected into the prompt verbatim"), "verbatim claim missing despite full slots");
-  // (f) frozen instrument -> "As frozen" is earned here
-  assert.ok(markdown.includes("As frozen for this analysis"), "frozen wording missing for frozen instrument");
+  // (f) frozen instrument -> the prompt-only-freeze disclosure is due here
+  assert.ok(markdown.includes('these counts read the live construct rather than a snapshot "As frozen for this analysis", which Concord does not yet take'),
+    "frozen instrument must disclose that the freeze versions the prompt, not the codebook entry (a bare 'As frozen for this analysis' is the old overclaim)");
   // author list and availability phrasing
   assert.ok(markdown.includes("Egami, Hinck, Stewart, and Wei"), "corrected author list missing");
   assert.ok(!markdown.includes("Jacobs-Harukawa"));

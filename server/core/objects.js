@@ -11,6 +11,7 @@ export const CONSTRUCT_TYPES = ["binary", "nominal", "ordinal", "continuous", "m
 export const EXAMPLE_KINDS = ["positive", "negative", "nearmiss"];
 export const INSTRUMENT_KINDS = ["dictionary", "rule", "judge", "panel", "human"];
 export const EVIDENCE_LEVELS = ["exploratory", "stabilized", "calibrated", "corrected"];
+export const CONSTRUCT_ORIGINS = ["draft", "inductive"];
 export const GOLDSET_TIERS = ["gold", "silver"];
 export const GOLDSET_DESIGNS = ["srs", "stratified", "uncertainty"];
 export const GOLDSET_STATUSES = ["sampling", "coding", "adjudicating", "complete"];
@@ -154,6 +155,11 @@ export function createConstruct(input = {}) {
   // only stamped when a registered corpus actually backed the proposal, never
   // guessed (a hand-authored construct carries no draftedFrom).
   if (input.draftedFrom !== undefined) out.draftedFrom = reqString(input.draftedFrom, "draftedFrom");
+  // Provenance: HOW a Director-authored entry entered the codebook — "draft"
+  // (Draft with Director formalizing the user's concepts) or "inductive"
+  // (accepted from an Inductive-mode corpus-mining pass). Optional; absent
+  // means unknown/legacy. methods.js words the provenance sentence from it.
+  if (input.origin !== undefined) out.origin = oneOf(input.origin, CONSTRUCT_ORIGINS, "origin");
   return out;
 }
 

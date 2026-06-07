@@ -995,6 +995,20 @@ function patch() {
     await sleep(500);
     return clone(db.reports.methods);
   };
+  // live: GET exports/methods/preview → the SAME {analysisId, markdown,
+  // citations} payload as the export of record, with the preview banner the
+  // generator prepends under the title ("> Preview — not an export of
+  // record") and NO export.methods ledger event minted. The Reports screen
+  // renders this on every visit; demo mode mirrors it exactly.
+  apiNs.exports.methodsPreview = async () => {
+    await sleep(300);
+    const out = clone(db.reports.methods);
+    const banner = "> Preview — not an export of record";
+    const md = String(out.markdown ?? "");
+    const head = md.match(/^(#{1,6} .*\n\n?)/);
+    out.markdown = head ? `${head[1]}${banner}\n\n${md.slice(head[1].length)}` : `${banner}\n\n${md}`;
+    return out;
+  };
   apiNs.exports.replicationContents = async () => clone(db.reports.replication); // fixtures-only helper
   apiNs.exports.download = (p, kind) => {
     // no server to stream a zip in fixtures mode — say so instead of 404ing

@@ -604,7 +604,10 @@ function draftWithDirector(params) {
         stopBusy?.();
         activeDirector = null;
         if (sheetOpen) s.close();
-        proposalsSheet(params, res?.constructs ?? [], "Director draft — your concepts, formalized",
+        // origin: "draft" — accept persists it, so the methods text can say
+        // the entry formalized the researcher's concepts (vs inductive mining)
+        proposalsSheet(params, (res?.constructs ?? []).map((c) => ({ ...c, origin: "draft" })),
+          "Director draft — your concepts, formalized",
           { sampleN: res?.sampleN });
       } catch (err) {
         inFlight = false;
@@ -732,8 +735,11 @@ function themesSheet(params, taxonomy, titleLine) {
     examples: [],
     categories: [{ value: "present", label: "Present" }, { value: "absent", label: "Absent" }],
     // provenance: the corpus the taxonomy was themed from — accept persists
-    // it as draftedFrom, same field the draft flow stamps server-side
+    // it as draftedFrom, same field the draft flow stamps server-side —
+    // plus origin: "inductive" so the methods text states the construct came
+    // from a corpus-mining pass, not from the researcher's own concepts
     ...(taxonomy?.corpusId ? { draftedFrom: taxonomy.corpusId } : {}),
+    origin: "inductive",
     quoteRefs: t.quoteRefs ?? [],
   }));
   proposalsSheet(params, proposals, titleLine, {

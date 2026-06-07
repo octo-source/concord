@@ -28,7 +28,7 @@ import { unzipSync, strFromU8 } from "fflate";
 
 import { appendNdjson, updateProject, projectDir as pdir } from "../../server/core/store.js";
 import * as ledger from "../../server/core/ledger.js";
-import { dslProportion, dslDiff } from "../../server/stats/correction.js";
+import { dslProportion, dslDiff, dslOLS, dslLogit } from "../../server/stats/correction.js";
 import * as methods from "../../server/reporting/methods.js";
 import * as replication from "../../server/reporting/replication.js";
 
@@ -47,10 +47,13 @@ async function buildFixtureA() {
   const corpusId = "corp_h";
   const ids = ["u0", "u1", "u2", "u3", "u4", "u5", "u6", "u7"];
   const depts = ["sales", "sales", "sales", "sales", "ops", "ops", "ops", "ops"];
+  // numeric covariate for the corrected-regression analyses (an_model/an_ols);
+  // values chosen so the DSL logit estimating equation converges on this tiny n
+  const sats = [3, 2, 4, 2, 1, 5, 3, 4];
   const texts = ids.map((id, i) => `Unit ${id} about pay and ${depts[i]} work.`);
   for (let i = 0; i < ids.length; i++) {
     await appendNdjson(path.join(dir, "corpora", corpusId, "units.ndjson"),
-      { id: ids[i], text: texts[i], meta: { dept: depts[i] } });
+      { id: ids[i], text: texts[i], meta: { dept: depts[i], satisfaction: sats[i] } });
   }
 
   // STRING machine labels; u7's aggregate is flagged (no consensus, NO label)
@@ -159,6 +162,20 @@ async function buildFixtureA() {
   const cellNo = dslProportion(mkUnits(labeled, "no"));
   void yes;
 
+  // real corrected REGRESSION fits (same data path computeModel walks):
+  // usable rows = labeled units with numeric satisfaction; gold rows carry
+  // y + pi. The stored results below are what Concord actually computed, so
+  // the generated refit scripts must reproduce them from the archive CSVs.
+  const mkModelUnits = (positive) => labeled.map((u) => {
+    const row = { yhat: agg[u] === positive ? 1 : 0, x: [sats[ids.indexOf(u)]] };
+    if (goldPi.has(u)) { row.y = ADJ[u] === positive ? 1 : 0; row.pi = pi; }
+    return row;
+  });
+  const modelNames = ["(Intercept)", "satisfaction"];
+  const renameCoef = (coef) => coef.map((c, i) => ({ ...c, name: modelNames[i] ?? c.name }));
+  const logitFit = dslLogit(mkModelUnits("yes"), 1);
+  const olsFit = dslOLS(mkModelUnits("yes"), 1);
+
   const cellOf = (group, n, r) => ({ group, n, est: r.est, se: r.se, ciLo: r.ciLo, ciHi: r.ciHi, naive: r.naive });
   const anPos = {
     id: "an_pos", kind: "crosstab",
@@ -181,14 +198,25 @@ async function buildFixtureA() {
   };
   const anModel = {
     id: "an_model", kind: "model",
-    spec: { instrumentId: "inst_h", runId: "run_h", corpusId, goldsetId: "gs_h", x: ["satisfaction"] },
+    spec: { instrumentId: "inst_h", runId: "run_h", corpusId, goldsetId: "gs_h", x: ["satisfaction"], family: "logit" },
     results: {
       estimator: "dslLogit", family: "logit", outcome: 'machine label == "yes"',
-      coef: [{ name: "(Intercept)", est: 0.21, se: 0.4 }, { name: "satisfaction", est: -0.5, se: 0.3 }],
-      naive: [{ name: "(Intercept)", est: 0.3, se: 0.2 }, { name: "satisfaction", est: -0.6, se: 0.1 }],
+      coef: renameCoef(logitFit.coef),
+      naive: renameCoef(logitFit.naive),
       n: 7, nGold: 4,
     },
     level: "corrected", createdAt: "2026-06-02T11:20:00.000Z",
+  };
+  const anOls = {
+    id: "an_ols", kind: "model",
+    spec: { instrumentId: "inst_h", runId: "run_h", corpusId, goldsetId: "gs_h", x: ["satisfaction"], family: "linear" },
+    results: {
+      estimator: "dslOLS", family: "linear", outcome: 'machine label == "yes"',
+      coef: renameCoef(olsFit.coef),
+      naive: renameCoef(olsFit.naive),
+      n: 7, nGold: 4,
+    },
+    level: "corrected", createdAt: "2026-06-02T11:25:00.000Z",
   };
   const anNull = { ...structuredClone(anPos), id: "an_null", spec: { ...anPos.spec, runId: "run_h2" } };
 
@@ -202,7 +230,7 @@ async function buildFixtureA() {
     constructs: [construct],
     instruments: [instrument],
     goldsets: [gsGold, gsSilver],
-    analyses: [anPos, anDesc, anModel, anNull],
+    analyses: [anPos, anDesc, anModel, anOls, anNull],
   };
 
   // ledger: silver tuning BEFORE any human gold label (order provable)
@@ -228,10 +256,11 @@ async function buildFixtureA() {
   await ev("system", "analysis.created", { analysisId: "an_pos", runId: "run_h" }, { kind: "crosstab", estimator: "dslProportion", level: "corrected" });
   await ev("system", "analysis.created", { analysisId: "an_desc", runId: "run_h" }, { kind: "descriptive", estimator: "dslProportion", level: "corrected" });
   await ev("system", "analysis.created", { analysisId: "an_model", runId: "run_h" }, { kind: "model", estimator: "dslLogit", level: "corrected" });
+  await ev("system", "analysis.created", { analysisId: "an_ols", runId: "run_h" }, { kind: "model", estimator: "dslOLS", level: "corrected" });
 
   Object.assign(A, {
-    root, dir, project, ids, agg, ADJ, goldPi, pi, depts,
-    expected: { ops, sales, diff, cellYes, cellNo },
+    root, dir, project, ids, agg, ADJ, goldPi, pi, depts, sats,
+    expected: { ops, sales, diff, cellYes, cellNo, logit: anModel.results.coef, olsCoef: anOls.results.coef },
   });
 }
 
@@ -361,8 +390,8 @@ function pythonWithPandas() {
 }
 const PYTHON = pythonWithPandas();
 
-test("the generated reproduce.py EXECUTES end-to-end against the archive", { skip: PYTHON ? false : "python with numpy+pandas not available" }, async () => {
-  const files = await buildZip(null, ["an_pos", "an_desc", "an_model"], { includeGoldText: false });
+test("the generated reproduce.py EXECUTES end-to-end against the archive — proportions AND corrected regressions", { skip: PYTHON ? false : "python with numpy+pandas not available" }, async () => {
+  const files = await buildZip(null, ["an_pos", "an_desc", "an_model", "an_ols"], { includeGoldText: false });
   const work = await mkdtemp(path.join(os.tmpdir(), "concord-honesty-py-"));
   try {
     for (const [member, bytes] of Object.entries(files)) {
@@ -373,32 +402,99 @@ test("the generated reproduce.py EXECUTES end-to-end against the archive", { ski
     const run = spawnSync(PYTHON, ["reproduce.py"], { cwd: work, encoding: "utf8", timeout: 120000 });
     assert.equal(run.status, 0, `reproduce.py exited ${run.status}\nstdout:\n${run.stdout}\nstderr:\n${run.stderr}`);
     assert.ok(run.stdout.includes("analysis an_pos") && run.stdout.includes("analysis an_desc"));
-    assert.ok((run.stdout.match(/OK /g) ?? []).length >= 8, `every cell + diff checks OK:\n${run.stdout}`);
-    assert.ok(/script-covered Concord numbers reproduced to 1e-6/.test(run.stdout), "honest final line missing");
+    assert.ok(run.stdout.includes("analysis an_model") && run.stdout.includes("analysis an_ols"),
+      `regression blocks must execute:\n${run.stdout}`);
+    // proportions: 2 cells + diff (an_pos) + 2 cells (an_desc) = 10 OKs;
+    // regressions: 2 coefficients × (est + se) × 2 analyses = 8 OKs
+    assert.ok((run.stdout.match(/OK /g) ?? []).length >= 16, `every cell + diff + coefficient checks OK:\n${run.stdout}`);
+    assert.ok(/OK .*(Intercept).* est/.test(run.stdout) && /satisfaction.* se/.test(run.stdout),
+      `regression coefficient checks must print:\n${run.stdout}`);
+    assert.ok(/All Concord numbers reproduced to 1e-6/.test(run.stdout), "honest final line missing");
   } finally {
     await rm(work, { recursive: true, force: true }).catch(() => {});
   }
 });
 
-test("corrected regression analyses yield an honest coverage statement, never a false 'no corrected analyses' claim", async () => {
-  // archive with BOTH a script-covered proportion analysis and a regression
-  const both = await buildZip(null, ["an_pos", "an_model"], { includeGoldText: false });
+test("corrected regressions are refit by the generated scripts: pseudo-outcome rebuild + inline fit + assertions against the stored coefficients", async () => {
+  const files = await buildZip(null, ["an_model", "an_ols"], { includeGoldText: false });
+  const r = strFromU8(files["reproduce.R"]);
+  const py = strFromU8(files["reproduce.py"]);
+  const readme = strFromU8(files["README.md"]);
+
+  // both scripts name both regression analyses
+  for (const text of [r, py]) {
+    assert.ok(text.includes("analysis an_model"), "logit block missing");
+    assert.ok(text.includes("analysis an_ols"), "OLS block missing");
+  }
+
+  // the covariate comes from the archived unit meta and rows with non-numeric
+  // covariates drop (Concord's usable-row rule)
+  assert.ok(r.includes('meta_satisfaction'), "R must read the meta_ covariate column");
+  assert.ok(py.includes('"meta_satisfaction"'), "py must read the meta_ covariate column");
+  assert.ok(/non-numeric/i.test(r) && /non-numeric/i.test(py), "both scripts must state the usable-row rule");
+
+  // logit: the refit replicates Concord's exact Newton iteration (clamp,
+  // weight floor, stopping rule) so 1e-6 holds for an iterative fit — the
+  // tolerance and its justification must be stated in BOTH scripts and README
+  assert.ok(/pmin\(pmax\(/.test(r), "R logit must clamp eta like Concord");
+  assert.ok(/1e-10/.test(r), "R logit must carry Concord's weight floor/stopping tolerance");
+  assert.ok(/np\.clip\(/.test(py), "py logit must clamp eta like Concord");
+  assert.ok(/max\(np\.abs\(step\)\) < 1e-10|np\.max\(np\.abs\(step\)\) < 1e-10/.test(py), "py logit must stop on Concord's step rule");
+  for (const text of [r, py, readme]) {
+    assert.ok(/1e-6/.test(text), "the regression tolerance must be stated");
+    assert.ok(/Newton|iterative/i.test(text), "the iterative-logit justification must be stated");
+  }
+
+  // every stored coefficient (est AND se) is embedded at full precision and asserted
+  for (const c of [...A.expected.logit, ...A.expected.olsCoef]) {
+    assert.ok(py.includes(String(c.est)) && py.includes(String(c.se)), `stored coef ${c.name} missing from reproduce.py`);
+    assert.ok(r.includes(String(c.est)) && r.includes(String(c.se)), `stored coef ${c.name} missing from reproduce.R`);
+  }
+  assert.ok(/stopifnot\(/.test(r), "R must assert with stopifnot");
+
+  // OLS variance is the HC0 sandwich with NO degrees-of-freedom inflation
+  assert.ok(/HC0|no n\/\(n-p\)|without.*n\/\(n.p\)/i.test(py), "py must name the HC0 (uninflated) sandwich");
+
+  // coverage statements now claim regressions; the roadmap caveat is gone
   for (const member of ["reproduce.R", "reproduce.py", "README.md"]) {
-    const text = strFromU8(both[member]);
-    assert.ok(/proportion cells are script-verified/.test(text), `${member} must state script coverage`);
-    assert.ok(/corrected regression refits are not included/.test(text), `${member} must disclose missing regression refits`);
-    assert.ok(text.includes("analyses/an_model.json"), `${member} must point at the stored estimates`);
+    const text = strFromU8(files[member]);
+    assert.ok(!/corrected regression refits are not included/.test(text),
+      `${member} must not still disclaim regression refits`);
+    assert.ok(!/generated refit code is on the roadmap/.test(text), `${member} must drop the roadmap caveat`);
+    assert.ok(!text.includes("No DSL-corrected analyses were included in this archive"),
+      `${member} must not deny corrected analyses that ship in the same zip`);
+  }
+});
+
+test("analyses the scripts still cannot refit get an honest coverage statement, never a false 'no corrected analyses' claim", async () => {
+  // a PPI-corrected analysis: stored values only — the scripts must say so
+  const clone = structuredClone(A.project);
+  clone.analyses.push({
+    id: "an_ppi", kind: "descriptive",
+    spec: { instrumentId: "inst_h", runId: "run_h", corpusId: "corp_h", goldsetId: "gs_h" },
+    results: { estimator: "ppiMean", outcome: "label", est: 0.5, se: 0.1 },
+    level: "corrected", createdAt: "2026-06-02T11:30:00.000Z",
+  });
+  const files = await buildZip(clone, ["an_pos", "an_model", "an_ppi"], { includeGoldText: false });
+  for (const member of ["reproduce.R", "reproduce.py", "README.md"]) {
+    const text = strFromU8(files[member]);
+    assert.ok(/proportion cells and corrected regression .* script-verified/.test(text),
+      `${member} must state the script coverage`);
+    assert.ok(text.includes("analyses/an_ppi.json"), `${member} must point at the stored estimates`);
+    assert.ok(/stored values/.test(text), `${member} must say uncovered estimates ship as stored values`);
+    assert.ok(!text.includes("analyses/an_model.json (estimator"),
+      `${member} must not list the refit regression as uncovered`);
     assert.ok(!text.includes("No DSL-corrected analyses were included in this archive"),
       `${member} must not deny corrected analyses that ship in the same zip`);
   }
 
-  // archive with ONLY the regression: still no false denial
-  const only = await buildZip(null, ["an_model"], { includeGoldText: false });
+  // archive with ONLY the uncovered analysis: still no false denial
+  const only = await buildZip(clone, ["an_ppi"], { includeGoldText: false });
   const r = strFromU8(only["reproduce.R"]);
   const py = strFromU8(only["reproduce.py"]);
   assert.ok(!r.includes("No DSL-corrected analyses were included in this archive"));
   assert.ok(!py.includes("No DSL-corrected analyses in this archive"));
-  assert.ok(r.includes("analyses/an_model.json") && py.includes("analyses/an_model.json"));
+  assert.ok(r.includes("analyses/an_ppi.json") && py.includes("analyses/an_ppi.json"));
 });
 
 test("legacy archives without a recorded positive value fall back to numeric labels, with the fallback named", async () => {
@@ -490,6 +586,41 @@ test("methods: the construct entry always reads as recorded at export time; free
   const m2 = await gen(clone);
   assert.ok(/As recorded at export time, the entry specifies/.test(m2.markdown));
   assert.ok(!m2.markdown.includes("As frozen for this analysis"), "unfrozen: no frozen phrasing at all");
+});
+
+test("methods: inductive-origin constructs state the corpus-mining provenance; draft and legacy keep the draft wording", async () => {
+  // origin "inductive" (stamped by the Inductive-mode accept path): the
+  // provenance sentence names the corpus-mining pass and the adoption
+  const inductive = structuredClone(A.project);
+  Object.assign(inductive.constructs[0], { authoredBy: "director", humanTouched: false, origin: "inductive", draftedFrom: "corp_h" });
+  const m1 = await gen(inductive);
+  assert.ok(/originated from a Director corpus-mining pass over the corpus "Survey" and was adopted by the researcher/.test(m1.markdown),
+    "inductive origin sentence (with resolved corpus) missing");
+  assert.ok(/the codebook entry has not been edited by a human/.test(m1.markdown), "unedited inductive construct keeps the no-human-edit disclosure");
+  assert.ok(!/The codebook entry was drafted by the AI Director/.test(m1.markdown), "draft wording must not ride an inductive construct");
+
+  // draftedFrom unresolvable (corpus gone) → the corpus clause drops, the rest stands
+  const lost = structuredClone(inductive);
+  lost.constructs[0].draftedFrom = "corp_gone";
+  const m2 = await gen(lost);
+  assert.ok(/originated from a Director corpus-mining pass and was adopted by the researcher/.test(m2.markdown),
+    "unresolvable draftedFrom must drop the corpus clause, not invent a name");
+  assert.ok(!m2.markdown.includes("corp_gone"), "a dangling corpus id must not leak into the prose");
+
+  // origin "draft" (deductive Director draft) keeps the current sentence
+  const draft = structuredClone(A.project);
+  Object.assign(draft.constructs[0], { authoredBy: "director", humanTouched: false, origin: "draft" });
+  const m3 = await gen(draft);
+  assert.ok(/The codebook entry was drafted by the AI Director and has not been edited by a human/.test(m3.markdown));
+  assert.ok(!/corpus-mining/.test(m3.markdown), "draft constructs must not claim a corpus-mining origin");
+
+  // absent origin (legacy construct) keeps the current wording
+  const legacy = structuredClone(A.project);
+  Object.assign(legacy.constructs[0], { authoredBy: "director", humanTouched: false });
+  delete legacy.constructs[0].origin;
+  const m4 = await gen(legacy);
+  assert.ok(/The codebook entry was drafted by the AI Director and has not been edited by a human/.test(m4.markdown));
+  assert.ok(!/corpus-mining/.test(m4.markdown), "legacy constructs (no origin) keep the current wording");
 });
 
 test("methods: uncertainty designs disclose nominal pi and the lost guarantee", async () => {

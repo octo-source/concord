@@ -292,7 +292,23 @@ async function compose(project, analysisId, { projectDir } = {}, mode) {
     const edited = find("construct.edited", construct.id);
     const sentences = [];
     sentences.push(s(`The construct "${inline(construct.name)}" (${construct.type}) was defined as: "${inline(construct.definition)}"`, created));
-    if (construct.authoredBy === "director" && construct.humanTouched && edited) {
+    if (construct.authoredBy === "director" && construct.origin === "inductive") {
+      // Accepted from Inductive mode (origin stamped by the accept path):
+      // this is hypothesis generation FROM the corpus, not a formalization of
+      // the researcher's concepts — the provenance sentence must say so. The
+      // mined corpus is named only when draftedFrom still resolves.
+      const minedCorpus = construct.draftedFrom
+        ? (project.corpora ?? []).find((c) => c.id === construct.draftedFrom) ?? null
+        : null;
+      const head = `The construct originated from a Director corpus-mining pass${minedCorpus ? ` over the corpus "${inline(minedCorpus.name ?? minedCorpus.id)}"` : ""} and was adopted by the researcher`;
+      if (construct.humanTouched && edited) {
+        sentences.push(s(`${head}; the codebook entry was subsequently reviewed and edited by the research team`, edited));
+      } else if (construct.humanTouched) {
+        sentences.push(s(head, created));
+      } else {
+        sentences.push(s(`${head}; the codebook entry has not been edited by a human`, created));
+      }
+    } else if (construct.authoredBy === "director" && construct.humanTouched && edited) {
       sentences.push(s("The codebook entry was drafted by the AI Director and subsequently reviewed and edited by the research team", edited));
     } else if (construct.authoredBy === "director" && construct.humanTouched) {
       sentences.push(s("The codebook entry was drafted by the AI Director and subsequently accepted by the research team", created));
