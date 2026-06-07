@@ -1,0 +1,14 @@
+# Line-ending policy. Everything checks out with LF — several test fixtures
+# (quoted CSV cells with embedded newlines) and generated artifacts depend on
+# exact bytes, and a Windows clone with autocrlf would corrupt them.
+* text=auto eol=lf
+
+# Windows launcher needs CRLF
+*.bat text eol=crlf
+
+# Binary test fixtures — never touch
+*.docx binary
+*.pdf binary
+*.xlsx binary
+*.png binary
+*.zip binary
