@@ -40,7 +40,7 @@ export function render(mount, params) {
     if (!read || !read.lengthHist) {
       mount.append(emptyState({
         title: "Nothing to read yet.",
-        body: "This corpus has no instant read — import may still be running.",
+        body: "This corpus returned no instant read — the import created no units, or the file held no codable text.",
         actions: [el("a", { class: "btn", href: `#/p/${params.slug}/import` }, "Back to import")],
       }));
       return;
@@ -49,10 +49,10 @@ export function render(mount, params) {
     mount.append(screenHead({
       overline: "Instant read",
       title: "What the corpus looks like before anyone reads it.",
-      lede: "Local counts only — lengths, languages, distinctive terms, metadata. Click any bar to read its units; generate the Brief below for the first interpreted pass.",
+      lede: "Local counts only — lengths, languages, distinctive terms, metadata. The charts summarize the corpus; the Brief below reads a stratified sample and cites the units behind every claim.",
       actions: [
         el("span", { class: "chip chip--ghost localbadge", title: "Computed from bundled lexicons and local statistics" },
-          "⌂ all local — no API calls",
+          "⌂ statistics computed locally — no model reads your data here",
           read.unitCount ? el("span", { class: "data" }, ` · ${fmtCount(read.unitCount)} units`) : null),
       ],
     }));
@@ -138,7 +138,7 @@ export function render(mount, params) {
       { label: "neutral", value: sketch.neutral ?? 0 },
       { label: "negative", value: sketch.negative ?? 0 },
     ], {
-      caption: `Share of units by ${sketch.lexicon ?? "VADER"} valence — mean ${fmtStat(sketch.meanValence)}. A sketch, not a finding: sarcasm defeats lexicons.`,
+      caption: `Share of units by ${sketch.lexicon ?? "VADER"} valence — mean net valence ${fmtStat(sketch.meanValence)} (VADER lexicon weight sum — not the VADER compound score). A sketch, not a finding: sarcasm defeats lexicons.`,
       format: (v) => fmtPct(v, 1),
       level: "exploratory",
       domain: [0, 1],
@@ -176,7 +176,8 @@ export function render(mount, params) {
               "No price to quote yet — choose a Director model in ",
               el("a", { href: `#/p/${params.slug}/settings` }, "this project's Settings"),
               " (keyless demo: choose Mock).")
-          : null,
+          : el("p", { class: "ctacard__line faint" },
+              "(price from provider catalog — fetching it sends no corpus data)"),
       ),
       el("button", {
         class: "btn btn--primary btn--lg", type: "button",

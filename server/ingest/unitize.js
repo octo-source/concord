@@ -86,10 +86,14 @@ function pickTextColumn(rows, textColumn, issues) {
   return bestName;
 }
 
-// unitize(corpusId, parsed, scheme, {textColumn?}) -> Unit[]
+// unitize(corpusId, parsed, scheme, {textColumn?, ignoreColumns?}) -> Unit[]
 // Schemes: response (rows), paragraph (docs), turn (turns),
 // sentence (any source: splits each base text into sentence units).
-export function unitize(corpusId, parsed, scheme, { textColumn } = {}) {
+// ignoreColumns (tabular only): column names dropped from unit.meta HERE,
+// before anything downstream — the pii step, Director prompts and the
+// replication units CSV all read unit.meta, so an ignored column is simply
+// absent everywhere.
+export function unitize(corpusId, parsed, scheme, { textColumn, ignoreColumns } = {}) {
   if (!parsed || typeof parsed !== "object") {
     throw new ConcordError("BAD_PARSED", "unitize requires a parsed result object", {});
   }
@@ -99,12 +103,14 @@ export function unitize(corpusId, parsed, scheme, { textColumn } = {}) {
       throw new ConcordError("BAD_SCHEME", `scheme "${scheme}" does not apply to tabular rows`, { scheme });
     }
     const col = parsed.rows.length ? pickTextColumn(parsed.rows, textColumn, parsed.issues) : textColumn;
+    const ignore = new Set(ignoreColumns ?? []);
+    ignore.delete(col); // the text column is never droppable — the explicit choice wins
     parsed.rows.forEach((row, r) => {
       const text = String(row[col] ?? "").trim();
       if (!text) return;
       const meta = {};
       for (const [k, v] of Object.entries(row)) {
-        if (k !== col) meta[k] = v === undefined ? null : v;
+        if (k !== col && !ignore.has(k)) meta[k] = v === undefined ? null : v;
       }
       bases.push({ text, meta, pos: { row: r }, src: r });
     });

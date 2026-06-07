@@ -85,7 +85,7 @@ export function render({
   } else {
     segs.push(el("span", {
       class: "scopechip__seg scopechip__seg--warn",
-      title: "This corpus predates scope tracking. Re-import it, or set the unit text column from its Instant Read, to record which column is measured.",
+      title: "This corpus predates scope tracking. Re-import it, or set the unit text column from its Instant Read (this builds a recorded, derived copy).",
     }, "text column not recorded"));
   }
 
@@ -107,7 +107,7 @@ export function render({
     segs.push(el("span", {
       class: "scopechip__seg",
       title: total > 0
-        ? `${breakdown} — flagged at import and kept in the corpus; exclude them explicitly if you want them out`
+        ? `${breakdown} — flagged at import and kept in the corpus; Concord never drops units — to remove them, clean the source file and re-import`
         : "no units flagged as junk",
     }, el("span", { class: "data" }, fmtCount(total)), " junk-flagged (included)"));
   }

@@ -9,10 +9,14 @@
 //   POST import          → {importId, mapping: {columns: [{name, role,
 //                           confidence, stats}]} | null, preview: [...rows],
 //                           issues: [...]}
-//   POST import/confirm  → {importId, mapping: {textColumn}, unitization:
-//                           {scheme}, pii: "off"|"scan"|"pseudonymize"} →
-//                           {corpusId, unitCount, junkQueue: {counts: {na,
-//                           dup, bot, …}, flagged}, pii: {mode, counts?}}
+//   POST import/confirm  → {importId, mapping: {textColumn, columns: [{name,
+//                           role}]}, unitization: {scheme}, pii:
+//                           "off"|"scan"|"pseudonymize"} → {corpusId,
+//                           unitCount, skipped, junkQueue: {counts: {na,
+//                           dup, bot, …}, flagged}, pii: {mode, counts?}}.
+//                           Columns with role "ignore" are dropped from
+//                           unit.meta at unitize; the rest of the role map
+//                           persists on the corpus record (columnRoles).
 
 import { el, clear } from "../dom.js";
 import { store } from "../state.js";
@@ -69,7 +73,7 @@ function dropTarget(mount, params) {
     emptyState({
       mark: "⇣",
       title: "Drop a file anywhere.",
-      body: "CSV, XLSX, DOCX, PDF, plain text, or VTT/SRT transcripts. Concord proposes the column mapping; you stay the editor.",
+      body: "CSV, XLSX, DOCX, PDF, plain text, VTT/SRT transcripts, or transcript JSON. Concord proposes the column mapping; you stay the editor.",
       hint: "Files parse locally. Nothing leaves this machine at import.",
       actions: [
         el("label", { class: "btn btn--primary", for: "import-file" }, "Choose a file…"),
@@ -129,7 +133,9 @@ function renderSheet(mount, params, proposal, file) {
   mount.append(screenHead({
     overline: "Import · review the mapping",
     title: file?.name ?? "Mapping",
-    lede: `Parsed locally — ${fmtCount(preview.length)} preview rows below. Adjust any column's role; nothing here blocks the import.`,
+    lede: `Parsed locally — ${fmtCount(preview.length)} preview rows below.${tabular
+      ? " Set a column to ignore and it stays out of unit metadata, model prompts, and exports. Other roles are recorded for reference."
+      : ""} Nothing here blocks the import.`,
   }));
 
   /* -- unit text: the one choice that decides what gets measured -- */
@@ -198,7 +204,7 @@ function renderSheet(mount, params, proposal, file) {
           el("li", { class: "issue" },
             el("span", { class: "chip chip--signal issue__kind" },
               `${issue.kind ?? "issue"}${issue.count !== undefined ? ` · ${fmtCount(issue.count)}` : ""}`),
-            el("span", { class: "issue__note" }, issue.note ?? issue.message ?? ""),
+            el("span", { class: "issue__note" }, issue.note ?? issue.message ?? issue.detail ?? ""),
           ))),
     ));
   }
@@ -233,12 +239,12 @@ function renderSheet(mount, params, proposal, file) {
     {
       mode: "scan",
       label: "Scan only (default)",
-      hint: "Counts identifiers and flags the units. Text is unchanged.",
+      hint: "Counts identifiers in unit text and metadata columns and flags the units. Nothing is changed.",
     },
     {
       mode: "pseudonymize",
       label: "Pseudonymize",
-      hint: "Replaces identifiers before any model call: jane.doe@example.com becomes [EMAIL_1]. Originals stay in a local vault file that never leaves this machine and is excluded from exports.",
+      hint: "Replaces identifiers in unit text and metadata columns before any model call: jane.doe@example.com becomes [EMAIL_1]. Originals stay in a local vault file inside this project's folder — excluded from every Concord export, but it travels if you copy the folder by hand; delete vault\\ first to share masked-only.",
     },
     {
       mode: "off",
@@ -246,7 +252,7 @@ function renderSheet(mount, params, proposal, file) {
       hint: "No identifier scan.",
     },
   ];
-  mount.append(section("Identifiers (emails, phones, names)",
+  mount.append(section("Identifiers (emails, phones, SSNs, names)",
     el("div", { class: "choicelist", role: "radiogroup", aria: { label: "Identifier handling" } },
       ...piiOptions.map((opt) =>
         el("label", { class: "choice" },
@@ -272,11 +278,14 @@ function renderSheet(mount, params, proposal, file) {
       // read BEFORE the refresh below — was this an additional corpus?
       const hadCorpora = (store.get("project")?.corpora?.length ?? 0) > 0;
       try {
-        // live confirm wants the text column by name + the scheme + the pii mode
+        // live confirm wants the text column by name + the edited role map
+        // (ignore roles only take effect server-side) + the scheme + pii mode
         const textColumn = tabular ? unitTextColumn : null;
         const result = await confirmImport(params.slug, {
           importId: proposal.importId,
-          mapping: textColumn ? { textColumn } : {},
+          mapping: textColumn
+            ? { textColumn, columns: columns.map((c) => ({ name: c.name, role: c.role })) }
+            : {},
           unitization: unitization ? { scheme: unitization } : {},
           pii: piiMode,
         });
@@ -286,6 +295,7 @@ function renderSheet(mount, params, proposal, file) {
         const piiLine = piiSummary(result.pii);
         toast.success(`Corpus imported — ${fmtCount(result.unitCount)} units${textColumn ? ` from “${textColumn}”` : ""}.`, {
           detail: `${fmtCount(junkTotal)} flagged as junk (kept, marked)${unitization ? ` · ${unitization} unitization` : ""}`
+            + ((result.skipped ?? 0) > 0 ? ` · ${fmtCount(result.skipped)} empty rows skipped` : "")
             + (piiLine ? ` · ${piiLine}` : "")
             + (hadCorpora ? " · Existing instruments can run on this corpus from Runs → New run." : ""),
           data: true,

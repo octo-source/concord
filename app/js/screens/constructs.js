@@ -50,6 +50,7 @@ export function render(mount, params, query) {
       title: "Constructs",
       lede: "Define each thing you want to measure, precisely enough that a stranger — or a model — could apply it. Every instrument compiles from a construct.",
       actions: [
+        el("button", { class: "btn", type: "button", onclick: () => newConstruct(params) }, "+ New construct"),
         el("button", { class: "btn", type: "button", onclick: () => draftWithDirector(params) }, `${glyph.GLYPH} Draft with Director`),
         el("button", { class: "btn", type: "button", onclick: () => importCodebook(params) }, "Import codebook"),
         el("button", { class: "btn btn--quiet", type: "button", onclick: () => inductiveMode(params) }, "Inductive mode"),
@@ -65,7 +66,10 @@ export function render(mount, params, query) {
       list.append(emptyState({
         title: "No constructs yet.",
         body: "What do you want to measure? Draft one with the Director, import a legacy codebook, or write your own.",
-        actions: [el("button", { class: "btn btn--primary", type: "button", onclick: () => draftWithDirector(params) }, `${glyph.GLYPH} Draft with Director`)],
+        actions: [
+          el("button", { class: "btn btn--primary", type: "button", onclick: () => draftWithDirector(params) }, `${glyph.GLYPH} Draft with Director`),
+          el("button", { class: "btn", type: "button", onclick: () => newConstruct(params) }, "+ New construct"),
+        ],
       }));
     } else {
       const project = store.get("project");
@@ -249,7 +253,7 @@ function editor(pane, params, construct, query = {}) {
           el("p", { class: "screen__hint faint" }, "This order feeds ordinal statistics (weighted κ, ordinal α) and sets the coding-sprint number keys."),
           categoriesEditor(k, touch))
       : section("Categories",
-          el("p", { class: "screen__hint faint" }, "Statistics treat these categories as unordered. The order here only sets the coding-sprint number keys (1, 2, 3…)."),
+          el("p", { class: "screen__hint faint" }, "Statistics treat these categories as unordered. The order here sets the coding-sprint number keys and the option order shown to model judges; for binary constructs with a dictionary instrument, the FIRST category is the positive label."),
           categoriesEditor(k, touch)));
   };
   redrawCategories();
@@ -380,7 +384,14 @@ function examplesTable(k, touch) {
       const known = !empty && cats.some((c) => c.value === ex.label);
       return el("select", {
         class: "input extable__labelpick", "aria-label": `Example ${i + 1} label`,
-        onchange: (e) => { ex.label = e.target.value; touch(); },
+        onchange: (e) => {
+          // option values are DOM strings — resolve back to the ORIGINAL
+          // category value so numeric labels keep their type (the answer
+          // schema wants 2, not "2")
+          const hit = cats.find((c) => String(c.value) === e.target.value);
+          ex.label = hit ? hit.value : e.target.value;
+          touch();
+        },
       },
         ...(empty ? [el("option", { value: "", selected: true, disabled: true }, "pick its correct label")] : []),
         ...(!empty && !known ? [el("option", { value: String(ex.label), selected: true }, `${String(ex.label)} — not a current category`)] : []),
@@ -447,6 +458,51 @@ function examplesTable(k, touch) {
   return { node: wrap, redraw };
 }
 
+/* ---- write your own: name + type, then straight into the editor ----------------- */
+
+// The minimal hand-authoring door (POST constructs needs only name + type).
+// Definition, criteria, categories and examples are the editor's job — this
+// sheet exists so "write your own" has a path that is not proposal Accept.
+function newConstruct(params) {
+  const s = openSheet({ title: "New construct", overline: "Codebook" });
+  let type = "binary";
+  const nameInput = el("input", {
+    class: "input", "aria-label": "Construct name",
+    placeholder: "e.g. Compensation grievance",
+  });
+  const typeSel = el("select", {
+    class: "input", "aria-label": "Construct type",
+    onchange: (e) => { type = e.target.value; },
+  }, ...TYPES.map((t) => el("option", { value: t, selected: t === type }, t)));
+  s.body.append(
+    el("p", {}, "Name the thing you want to measure and pick its answer type. The construct opens in the editor, where the definition, criteria, categories and worked examples are written."),
+    el("label", { class: "field" }, el("span", { class: "field__label overline" }, "Name"), nameInput),
+    el("label", { class: "field" }, el("span", { class: "field__label overline" }, "Type"), typeSel),
+  );
+  const createBtn = el("button", {
+    class: "btn btn--primary", type: "button",
+    onclick: async (e) => {
+      const name = nameInput.value.trim();
+      if (!name) { nameInput.focus(); return; }
+      e.target.disabled = true;
+      try {
+        const created = await api.constructs.create(params.slug, { name, type });
+        toast.success(`Construct “${created.name}” created.`, { detail: "write its definition and criteria, then save" });
+        s.close();
+        router.navigate(`p/${params.slug}/constructs/${created.id}`);
+      } catch (err) {
+        e.target.disabled = false;
+        toast.error("Could not create the construct.", { detail: String(err.message ?? err) });
+      }
+    },
+  }, "Create and open the editor");
+  s.foot.append(
+    el("button", { class: "btn btn--quiet", type: "button", onclick: () => s.close() }, "Cancel"),
+    createBtn,
+  );
+  nameInput.focus();
+}
+
 /* ---- flows: draft / import / inductive --------------------------------------------- */
 
 // Live contracts:
@@ -508,11 +564,16 @@ function draftWithDirector(params) {
 
   const input = el("textarea", {
     class: "input textarea", rows: 5, "aria-label": "Concepts to draft",
-    placeholder: "One concept per line (name: optional hint), or a research question.\nburnout: exhaustion the respondent attributes to their own workload\nWhich exits were preventable?",
+    placeholder: "One concept per line (name: optional hint):\nburnout: exhaustion the respondent attributes to their own workload\nmanager support: blame or praise aimed at the direct manager\nOr type one research question alone on a single line, e.g. Which exits were preventable?",
   });
+  // the draft reads the project's FIRST corpus (no picker exists) — name it
+  // so a multi-corpus project knows which one feeds the worked examples
+  const draftCorpus = (store.get("project")?.corpora ?? [])[0] ?? null;
   s.body.append(
     el("p", {},
-      "Write the concepts ", el("strong", {}, "you"), " want to measure. The Director reads a 60-unit corpus sample and returns a full draft construct for each — definition, include/exclude criteria, worked examples. One Director call, usually 30–60 seconds; nothing is saved until you accept a proposal."),
+      "Write the concepts ", el("strong", {}, "you"), " want to measure. The Director reads a sample of up to 60 units from ",
+      draftCorpus ? el("span", { class: "data" }, scopechip.displayName(draftCorpus)) : "the project corpus",
+      " and returns a full draft construct for each — definition, include/exclude criteria, worked examples. One Director call, usually 30–60 seconds; nothing is saved until you accept a proposal."),
     el("label", { class: "field" },
       el("span", { class: "field__label overline" }, "Concepts"),
       input),
@@ -604,12 +665,17 @@ function inductiveMode(params) {
     },
   });
 
+  // the pass reads the project's FIRST corpus (no picker exists) — name it
+  // so a multi-corpus project knows which one is being themed
+  const inductiveCorpus = (store.get("project")?.corpora ?? [])[0] ?? null;
   s.body.append(
     el("p", {},
-      "The Director reads 200 corpus units with no codebook and proposes a taxonomy of candidate themes. One Director call, usually 30–90 seconds; you review every proposal before anything is saved."),
+      "The Director reads up to 200 units from ",
+      inductiveCorpus ? el("span", { class: "data" }, scopechip.displayName(inductiveCorpus)) : "the project corpus",
+      " with no codebook and proposes a taxonomy of candidate themes. One Director call, usually 30–90 seconds; you review every proposal before anything is saved."),
     el("p", { class: "screen__hint" },
       "Inductive output is ", el("strong", {}, "hypothesis generation, not measurement"),
-      " — proposals arrive exploratory and Director-marked, and the methods text will say where they came from. To formalize concepts you already have, use Draft with Director instead."),
+      " — proposals arrive exploratory and Director-marked; the methods text records that the Director drafted them. To formalize concepts you already have, use Draft with Director instead."),
   );
 
   const paintFoot = () => {
@@ -665,6 +731,9 @@ function themesSheet(params, taxonomy, titleLine) {
     edgeCases: [],
     examples: [],
     categories: [{ value: "present", label: "Present" }, { value: "absent", label: "Absent" }],
+    // provenance: the corpus the taxonomy was themed from — accept persists
+    // it as draftedFrom, same field the draft flow stamps server-side
+    ...(taxonomy?.corpusId ? { draftedFrom: taxonomy.corpusId } : {}),
     quoteRefs: t.quoteRefs ?? [],
   }));
   proposalsSheet(params, proposals, titleLine, {

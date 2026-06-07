@@ -289,7 +289,7 @@ function initGlobalDrop() {
         el("p", { class: "dropveil__mark", aria: { hidden: "true" } }, "⇣"),
         el("p", { class: "dropveil__line" },
           project ? `Drop to import into “${project.name}”` : "Drop to import — a project sheet will follow"),
-        el("p", { class: "dropveil__hint faint" }, "CSV · XLSX · DOCX · PDF · TXT · VTT/SRT")));
+        el("p", { class: "dropveil__hint faint" }, "CSV · XLSX · DOCX · PDF · TXT · VTT/SRT · JSON")));
     document.body.append(overlay);
     requestAnimationFrame(() => overlay?.classList.add("dropveil--in"));
   };
@@ -407,7 +407,7 @@ function planSheet(project, res, question) {
     el("p", { class: "plansheet__q" }, "“", plan.question ?? res?.question ?? question, "”"),
     plan.summary ? el("p", { class: "plansheet__summary" }, plan.summary) : null,
 
-    el("h3", { class: "overline screen__section-label" }, "Constructs it will draft"),
+    el("h3", { class: "overline screen__section-label" }, "Constructs it drafted"),
     el("ul", { class: "plansheet__list", role: "list" },
       ...(plan.constructs ?? []).map((c) =>
         el("li", { class: "plansheet__item" },
@@ -423,14 +423,21 @@ function planSheet(project, res, question) {
     el("p", { class: "plansheet__est" },
       estimateChips(plan.estimate ?? {}),
       plan.estimate?.note ? el("span", { class: "faint" }, " ", plan.estimate.note) : null),
+    (plan.instruments ?? []).length
+      ? el("p", { class: "plansheet__est faint" },
+          `Approving compiles ${fmtCount(plan.instruments.length)} instrument${plan.instruments.length === 1 ? "" : "s"} `
+          + `(${fmtCount(plan.instruments.length)} Director call${plan.instruments.length === 1 ? "" : "s"}, billed); `
+          + "the run cost above is spent only when you start each run.")
+      : null,
 
-    el("h3", { class: "overline screen__section-label" }, "The analysis it produces"),
+    el("h3", { class: "overline screen__section-label" }, "The analysis it recommends"),
     el("p", { class: "plansheet__analysis" },
       el("span", { class: "chip" }, analysis.kind ?? "analysis"),
       specLine ? el("span", { class: "data" }, " ", specLine, " ") : " ",
       (analysis.annotation ?? analysis.note)
         ? el("span", { class: "faint" }, analysis.annotation ?? analysis.note)
         : null),
+    el("p", { class: "faint" }, "Build it in the Workbench once the run completes."),
   ));
 
   s.foot.append(

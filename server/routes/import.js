@@ -5,13 +5,20 @@
 //                     projects/<slug>/.imports/<importId>.json (no corpus yet,
 //                     nothing ledgered — nothing happened to the project until
 //                     the researcher confirms the mapping).
-// POST /import/confirm {importId, mapping, unitization, pii?} → unitize →
-//                     PII step ("off" | "scan" | "pseudonymize", default
-//                     "scan"; pseudonymize masks identifiers BEFORE anything
-//                     persists, vault at projects/<slug>/vault/<corpusId>.json)
-//                     → junk scan → corpus meta + units.ndjson → ledger
-//                     corpus.imported + corpus.unitized (+ pii.pseudonymized)
-//                     → temp deleted.
+// POST /import/confirm {importId, mapping: {textColumn?, columns?: [{name,
+//                     role}]}, unitization, pii?} → unitize (columns with
+//                     role "ignore" are dropped from unit.meta HERE, before
+//                     the pii step — never scanned, masked, prompted or
+//                     exported) → PII step ("off" | "scan" | "pseudonymize",
+//                     default "scan"; pseudonymize masks identifiers BEFORE
+//                     anything persists, vault at
+//                     projects/<slug>/vault/<corpusId>.json) → junk scan →
+//                     corpus meta (incl. columnRoles when roles were sent) +
+//                     units.ndjson → ledger corpus.imported +
+//                     corpus.unitized (+ pii.pseudonymized) → temp deleted.
+//                     Response carries skipped: tabular rows whose
+//                     text-column cell was empty (silently dropped at
+//                     unitize); 0 for doc/turn sources.
 import path from "node:path";
 import { mkdir, writeFile, rm, readdir, stat } from "node:fs/promises";
 import { ConcordError } from "../core/errors.js";
@@ -182,10 +189,41 @@ export default [
         ?? (body.mapping?.columns ?? []).find((c) => c.role === "text")?.name;
       const textColumn = resolveTextColumn(parsed, requestedTextColumn);
 
+      // Column roles from the import sheet (mapping.columns [{name, role}]).
+      // "ignore" drops the column from unit.meta at unitize — BEFORE the pii
+      // step, so ignored values are never scanned, never masked, and never
+      // reach Director prompts or the replication units CSV (unit.meta is the
+      // only carrier for all three). The explicit unit-text choice wins over
+      // a contradictory ignore. The full map persists on the corpus entry as
+      // columnRoles — NOT corpus.columns, which GET /corpora/:c/columns
+      // already uses as its cache key.
+      const columnRoles = Array.isArray(body.mapping?.columns)
+        ? body.mapping.columns
+            .filter((c) => c && typeof c.name === "string" && c.name !== "" && typeof c.role === "string")
+            .map((c) => ({ name: c.name, role: c.role }))
+        : [];
+      const ignoreColumns = columnRoles
+        .filter((c) => c.role === "ignore" && c.name !== textColumn)
+        .map((c) => c.name);
+
       const corpusId = newId("corp");
-      let units = unitize(corpusId, parsed, scheme, textColumn ? { textColumn } : {});
+      let units = unitize(corpusId, parsed, scheme, {
+        ...(textColumn ? { textColumn } : {}),
+        ...(ignoreColumns.length ? { ignoreColumns } : {}),
+      });
       if (units.length === 0) {
         throw new ConcordError("VALIDATION", "unitization produced no units — check the text column and scheme", { scheme, textColumn });
+      }
+
+      // Rows unitize silently dropped because the text-column cell was empty.
+      // Only well-defined for tabular sources (every non-empty row yields at
+      // least one unit under both response and sentence schemes); doc/turn
+      // sources report 0 rather than a guess.
+      let skipped = 0;
+      if (Array.isArray(parsed.rows) && textColumn) {
+        for (const r of parsed.rows) {
+          if (!String(r[textColumn] ?? "").trim()) skipped += 1;
+        }
       }
 
       // PII step — AFTER unitize, BEFORE the junk scan, so masking happens
@@ -234,6 +272,9 @@ export default [
         // {mode, counts} for "scan"/"pseudonymize"
         pii,
         metaColumns: metaColumnsOf(units),
+        // the confirmed role map, for provenance/display — ignored columns
+        // are physically absent from the units above
+        ...(columnRoles.length ? { columnRoles } : {}),
         sourceName: record.filename ?? null,
       };
       await updateProject(project.slug, (p) => {
@@ -263,6 +304,7 @@ export default [
       return {
         corpusId,
         unitCount: units.length,
+        skipped,
         junkQueue: { counts: junk.counts, flagged: junk.flagged.slice(0, 100) },
         pii,
       };
