@@ -6,7 +6,7 @@ READ THIS FIRST when resuming. Companion docs: `docs/plans/2026-06-05-concord-v1
 
 ## State
 
-- ~56 commits, **697/698 tests green** (`npm test`; 1 intentional skip: reporting artifact dump). Route suite
+- ~56 commits, **710/711 tests green** (`npm test`; 1 intentional skip: reporting artifact dump). Route suite
   lives at `tests/unit/routes.test.js`; wave-1 feature tests at `tests/server/*.test.js` (dir created 06-06).
 - Server: run DETACHED — `Start-Process cmd "/c node server\index.js > server-boot.log 2>&1" -WorkingDirectory <repo> -WindowStyle Hidden`. Kill prior port owners first (`Get-NetTCPConnection -LocalPort 7341`). Listens on 127.0.0.1 AND ::1. start.bat = the user's entry. NEVER serve via the preview tool (its servers get reaped → zombies).
 - After every server change: restart detached + tell Ethan to FULL-reload (Ctrl+F5).
@@ -28,10 +28,20 @@ ledger `goldset.resampled`); stability reruns persisted (`projects/<slug>/stabil
 (`pii: off|scan|pseudonymize`, default scan; vault in-bundle at `vault/<corpusId>.json`, excluded from
 replication archive; real token format `[EMAIL_1]`); report routes pinned in shapes suite.
 
+**Shipped 2026-06-06 (pii follow-up, closes the metadata gap):** scan/pseudonymize/reidentify cover STRING
+metadata values like unit text (same vault, same tokens, types preserved; non-strings untouched) — so
+replication `units/<id>.csv` and Director prompts (`renderUnit` shows meta k=v — the "models never see
+metadata" claim was judge-only) no longer carry raw identifiers off pseudonymized corpora. Reunitize RE-RUNS
+the source corpus's pii mode on the derived corpus (absent record → scan, the import default; pseudonymize
+seeds `vault/<derivedId>.json` from the parent map — parent vault read, never written; parent vault MISSING →
+VAULT_CONFLICT rather than reminting tokens; counts = what THIS pass found/replaced, so zero when import
+masking already covered the promoted column); `pii` rides reunitize response + derived entry +
+`corpus.unitized` payload, `pii.pseudonymized` ledgered on masked reunitize; reunitize toast reuses import's
+`piiSummary` line. Tests: `tests/server/pii-reunitize.test.js`, meta cases in pii-import + ingest suites.
+
 **Deferred roadmap** (explicitly promised or flagged): mid-run/resume budget re-check; evidence-dossier
-test ~1/240 flake; incremental brief streaming (one Director call, 30–60s composing wait); PII scan covers
-unit text ONLY — metadata columns ride into replication CSVs unmasked (models never see them; flagged as
-background chip); no goldset delete UI exists (server route + guarded wrapper ready). Gotcha for contracts:
+test ~1/240 flake; incremental brief streaming (one Director call, 30–60s composing wait); no goldset
+delete UI exists (server route + guarded wrapper ready). Gotcha for contracts:
 `api.imports.confirm` destructures known fields and DROPS extras — never assume body passthrough in api.js.
 
 ## Recurring error classes + the approaches that beat them

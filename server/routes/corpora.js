@@ -4,18 +4,20 @@
 // metadata marginals). Instant Read computes on demand and caches into the
 // corpus meta; it never touches a model.
 import { readFile } from "node:fs/promises";
+import path from "node:path";
 import { ConcordError } from "../core/errors.js";
 import { newId, unitId } from "../core/ids.js";
 import { loadProject, updateProject } from "../core/store.js";
 import * as ledger from "../core/ledger.js";
 import { detect } from "../ingest/mapping.js";
 import { scan as junkScan } from "../ingest/junk.js";
+import { scan as piiScan, pseudonymize } from "../ingest/pii.js";
 import { score as dictScore, tokenize as dictTokenize } from "../instruments/dictionary.js";
 import { estimateRun } from "../providers/costs.js";
 import { getAdapter } from "../providers/registry.js";
 import { briefSampleTarget } from "../director/brief.js";
 import { metaColumnsOf } from "./import.js";
-import { findOr404, readCorpusUnits, requireBody, pdirOf, writeTextAtomic, corpusUnitsFile } from "./_shared.js";
+import { findOr404, readCorpusUnits, requireBody, pdirOf, writeTextAtomic, corpusUnitsFile, readJsonFile, writeJsonAtomic } from "./_shared.js";
 
 // ------------------------------------------------------------------- scope
 
@@ -428,7 +430,7 @@ export default [
       const prevKey = scopeOf(source).textColumn ?? "text_prev";
       const corpusId = newId("corp");
       let skipped = 0;
-      const next = [];
+      let next = [];
       units.forEach((u, i) => {
         const v = u.meta?.[textColumn];
         const text = v === undefined || v === null ? "" : String(v).trim();
@@ -446,6 +448,40 @@ export default [
       if (next.length === 0) {
         throw new ConcordError("VALIDATION", `every unit's "${textColumn}" is empty — nothing to re-unitize onto`, { textColumn });
       }
+
+      // PII — the derived corpus RE-RUNS the source's mode (absent record =
+      // corpora predating the pii fields → the import default, "scan").
+      // Re-run, not inherit-the-record-alone: on corpora whose metadata was
+      // masked before metadata coverage existed, promoting a column would
+      // otherwise put raw identifiers in unit text and silently bypass the
+      // masking chosen at import. Same order as import/confirm: pii BEFORE
+      // the junk scan, before anything persists.
+      const piiMode = source.pii?.mode === "pseudonymize" || source.pii?.mode === "off"
+        ? source.pii.mode
+        : "scan";
+      let pii = { mode: piiMode };
+      let piiVault = null;
+      if (piiMode === "scan") {
+        const { counts } = piiScan(next); // mutates unit.flags.pii in place
+        pii = { mode: "scan", counts };
+      } else if (piiMode === "pseudonymize") {
+        // The derived corpus gets its OWN vault at vault/<corpusId>.json,
+        // seeded with the parent's map: tokens already in the promoted text
+        // stay protected no-ops, numbering continues past them, and the
+        // derived corpus re-identifies without reaching back to the parent.
+        // The parent vault is read, never written. A missing parent vault is
+        // NOT seeded — pseudonymize then refuses the orphaned tokens
+        // (VAULT_CONFLICT) rather than reminting them over new originals.
+        const vaultDir = path.join(pdirOf(project.slug), "vault");
+        const vaultPath = path.join(vaultDir, `${corpusId}.json`);
+        const parentVault = await readJsonFile(path.join(vaultDir, `${source.id}.json`));
+        if (parentVault) await writeJsonAtomic(vaultPath, parentVault);
+        const masked = await pseudonymize(next, vaultPath);
+        next = masked.units; // the MASKED units are what persists
+        piiVault = masked.vault;
+        pii = { mode: "pseudonymize", counts: masked.vault.counts };
+      }
+
       const junk = junkScan(next); // mutates unit.flags in place, like import/confirm
 
       await writeTextAtomic(
@@ -464,6 +500,11 @@ export default [
         textColumn,
         scheme: sourceScheme,
         junk: junk.counts,
+        // what happened to identifiers, re-run from the source's mode —
+        // {mode} for "off", {mode, counts} for "scan"/"pseudonymize" (counts
+        // are what THIS pass found/replaced; zero when the parent's masking
+        // already covered everything promoted)
+        pii,
         metaColumns: metaColumnsOf(next),
         sourceName: source.sourceName ?? source.source?.filename ?? null,
         derivedFrom: source.id,
@@ -471,13 +512,22 @@ export default [
       await updateProject(project.slug, (p) => {
         p.corpora.push(entry);
       });
-      await ledger.append(pdirOf(project.slug), "human", "corpus.unitized", { corpusId }, {
+      const pdir = pdirOf(project.slug);
+      await ledger.append(pdir, "human", "corpus.unitized", { corpusId }, {
         textColumn,
         derivedFrom: source.id,
         unitCount: next.length,
         skipped,
+        pii,
       });
-      return { corpusId, unitCount: next.length, junk: junk.counts, textColumn, skipped };
+      if (piiMode === "pseudonymize") {
+        // the taxonomy's reserved event, same as import/confirm
+        await ledger.append(pdir, "human", "pii.pseudonymized", { corpusId }, {
+          counts: piiVault.counts,
+          tokenCount: piiVault.tokenCount,
+        });
+      }
+      return { corpusId, unitCount: next.length, junk: junk.counts, textColumn, skipped, pii };
     },
   },
 ];

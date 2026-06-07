@@ -203,8 +203,9 @@ export const corpora = {
   columns: (p, c) => get_(`${P(p)}/corpora/${encodeURIComponent(c)}/columns`),
   /**
    * Re-unitize from a different column → {corpusId, unitCount, junk,
-   * textColumn, skipped}. Builds a NEW corpus (the original is kept);
-   * `skipped` counts source rows empty in the chosen column.
+   * textColumn, skipped, pii: {mode, counts?}}. Builds a NEW corpus (the
+   * original is kept); `skipped` counts source rows empty in the chosen
+   * column; `pii` re-runs the source corpus's mode on the new units.
    */
   reunitize: (p, c, { textColumn } = {}) =>
     post(`${P(p)}/corpora/${encodeURIComponent(c)}/reunitize`, { textColumn }),

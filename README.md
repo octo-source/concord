@@ -93,7 +93,7 @@ Honest list, with where each deviation is documented (design doc §2, `docs/plan
 
 - **No local Whisper.** Transcripts import as VTT/SRT/JSON; audio transcription can attach later via any local OpenAI-compatible endpoint.
 - **No end-to-end-encrypted relay.** Project bundles are plain portable folders — share a drive; blind coder sessions are restricted listeners started from the Calibration Studio, never a second server.
-- **PII pseudonymization is built but not yet wired into import.** The reversible pseudonymizer (`server/ingest/pii.js`, vault outside the bundle, conflict-refusing) is implemented and tested; the import flow does not yet offer it. Next session's work.
+- ~~PII pseudonymization is built but not yet wired into import.~~ Wired since 2026-06-06: import-confirm takes `pii: "off" | "scan" | "pseudonymize"` (default scan). Scanning and masking cover unit text AND string metadata values (same reversible vault, same `[EMAIL_1]`-style tokens); the vault lives at `projects/<slug>/vault/<corpusId>.json` and is excluded from every replication archive. Re-unitizing re-runs the source corpus's pii mode on the derived corpus.
 - **No OS keychain.** Keys sit in `config/keys.json` (gitignored, outside bundles and archives).
 - **No SQLite/DuckDB.** NDJSON/JSON bundles with atomic writes and an append-only ledger — fluid to ~100k units, not 1M.
 - **No embedded Python.** Statistics are pure JS, validated against hand-derived golden numbers and seeded simulations; replication archives emit R + Python that reproduce every corrected number outside Concord.

@@ -985,6 +985,116 @@ test("pii: scan on clean units returns empty findings", () => {
   assert.equal(Object.values(counts).reduce((a, b) => a + b, 0), 0);
 });
 
+// Identifiers do not only live in unit text: survey exports carry emails and
+// phone numbers in METADATA columns (respondent contact fields), and those
+// values ride into the replication archive's units CSV and into Director
+// prompts (renderUnit shows meta k=v). scan and pseudonymize must treat every
+// string metadata value as first-class scannable text — same counts, same
+// vault, same [KIND_n] token format.
+
+test("pii: scan covers metadata column values — counts, flags, per-column findings", () => {
+  const units = mkPiiUnits([
+    "the portal stayed broken for everyone on the team.", // clean text
+    "escalate to dispatch at 555-867-5309 if it recurs.", // phone in text
+  ]);
+  units[0].meta = { contact: "jane.doe@example.com", dept: "ops", age: 41 };
+  units[1].meta = { backup: "bob@test.org", note: null };
+
+  const { findings, counts } = pii.scan(units);
+  assert.equal(counts.email, 2, `meta emails counted: ${JSON.stringify(counts)}`);
+  assert.equal(counts.phone, 1);
+
+  // clean text + dirty meta: the unit is still flagged, the finding names the column
+  assert.ok(units[0].flags?.pii?.includes("email"), `unit 0 flags: ${JSON.stringify(units[0].flags)}`);
+  const f0 = findings.find((f) => f.unitId === units[0].id);
+  assert.ok(f0, "finding exists for a unit whose only PII is in metadata");
+  assert.deepEqual(f0.spans, [], "no text spans on a clean-text unit");
+  assert.equal(f0.meta?.length, 1, `meta findings: ${JSON.stringify(f0.meta)}`);
+  assert.equal(f0.meta[0].column, "contact");
+  assert.equal(f0.meta[0].spans[0].kind, "email");
+  assert.equal(f0.meta[0].spans[0].text, "jane.doe@example.com");
+
+  // text phone + meta email union into the unit's flags
+  assert.deepEqual([...units[1].flags.pii].sort(), ["email", "phone"]);
+});
+
+test("pii: pseudonymize masks metadata values — same vault, shared tokens, types preserved, roundtrip", async () => {
+  const dir = tempDir();
+  const vaultPath = join(dir, "vault.json");
+  const units = mkPiiUnits([
+    "wrote to jane.doe@example.com about the rota.",
+    "no identifiers in this text at all.",
+  ]);
+  units[0].meta = { contact: "jane.doe@example.com", dept: "ops", rows: 12 };
+  units[1].meta = { contact: "bob@test.org", phone: "555-867-5309" };
+  const originalMeta = units.map((u) => ({ ...u.meta }));
+
+  const { units: masked, vault } = await pii.pseudonymize(units, vaultPath);
+
+  // the same address in text and meta shares ONE token
+  assert.ok(masked[0].text.includes("[EMAIL_1]"), masked[0].text);
+  assert.equal(masked[0].meta.contact, "[EMAIL_1]");
+  // meta-only identifiers get their own tokens — same format, same vault
+  assert.equal(masked[1].meta.contact, "[EMAIL_2]");
+  assert.equal(masked[1].meta.phone, "[PHONE_1]");
+  // untouched values ride along with their types intact
+  assert.equal(masked[0].meta.dept, "ops");
+  assert.equal(masked[0].meta.rows, 12);
+  // a unit whose only PII sat in metadata is still flagged
+  assert.ok(masked[1].flags?.pii?.includes("email"));
+  assert.ok(masked[1].flags?.pii?.includes("phone"));
+  // the input units (and their meta objects) are never mutated
+  assert.deepEqual(units.map((u) => u.meta), originalMeta);
+  assert.equal(units[0].meta.contact, "jane.doe@example.com");
+  // batch counts include the meta occurrences
+  assert.equal(vault.counts.email, 3, JSON.stringify(vault.counts));
+  assert.equal(vault.counts.phone, 1);
+  // one vault holds every mapping
+  const v = JSON.parse(readFileSync(vaultPath, "utf8"));
+  assert.equal(v.tokens["[EMAIL_1]"], "jane.doe@example.com");
+  assert.equal(v.tokens["[EMAIL_2]"], "bob@test.org");
+  assert.equal(v.tokens["[PHONE_1]"], "555-867-5309");
+
+  // reidentify restores text AND metadata exactly
+  const restored = await pii.reidentify(masked, vaultPath);
+  assert.equal(restored[0].text, "wrote to jane.doe@example.com about the rota.");
+  assert.deepEqual(restored.map((u) => u.meta), originalMeta);
+  rmSync(dir, { recursive: true, force: true });
+});
+
+test("pii: pseudonymize re-run over masked metadata is a no-op", async () => {
+  const dir = tempDir();
+  const vaultPath = join(dir, "vault.json");
+  const units = mkPiiUnits(["plain text here."]);
+  units[0].meta = { contact: "jane.doe@example.com" };
+  const { units: masked } = await pii.pseudonymize(units, vaultPath);
+  assert.equal(masked[0].meta.contact, "[EMAIL_1]");
+  const vaultBefore = JSON.parse(readFileSync(vaultPath, "utf8"));
+
+  const { units: again } = await pii.pseudonymize(masked, vaultPath);
+  assert.equal(again[0].meta.contact, "[EMAIL_1]", "vault-known token in a meta value is protected");
+  const vaultAfter = JSON.parse(readFileSync(vaultPath, "utf8"));
+  assert.deepEqual(vaultAfter.tokens, vaultBefore.tokens, "vault tokens must survive a meta re-run");
+  rmSync(dir, { recursive: true, force: true });
+});
+
+test("pii: unknown pseudonym token in a metadata value → VAULT_CONFLICT, vault untouched", async () => {
+  const dir = tempDir();
+  const vaultPath = join(dir, "vault.json");
+  await pii.pseudonymize(mkPiiUnits(["First mail alpha@one.com here."]), vaultPath);
+  // [EMAIL_9] is token-shaped but not in this vault: it was masked against
+  // some OTHER vault, and minting over it would corrupt re-identification.
+  const tainted = mkPiiUnits(["clean text."]);
+  tainted[0].meta = { contact: "[EMAIL_9]" };
+  await assert.rejects(
+    () => pii.pseudonymize(tainted, vaultPath),
+    (e) => e.name === "ConcordError" && e.code === "VAULT_CONFLICT"
+  );
+  const v = JSON.parse(readFileSync(vaultPath, "utf8"));
+  assert.deepEqual(v.tokens, { "[EMAIL_1]": "alpha@one.com" });
+  rmSync(dir, { recursive: true, force: true });
+});
+
 // =============================================================== perf
 
 test("perf: 10k-row CSV full pipeline < 10s", async () => {

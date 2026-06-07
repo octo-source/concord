@@ -1,8 +1,17 @@
 // PII detection + reversible pseudonymization.
-// scan(units) -> {findings: [{unitId, spans: [{kind, start, end, text}]}], counts}
+// scan(units) -> {findings: [{unitId, spans, meta?: [{column, spans}]}], counts}
+//   (spans: [{kind, start, end, text}])
 // pseudonymize(units, vaultPath) -> {units: maskedUnits, vault: summary}
 //   (vault JSON written to vaultPath — caller keeps it OUTSIDE project bundles)
 // reidentify(units, vaultPath) -> restored units.
+//
+// Identifiers do not only live in unit text: survey exports carry contact
+// emails/phones in METADATA columns, and meta values ride into the
+// replication archive's units CSV and into Director prompts (renderUnit).
+// So every STRING metadata value is scanned and masked exactly like unit
+// text — same counts, same vault, same [KIND_n] tokens. Non-string values
+// (numbers, nulls) pass through untouched: the regexes cannot match a bare
+// number, and masking must never change a value's type.
 import { readFile, writeFile, mkdir, rename } from "node:fs/promises";
 import { renameWithRetry } from "../core/store.js";
 import { dirname } from "node:path";
@@ -124,17 +133,28 @@ export function scanText(text) {
   return kept.sort((a, b) => a.start - b.start);
 }
 
+// String metadata values of a unit, in column order — the fields beyond
+// u.text that scan/pseudonymize/reidentify must cover.
+function stringMetaEntries(u) {
+  return Object.entries(u.meta ?? {}).filter(([, v]) => typeof v === "string" && v !== "");
+}
+
 export function scan(units) {
   const findings = [];
   const counts = { email: 0, phone: 0, ssn: 0, url_user: 0, name: 0 };
   for (const u of units) {
     const spans = scanText(u.text);
-    if (spans.length === 0) continue;
-    findings.push({ unitId: u.id, spans });
-    const kinds = [...new Set(spans.map((s) => s.kind))];
+    const metaFindings = [];
+    for (const [column, v] of stringMetaEntries(u)) {
+      const ms = scanText(v);
+      if (ms.length) metaFindings.push({ column, spans: ms });
+    }
+    if (spans.length === 0 && metaFindings.length === 0) continue;
+    findings.push({ unitId: u.id, spans, ...(metaFindings.length ? { meta: metaFindings } : {}) });
+    const all = [...spans, ...metaFindings.flatMap((f) => f.spans)];
     u.flags = u.flags || {};
-    u.flags.pii = kinds;
-    for (const s of spans) counts[s.kind]++;
+    u.flags.pii = [...new Set(all.map((s) => s.kind))];
+    for (const s of all) counts[s.kind]++;
   }
   return { findings, counts };
 }
@@ -201,28 +221,31 @@ export async function pseudonymize(units, vaultPath) {
     counters[m[1]] = Math.max(counters[m[1]] || 0, parseInt(m[2], 10));
   }
   const counts = { email: 0, phone: 0, ssn: 0, url_user: 0, name: 0 };
-  const masked = units.map((u) => {
-    // Token-shaped spans already in the text: vault-known -> protected no-op
+
+  // Mask ONE string field (the unit text or one metadata value) against the
+  // shared token state. `where` rides into error details ({unitId, column?}).
+  const maskField = (text, where) => {
+    // Token-shaped spans already in the field: vault-known -> protected no-op
     // (idempotent re-run); unknown -> refuse (see VAULT_CONFLICT above).
     const protectedRanges = [];
     TOKEN_RE.lastIndex = 0;
     let tm;
-    while ((tm = TOKEN_RE.exec(u.text))) {
+    while ((tm = TOKEN_RE.exec(text))) {
       if (Object.prototype.hasOwnProperty.call(tokens, tm[0])) {
         protectedRanges.push([tm.index, tm.index + tm[0].length]);
       } else {
         throw new ConcordError(
           "VAULT_CONFLICT",
           `text contains pseudonym token ${tm[0]} that is not in the vault; refusing to remap an existing token to a different original`,
-          { vaultPath, token: tm[0], unitId: u.id }
+          { vaultPath, token: tm[0], ...where }
         );
       }
     }
-    let spans = scanText(u.text);
+    let spans = scanText(text);
     if (protectedRanges.length) {
       spans = spans.filter((s) => !protectedRanges.some(([a, b]) => s.start < b && a < s.end));
     }
-    if (spans.length === 0) return { ...u };
+    if (spans.length === 0) return { text, kinds: [] };
     // Assign tokens in reading order so numbering follows first occurrence...
     for (const span of spans) {
       const key = `${span.kind}|${span.text}`;
@@ -240,14 +263,32 @@ export async function pseudonymize(units, vaultPath) {
       }
     }
     // ...then replace right-to-left so earlier offsets stay valid.
-    let text = u.text;
+    let out = text;
     for (const span of [...spans].sort((a, b) => b.start - a.start)) {
       const token = tokenOf.get(`${span.kind}|${span.text}`);
-      text = text.slice(0, span.start) + token + text.slice(span.end);
+      out = out.slice(0, span.start) + token + out.slice(span.end);
       counts[span.kind]++;
     }
-    const flags = { ...(u.flags || {}), pii: [...new Set(spans.map((s) => s.kind))] };
-    return { ...u, text, flags };
+    return { text: out, kinds: spans.map((s) => s.kind) };
+  };
+
+  const masked = units.map((u) => {
+    // unit text first, then metadata values in column order, so token
+    // numbering follows reading order within the unit
+    const t = maskField(u.text, { unitId: u.id });
+    const kinds = new Set(t.kinds);
+    let meta = u.meta; // copied on first change; untouched meta keeps its ref
+    for (const [column, v] of stringMetaEntries(u)) {
+      const f = maskField(v, { unitId: u.id, column });
+      for (const k of f.kinds) kinds.add(k);
+      if (f.text !== v) {
+        if (meta === u.meta) meta = { ...u.meta };
+        meta[column] = f.text;
+      }
+    }
+    if (kinds.size === 0) return { ...u };
+    const flags = { ...(u.flags || {}), pii: [...kinds] };
+    return { ...u, text: t.text, ...(meta !== u.meta ? { meta } : {}), flags };
   });
   // Cumulative occurrence counts across every batch written to this vault.
   const vaultCounts = { ...counts };
@@ -264,7 +305,8 @@ export async function pseudonymize(units, vaultPath) {
   return { units: masked, vault: { path: vaultPath, counts, tokenCount: Object.keys(tokens).length } };
 }
 
-// Restore original text from the vault map. Returns new unit objects.
+// Restore original text AND metadata values from the vault map. Returns new
+// unit objects.
 export async function reidentify(units, vaultPath) {
   let vault;
   try {
@@ -275,8 +317,17 @@ export async function reidentify(units, vaultPath) {
   if (!vault || typeof vault.tokens !== "object") {
     throw new ConcordError("BAD_VAULT", "vault file has no tokens map", { vaultPath });
   }
+  const restore = (s) => s.replace(TOKEN_RE, (tok) => vault.tokens[tok] ?? tok);
   return units.map((u) => {
-    const text = u.text.replace(TOKEN_RE, (tok) => vault.tokens[tok] ?? tok);
-    return { ...u, text };
+    const text = restore(u.text);
+    let meta = u.meta; // copied on first change, like pseudonymize
+    for (const [column, v] of stringMetaEntries(u)) {
+      const r = restore(v);
+      if (r !== v) {
+        if (meta === u.meta) meta = { ...u.meta };
+        meta[column] = r;
+      }
+    }
+    return { ...u, text, ...(meta !== u.meta ? { meta } : {}) };
   });
 }

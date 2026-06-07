@@ -521,12 +521,15 @@ test("reunitize: versions the corpus onto a metadata text column — original un
   assert.equal(derived.unitCount, 10);
 
   // ledger: corpus.unitized for the NEW corpus, actor human, contract payload
+  // (pii rides the payload since reunitize re-runs the source's mode — this
+  // corpus imported with the default, so the derived corpus re-scans)
   const ev = await ledger.query(projectDir(slug), { type: "corpus.unitized" });
   assert.equal(ev.length, 2, "import-confirm + reunitize");
   assert.equal(ev.at(-1).actor, "human");
   assert.equal(ev.at(-1).refs.corpusId, re.corpusId);
   assert.deepEqual(ev.at(-1).payload, {
     textColumn: "abouttxt", derivedFrom: confirmed.corpusId, unitCount: 10, skipped: 2,
+    pii: { mode: "scan", counts: { email: 0, phone: 0, ssn: 0, url_user: 0, name: 0 } },
   });
 
   // 400 on a column that is not in the first unit's meta; 404 unknown corpus

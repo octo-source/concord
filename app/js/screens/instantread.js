@@ -24,6 +24,7 @@ import * as scopechip from "../components/scopechip.js";
 import * as toast from "../components/toast.js";
 import { fmtCost, fmtCount, fmtDuration, fmtPct, fmtStat } from "../format.js";
 import { screenHead, section, asyncMount, ensureProject, refreshProject, emptyState, openSheet, sheetBusy } from "./_shared.js";
+import { piiSummary } from "./import.js";
 
 export const route = "p/:slug/corpus/:cid/instant";
 export const title = "Instant Read";
@@ -225,8 +226,12 @@ function changeTextColumn(params, project, currentCol) {
         const res = await api.corpora.reunitize(params.slug, params.cid, { textColumn: chosen });
         stop();
         s.close();
+        // the server re-runs the source corpus's pii mode on the new units;
+        // say what that pass found/replaced, same line as import-confirm
+        const piiLine = piiSummary(res.pii);
         toast.success(`Re-unitized — ${fmtCount(res.unitCount)} units now read from “${res.textColumn}”.`, {
-          detail: `${fmtCount(res.skipped ?? 0)} rows skipped (empty in that column) · the original corpus is kept`,
+          detail: `${fmtCount(res.skipped ?? 0)} rows skipped (empty in that column) · the original corpus is kept`
+            + (piiLine ? ` · ${piiLine}` : ""),
           data: true,
         });
         await refreshProject(params.slug).catch(() => {});

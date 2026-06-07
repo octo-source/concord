@@ -333,7 +333,8 @@ async function confirmImport(slug, body) {
 }
 
 // One sentence of what the identifier step found, zeros skipped — null when
-// the scan was off or found nothing.
+// the scan was off or found nothing. Shared with the re-unitize sheet
+// (instantread.js), which re-runs the source corpus's pii mode.
 //   scan:         "Identifiers found: 14 emails, 3 phone numbers"
 //   pseudonymize: "Identifiers replaced: 14 emails, 3 phone numbers — vault saved locally."
 const PII_NOUNS = {
@@ -343,7 +344,7 @@ const PII_NOUNS = {
   url_user: ["URL with credentials", "URLs with credentials"],
   name: ["name", "names"],
 };
-function piiSummary(pii) {
+export function piiSummary(pii) {
   if (!pii?.counts) return null;
   const parts = Object.entries(pii.counts)
     .filter(([, n]) => n > 0)

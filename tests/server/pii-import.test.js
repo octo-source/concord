@@ -265,3 +265,86 @@ test("replication archive lists no vault/ member — the re-identification key s
     assert.ok(!/(^|\/)vault(\/|$)/i.test(member), `MANIFEST lists no vault member (got ${member})`);
   }
 });
+
+// =========================================================================
+// Metadata columns — identifiers that ride OUTSIDE unit text. The fixture's
+// unit text is clean; every identifier sits in the "contact" column, so any
+// nonzero count below can only come from metadata. Gap being pinned: meta
+// values reach the replication units CSV (and Director prompts), so scan
+// must count them and pseudonymize must mask them with the same vault and
+// the same [KIND_n] tokens as unit text.
+
+const META_EMAIL = "meta.owner@example.net";
+const META_PHONE = "(212) 555-0143";
+
+function makeMetaPiiCsv() {
+  return [
+    "respondent_id,contact,response",
+    `m0,${META_EMAIL},the survey portal stayed broken for the whole team this quarter`,
+    `m1,${META_PHONE},my onboarding paperwork never arrived and nobody answered upstairs`,
+    "m2,,the office is comfortable and the team is genuinely kind to newcomers",
+  ].join("\n") + "\n";
+}
+
+async function importMetaWith(slug, pii) {
+  await ok("POST", "/api/projects", { name: `Project ${slug}`, slug });
+  const up = await upload(`/api/projects/${slug}/import`, "meta-pii.csv", makeMetaPiiCsv());
+  return ok("POST", `/api/projects/${slug}/import/confirm`, {
+    importId: up.importId,
+    mapping: { textColumn: "response" },
+    unitization: { scheme: "response" },
+    ...(pii === undefined ? {} : { pii }),
+  });
+}
+
+test("scan counts identifiers riding metadata columns", async () => {
+  const slug = "pii-meta-scan";
+  const confirmed = await importMetaWith(slug, undefined); // default scan
+  assert.equal(confirmed.pii?.mode, "scan");
+  assert.equal(confirmed.pii.counts.email, 1, `meta email counted: ${JSON.stringify(confirmed.pii.counts)}`);
+  assert.equal(confirmed.pii.counts.phone, 1);
+
+  const units = await readNdjson(unitsFile(slug, confirmed.corpusId));
+  const emailUnit = units.find((u) => u.meta?.contact === META_EMAIL);
+  assert.ok(emailUnit, "scan leaves the metadata value in place");
+  assert.ok(emailUnit.flags?.pii?.includes("email"), `unit flagged for its meta email (got ${JSON.stringify(emailUnit.flags)})`);
+});
+
+test("pseudonymize masks metadata column values — tokens persist, vault maps them back", async () => {
+  const slug = "pii-meta-mask";
+  const confirmed = await importMetaWith(slug, "pseudonymize");
+  assert.equal(confirmed.pii?.mode, "pseudonymize");
+  assert.equal(confirmed.pii.counts.email, 1);
+  assert.equal(confirmed.pii.counts.phone, 1);
+
+  const raw = await readFile(unitsFile(slug, confirmed.corpusId), "utf8");
+  assert.ok(!raw.includes(META_EMAIL), "raw metadata email never reaches disk");
+  assert.ok(!raw.includes(META_PHONE), "raw metadata phone never reaches disk");
+  const units = await readNdjson(unitsFile(slug, confirmed.corpusId));
+  const masked = units.find((u) => /^\[EMAIL_\d+\]$/.test(u.meta?.contact ?? ""));
+  assert.ok(masked, `a unit's contact column carries a token (got ${JSON.stringify(units.map((u) => u.meta?.contact))})`);
+  assert.ok(masked.flags?.pii?.includes("email"));
+
+  const vault = JSON.parse(await readFile(vaultFile(slug, confirmed.corpusId), "utf8"));
+  assert.equal(vault.tokens[masked.meta.contact], META_EMAIL, "vault maps the meta token back to the original");
+
+  S.metaMaskSlug = slug;
+  S.metaMaskCorpus = confirmed.corpusId;
+});
+
+test("replication units CSV exports masked metadata — tokens, never raw identifiers", async () => {
+  const slug = S.metaMaskSlug;
+  assert.ok(slug, "meta pseudonymize test ran first");
+  await updateProject(slug, (p) => {
+    p.analyses = p.analyses ?? [];
+    p.analyses.push({ id: "an_meta", spec: { corpusId: S.metaMaskCorpus }, level: "exploratory", results: {} });
+  });
+  const res = await fetch(`${base}/api/projects/${slug}/exports/replication?analyses=an_meta`);
+  assert.equal(res.status, 200, `replication export → ${res.status}`);
+  const files = unzipSync(new Uint8Array(await res.arrayBuffer()));
+  const csv = strFromU8(files[`units/${S.metaMaskCorpus}.csv`]);
+  assert.ok(csv.includes("meta_contact"), `units CSV still carries the contact column: ${csv.split("\n")[0]}`);
+  assert.ok(!csv.includes(META_EMAIL), "raw email must not leak through the units CSV");
+  assert.ok(!csv.includes(META_PHONE), "raw phone must not leak through the units CSV");
+  assert.match(csv, /\[EMAIL_\d+\]/, "the masked token rides in the export instead");
+});
