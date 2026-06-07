@@ -5,9 +5,13 @@
 //                     projects/<slug>/.imports/<importId>.json (no corpus yet,
 //                     nothing ledgered — nothing happened to the project until
 //                     the researcher confirms the mapping).
-// POST /import/confirm {importId, mapping, unitization} → unitize → junk scan
-//                     → corpus meta + units.ndjson → ledger corpus.imported +
-//                     corpus.unitized → temp deleted.
+// POST /import/confirm {importId, mapping, unitization, pii?} → unitize →
+//                     PII step ("off" | "scan" | "pseudonymize", default
+//                     "scan"; pseudonymize masks identifiers BEFORE anything
+//                     persists, vault at projects/<slug>/vault/<corpusId>.json)
+//                     → junk scan → corpus meta + units.ndjson → ledger
+//                     corpus.imported + corpus.unitized (+ pii.pseudonymized)
+//                     → temp deleted.
 import path from "node:path";
 import { mkdir, writeFile, rm, readdir, stat } from "node:fs/promises";
 import { ConcordError } from "../core/errors.js";
@@ -18,6 +22,7 @@ import * as ledger from "../core/ledger.js";
 import { detect, bestTextColumn } from "../ingest/mapping.js";
 import { unitize } from "../ingest/unitize.js";
 import { scan as junkScan } from "../ingest/junk.js";
+import { scan as piiScan, pseudonymize } from "../ingest/pii.js";
 import { pdirOf, writeJsonAtomic, writeTextAtomic, readJsonFile, corpusUnitsFile } from "./_shared.js";
 
 const PARSERS = {
@@ -81,6 +86,11 @@ export function metaColumnsOf(units) {
   for (const u of units) for (const k of Object.keys(u.meta ?? {})) keys.add(k);
   return keys.size;
 }
+
+// What happens to identifiers (emails, phones, names…) at confirm. "scan"
+// is the default: counting and flagging costs nothing and the researcher
+// keeps the original text; "pseudonymize" is the only mode that rewrites it.
+const PII_MODES = new Set(["off", "scan", "pseudonymize"]);
 
 async function latestImportId(slug) {
   let entries;
@@ -152,6 +162,10 @@ export default [
     handler: async (req, res, params) => {
       const project = await loadProject(params.p);
       const body = req.body ?? {};
+      const piiMode = body.pii === undefined ? "scan" : body.pii;
+      if (!PII_MODES.has(piiMode)) {
+        throw new ConcordError("VALIDATION", `pii must be "off", "scan" or "pseudonymize" (got ${JSON.stringify(body.pii)})`, { pii: body.pii });
+      }
       // the UI wrapper omits importId — fall back to the most recent upload
       const importId = body.importId ?? (await latestImportId(project.slug));
       if (!importId) {
@@ -169,10 +183,31 @@ export default [
       const textColumn = resolveTextColumn(parsed, requestedTextColumn);
 
       const corpusId = newId("corp");
-      const units = unitize(corpusId, parsed, scheme, textColumn ? { textColumn } : {});
+      let units = unitize(corpusId, parsed, scheme, textColumn ? { textColumn } : {});
       if (units.length === 0) {
         throw new ConcordError("VALIDATION", "unitization produced no units — check the text column and scheme", { scheme, textColumn });
       }
+
+      // PII step — AFTER unitize, BEFORE the junk scan, so masking happens
+      // before any unit text persists or reaches a model provider. "scan"
+      // counts and flags in place; "pseudonymize" REPLACES the unit array
+      // with the masked copies and writes the reversible token map to
+      // projects/<slug>/vault/<corpusId>.json. That vault is the
+      // re-identification key: it must never enter the replication archive
+      // (which builds from an explicit member allowlist) or any other export.
+      let pii = { mode: piiMode };
+      let piiVault = null;
+      if (piiMode === "scan") {
+        const { counts } = piiScan(units); // mutates unit.flags.pii in place
+        pii = { mode: "scan", counts };
+      } else if (piiMode === "pseudonymize") {
+        const vaultPath = path.join(pdirOf(project.slug), "vault", `${corpusId}.json`);
+        const masked = await pseudonymize(units, vaultPath); // creates the vault dir + file
+        units = masked.units; // the MASKED units are what persists and counts downstream
+        piiVault = masked.vault;
+        pii = { mode: "pseudonymize", counts: masked.vault.counts };
+      }
+
       const junk = junkScan(units); // mutates unit.flags in place
 
       await writeTextAtomic(
@@ -195,6 +230,9 @@ export default [
         textColumn: textColumn ?? null,
         scheme,
         junk: junk.counts,
+        // what happened to identifiers at import: {mode} for "off",
+        // {mode, counts} for "scan"/"pseudonymize"
+        pii,
         metaColumns: metaColumnsOf(units),
         sourceName: record.filename ?? null,
       };
@@ -206,18 +244,27 @@ export default [
         filename: record.filename,
         format: record.format,
         ...(rows !== undefined ? { rows } : {}),
+        pii,
       });
       await ledger.append(pdir, "human", "corpus.unitized", { corpusId }, {
         scheme,
         unitCount: units.length,
         junk: junk.counts,
       });
+      if (piiMode === "pseudonymize") {
+        // the taxonomy's reserved event for exactly this wiring
+        await ledger.append(pdir, "human", "pii.pseudonymized", { corpusId }, {
+          counts: piiVault.counts,
+          tokenCount: piiVault.tokenCount,
+        });
+      }
       await rm(path.join(importsDir(project.slug), `${importId}.json`), { force: true }).catch(() => {});
 
       return {
         corpusId,
         unitCount: units.length,
         junkQueue: { counts: junk.counts, flagged: junk.flagged.slice(0, 100) },
+        pii,
       };
     },
   },
