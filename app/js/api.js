@@ -295,8 +295,13 @@ export const goldsets = {
   create: (p, goldset) => post(`${P(p)}/goldsets`, goldset),
   get: (p, id) => get_(`${P(p)}/goldsets/${encodeURIComponent(id)}`),
   update: (p, id, goldset) => put(`${P(p)}/goldsets/${encodeURIComponent(id)}`, goldset),
-  remove: (p, id) => del(`${P(p)}/goldsets/${encodeURIComponent(id)}`),
-  sample: (p, g, { design, n, strata } = {}) => post(`${P(p)}/goldsets/${encodeURIComponent(g)}/sample`, { design, n, strata }),
+  /** Deleting a gold set with committed coding work answers 409 CONFIRM_REQUIRED
+      (error.details = {labels, coders, adjudicated, excluded}) until {force: true}. */
+  remove: (p, id, { force } = {}) =>
+    request("DELETE", `${P(p)}/goldsets/${encodeURIComponent(id)}`, force ? { query: { force: 1 } } : {}),
+  /** Same guard on resampling: committed work → 409 CONFIRM_REQUIRED unless
+      force: true, which discards that work before drawing the new sample. */
+  sample: (p, g, { design, n, strata, force } = {}) => post(`${P(p)}/goldsets/${encodeURIComponent(g)}/sample`, { design, n, strata, force }),
   /** Next unit for a blind coder. */
   next: (p, g, coder) => get_(`${P(p)}/goldsets/${encodeURIComponent(g)}/next`, { query: { coder } }),
   /** A blind verdict: {label} codes the unit; {uncodable: true} (no label) marks it can't-code. */
@@ -389,8 +394,9 @@ export const report = {
    * The project report: {blocks: [{kind, ref?, content?, addedAt}], updatedAt}
    * persisted on the project. addBlock APPENDS one block (the Workbench's
    * "Add to report"); save REPLACES the block list (the canvas's reorder/
-   * remove). Both resolve with the updated report, so callers can state the
-   * real block count. The server's report export defaults to these blocks.
+   * remove). save resolves with the updated report {blocks, updatedAt};
+   * addBlock resolves with {blocks: <count>} — a NUMBER, not the report.
+   * The server's report export defaults to these blocks.
    */
   addBlock: (p, block) => post(`${P(p)}/report/blocks`, { block }),
   save: (p, blocks) => put(`${P(p)}/report`, { blocks }),

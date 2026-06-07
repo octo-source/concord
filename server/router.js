@@ -158,6 +158,7 @@ const ERROR_STATUS = {
   BAD_JSON: 400,
   SCHEMA_INVALID: 400,
   CONFIG_MISSING: 400,
+  CONFIRM_REQUIRED: 409, // destructive act needs an explicit force/confirm retry
 };
 
 export function createRouter({ appDir, maxJsonBody = DEFAULT_MAX_JSON_BODY, fsImpl } = {}) {
@@ -204,7 +205,11 @@ export function createRouter({ appDir, maxJsonBody = DEFAULT_MAX_JSON_BODY, fsIm
     }
     if (err instanceof ConcordError) {
       const status = err.status ?? ERROR_STATUS[err.code] ?? 400;
-      sendJson(res, status, { ok: false, error: { code: err.code, message: err.message } });
+      const error = { code: err.code, message: err.message };
+      // details ride the envelope when present, so confirmation errors can
+      // state exactly what exists (e.g. CONFIRM_REQUIRED's committed-work counts)
+      if (err.details && Object.keys(err.details).length > 0) error.details = err.details;
+      sendJson(res, status, { ok: false, error });
     } else {
       console.error(err);
       sendJson(res, 500, { ok: false, error: { code: "INTERNAL", message: err.message || "Internal error" } });

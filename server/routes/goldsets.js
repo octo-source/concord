@@ -54,6 +54,54 @@ function metaOf(gs) {
   };
 }
 
+// ------------------------------------------------- committed-work guard
+//
+// A gold set accumulates committed human work: per-coder labels and
+// uncodable marks, adjudicated gold labels, and adjudicator exclusions.
+// Resampling or deleting over any of it silently destroys coding progress
+// (and a resample would leave orphaned labels corrupting agreement
+// statistics), so both routes refuse with CONFIRM_REQUIRED (409) until the
+// caller repeats the request with force — and a forced resample CLEARS the
+// stale work before drawing.
+
+function committedWork(gs) {
+  let labels = 0;
+  let coders = 0;
+  for (const c of gs?.coders ?? []) {
+    const done = new Set([...Object.keys(c.labels ?? {}), ...Object.keys(c.uncodable ?? {})]);
+    labels += done.size;
+    if (done.size > 0) coders += 1;
+  }
+  const adjudicated = Object.keys(gs?.adjudicated ?? {}).length;
+  const excluded = (gs?.excluded ?? []).length;
+  return {
+    labels, coders, adjudicated, excluded,
+    committed: labels + adjudicated + excluded > 0,
+  };
+}
+
+// "10 human labels from 2 coders, 2 adjudications, and 1 exclusion" — only
+// the parts that exist, real counts, correct plurals.
+function describeWork(w) {
+  const s = (n) => (n === 1 ? "" : "s");
+  const parts = [];
+  if (w.labels > 0) parts.push(`${w.labels} human label${s(w.labels)} from ${w.coders} coder${s(w.coders)}`);
+  if (w.adjudicated > 0) parts.push(`${w.adjudicated} adjudication${s(w.adjudicated)}`);
+  if (w.excluded > 0) parts.push(`${w.excluded} exclusion${s(w.excluded)}`);
+  if (parts.length <= 2) return parts.join(" and ");
+  return `${parts.slice(0, -1).join(", ")}, and ${parts.at(-1)}`;
+}
+
+// Throws CONFIRM_REQUIRED (→ 409) naming what exists and what the act would
+// do; detail carries the counts so clients can confirm with real numbers.
+function requireForce(work, consequence) {
+  throw new ConcordError(
+    "CONFIRM_REQUIRED",
+    `This gold set has ${describeWork(work)}. ${consequence}`,
+    { labels: work.labels, coders: work.coders, adjudicated: work.adjudicated, excluded: work.excluded },
+  );
+}
+
 // Auto-name a new gold set "Gold — <construct>", suffixing " (2)", " (3)"…
 // when the base (or a prior suffix) is already taken by another gold set on
 // the project. Names are labels for humans; the construct link is the real
@@ -395,9 +443,19 @@ export default [
     },
   },
   {
+    // Destroys coded work, so a gold set carrying committed work demands
+    // ?force=1 (DELETE bodies are awkward); fresh sets delete as before.
     method: "DELETE",
     pattern: "/api/projects/:p/goldsets/:id",
     handler: async (req, res, params) => {
+      const force = req.query.force === "1" || req.query.force === "true";
+      if (!force) {
+        // tolerant read: a meta entry whose artifact is missing carries no
+        // work to protect — the delete then proceeds and cleans it up
+        const current = await readGoldset(params.p, params.id).catch(() => null);
+        const work = committedWork(current);
+        if (work.committed) requireForce(work, "Deleting this gold set discards them.");
+      }
       await updateProject(params.p, (p) => {
         const i = (p.goldsets ?? []).findIndex((g) => g.id === params.id);
         if (i === -1) throw new ConcordError("NOT_FOUND", `gold set '${params.id}' not found`, { id: params.id });
@@ -423,6 +481,14 @@ export default [
       if (!Number.isInteger(n) || n < 1) throw new ConcordError("VALIDATION", "n must be a positive integer", { n: body.n });
 
       const current = await readGoldset(params.p, params.g);
+      // Overwriting g.sample silently destroys committed coding work and
+      // leaves orphaned labels behind, so a worked gold set refuses to
+      // resample until the request carries force: true (the forced path
+      // clears the stale work below, inside the project lock).
+      if (body.force !== true) {
+        const work = committedWork(current);
+        if (work.committed) requireForce(work, "Drawing a new sample discards them.");
+      }
       // The gold set's OWN corpus is the unit source — never project.corpora[0].
       // A silent fallback to the first corpus would sample a different column's
       // text than the one under analysis and invalidate the calibration. So the
@@ -462,7 +528,27 @@ export default [
         sample = await uncertaintySample(project, current, units, n, seed);
       }
 
+      let discarded = null; // counts cleared by a forced resample, for the ledger
       const gs = await mutateGoldset(params.p, params.g, (g) => {
+        // force: clear the stale work BEFORE the new sample lands — counts are
+        // re-taken here, inside the lock, so the ledger records what was
+        // actually discarded even if labels arrived after the pre-check.
+        if (body.force === true) {
+          const work = committedWork(g);
+          if (work.committed) {
+            discarded = { labels: work.labels, coders: work.coders, adjudicated: work.adjudicated, excluded: work.excluded };
+            for (const c of g.coders ?? []) {
+              c.labels = {};
+              c.uncodable = {};
+              c.memos = {};
+              c.flagged = [];
+              c.finishedAt = null; // no longer finished relative to the new sample
+            }
+            g.adjudicated = {};
+            g.excluded = [];
+            delete g.humanAgreement; // measured the labels just discarded
+          }
+        }
         g.design = design;
         if (design === "stratified") g.strata = { by: body.strata.by };
         g.corpusId = corpusId;
@@ -470,6 +556,11 @@ export default [
         g.status = "coding";
       });
       const pis = [...new Set(sample.map((s) => s.pi))];
+      if (discarded) {
+        await ledger.append(pdirOf(params.p), "human", "goldset.resampled", { goldsetId: params.g, corpusId }, {
+          discarded,
+        });
+      }
       await ledger.append(pdirOf(params.p), "human", "goldset.sampled", { goldsetId: params.g, corpusId }, {
         design,
         n: sample.length,

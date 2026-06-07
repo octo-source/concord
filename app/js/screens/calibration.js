@@ -349,16 +349,68 @@ function samplePane(host, params, goldset, construct, { columns = [], project = 
       onclick: async (e) => {
         e.target.disabled = true;
         try {
-          // live response: {goldsetId, design, n, sample: [{unitId, pi}]}
-          const res = await api.goldsets.sample(params.slug, goldset.id, { design, n, strata: design === "stratified" && strata ? { by: strata } : undefined });
-          toast.success(`Sampled ${fmtCount(res.n ?? n)} units with π stored.`, { detail: `${res.design ?? design}${design === "stratified" && strata ? ` by ${strata}` : ""}`, data: true });
-          window.dispatchEvent(new HashChangeEvent("hashchange"));
+          await draw(false);
         } catch (err) {
           e.target.disabled = false;
-          toast.error("Sampling failed.", { detail: String(err.message ?? err) });
+          // committed coding work exists — the server refuses until the user
+          // confirms the discard with the real counts in front of them
+          if (err?.code === "CONFIRM_REQUIRED") confirmDiscardAndResample(err);
+          else toast.error("Sampling failed.", { detail: String(err.message ?? err) });
         }
       },
     }, goldset.sample?.length ? "Resample (replaces the sample)" : "Draw the sample")));
+
+  // live response: {goldsetId, design, n, sample: [{unitId, pi}]}
+  async function draw(force) {
+    const res = await api.goldsets.sample(params.slug, goldset.id, {
+      design, n,
+      strata: design === "stratified" && strata ? { by: strata } : undefined,
+      ...(force ? { force: true } : {}),
+    });
+    toast.success(`Sampled ${fmtCount(res.n ?? n)} units with π stored.`, { detail: `${res.design ?? design}${design === "stratified" && strata ? ` by ${strata}` : ""}`, data: true });
+    window.dispatchEvent(new HashChangeEvent("hashchange"));
+  }
+
+  /* The 409 CONFIRM_REQUIRED sheet: state exactly what exists (the server's
+     counts ride error.details) and what proceeding does; "Keep labels" cancels,
+     the discard button repeats the draw with force: true. */
+  function confirmDiscardAndResample(err) {
+    const d = err.details?.details ?? null; // ApiError.details = envelope error; its .details = counts
+    const s_ = (k) => (k === 1 ? "" : "s");
+    const parts = [];
+    if (d) {
+      if (d.labels > 0) parts.push(`${d.labels} human label${s_(d.labels)} from ${d.coders} coder${s_(d.coders)}`);
+      if (d.adjudicated > 0) parts.push(`${d.adjudicated} adjudication${s_(d.adjudicated)}`);
+      if (d.excluded > 0) parts.push(`${d.excluded} exclusion${s_(d.excluded)}`);
+    }
+    const what = parts.length <= 2 ? parts.join(" and ") : `${parts.slice(0, -1).join(", ")}, and ${parts.at(-1)}`;
+    const sheet = openSheet({ title: "Discard coded work and resample?", overline: "This gold set is already coded" });
+    const goBtn = el("button", {
+      class: "btn btn--primary", type: "button",
+      onclick: async (e) => {
+        e.target.disabled = true;
+        try {
+          await draw(true);
+          sheet.close();
+        } catch (err2) {
+          e.target.disabled = false;
+          toast.error("Sampling failed.", { detail: String(err2.message ?? err2) });
+        }
+      },
+    }, d?.labels > 0 ? `Discard ${d.labels} label${s_(d.labels)} and resample`
+      : d?.adjudicated > 0 ? `Discard ${d.adjudicated} adjudication${s_(d.adjudicated)} and resample`
+        : "Discard coded work and resample");
+    sheet.body.append(
+      el("p", {}, what
+        ? `This gold set has ${what}. Drawing a new sample discards all of them.`
+        : String(err.message ?? "This gold set has committed coding work. Drawing a new sample discards it.")),
+      el("p", { class: "screen__hint" },
+        "The discard is written to the project ledger. To keep the coded units instead, keep the current sample and continue in the Code pane."),
+    );
+    sheet.foot.append(
+      el("button", { class: "btn btn--quiet", type: "button", onclick: () => sheet.close() }, "Keep labels"),
+      goBtn);
+  }
 }
 
 /* ================= Code — THE SPRINT ================================================== */
