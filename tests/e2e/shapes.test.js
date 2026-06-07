@@ -1158,6 +1158,78 @@ test("reports.js: exports/methods → {analysisId, markdown, citations [{token, 
 });
 
 // =========================================================================
+// reports.js canvas + workbench.js addToReport — the persisted report layout
+// =========================================================================
+
+test("report canvas: PUT /report echoes {blocks: ARRAY, updatedAt}; project.report.blocks round-trips for the canvas seed; POST /report/blocks → {blocks: COUNT} + addedAt stamp; unknown kind → 400 VALIDATION; blocks: [] clears", async () => {
+  // One block of each kind the validator accepts (REPORT_BLOCK_KINDS), written
+  // in exactly the shapes the client persists: workbench.js addToReport sends
+  // {kind, ref, title, level} for chart/table; reports.js addBlockSheet sends
+  // {kind, ref, title} quotes, {kind, content} text, {kind, title} methods.
+  const five = [
+    { kind: "chart", ref: S.crosstabId, title: "Pay × dept", level: "corrected" },
+    { kind: "table", ref: S.crosstabId, title: "Pay × dept (table)", level: "corrected" },
+    { kind: "quote", ref: S.goldIds[0], title: `quote · ${S.goldIds[0].slice(0, 12)}` },
+    { kind: "text", content: "Compensation dominates the corpus." },
+    { kind: "methods-excerpt", title: "methods excerpt" },
+  ];
+
+  // PUT replaces the whole layout; the response IS the report object — the
+  // canvas assigns it straight onto the cached project graph (reports.js
+  // persist(): cached.report = saved), so blocks must be the ARRAY, not a count
+  const saved = await ok("PUT", `/api/projects/${S.slug}/report`, { blocks: five });
+  assert.ok(Array.isArray(saved.blocks), "PUT echoes blocks as an ARRAY — the canvas caches it as project.report");
+  assert.equal(saved.blocks.length, 5);
+  assert.deepEqual(saved.blocks.map((b) => b.kind), ["chart", "table", "quote", "text", "methods-excerpt"],
+    "all five kinds the validator accepts persist");
+  assert.deepEqual(saved.blocks, five, "PUT echoes the blocks exactly as sent — no addedAt stamping on replace");
+  assert.equal(typeof saved.updatedAt, "string");
+  assert.ok(Number.isFinite(Date.parse(saved.updatedAt)), `updatedAt is ISO-parseable (got ${saved.updatedAt})`);
+
+  // the project GET — THE read reports.js seeds its canvas from
+  // (store.set("report.blocks", project.report?.blocks ?? []))
+  let p = await getProject();
+  assert.ok(p.report && typeof p.report === "object", "project.report rides the full project graph");
+  assert.equal(p.report.blocks.length, 5, "round-trip: same length");
+  assert.deepEqual(p.report.blocks.map((b) => b.kind), five.map((b) => b.kind), "kinds preserved in order");
+  assert.deepEqual(p.report.blocks, five,
+    "every field intact ({kind, ref?, content?, title?, level?}) — the read the canvas opens with");
+  assert.equal(p.report.updatedAt, saved.updatedAt);
+
+  // POST appends ONE block (the workbench "Add to report" action) → {blocks:
+  // COUNT}, a NUMBER — workbench.js toasts `${updated.blocks} blocks now`
+  const sixth = { kind: "chart", ref: S.crosstabId, title: "appended from workbench", level: "corrected" };
+  const appended = await ok("POST", `/api/projects/${S.slug}/report/blocks`, { block: sixth });
+  assert.equal(appended.blocks, 6, "POST answers {blocks: <count>} — a number, never the array");
+  p = await getProject();
+  assert.equal(p.report.blocks.length, 6);
+  const added = p.report.blocks[5];
+  assert.equal(added.kind, "chart", "the appended block lands at the end");
+  assert.equal(added.ref, sixth.ref);
+  assert.equal(added.title, sixth.title);
+  assert.equal(added.level, sixth.level);
+  assert.equal(typeof added.addedAt, "string", "the append path stamps addedAt for the canvas's recency display");
+  assert.ok(Number.isFinite(Date.parse(added.addedAt)), `addedAt is ISO-parseable (got ${added.addedAt})`);
+  assert.equal(p.report.blocks[0].addedAt, undefined, "PUT-replaced blocks carry NO addedAt — only the append stamps");
+
+  // unknown kind → 400 VALIDATION (same negative pattern as the analyses 404):
+  // the canvas must never persist a block the exporter cannot draw
+  const bad = await call("PUT", `/api/projects/${S.slug}/report`, { blocks: [{ kind: "sparkle" }] });
+  assert.equal(bad.status, 400, "unknown block kind rejects");
+  assert.equal(bad.json?.error?.code, "VALIDATION");
+  assert.match(bad.json.error.message, /sparkle/, "the error names the offending kind");
+  p = await getProject();
+  assert.equal(p.report.blocks.length, 6, "a rejected PUT leaves the saved layout untouched");
+
+  // blocks: [] — the "remove everything" path (the canvas's last × click)
+  const cleared = await ok("PUT", `/api/projects/${S.slug}/report`, { blocks: [] });
+  assert.deepEqual(cleared.blocks, [], "an empty layout is a valid replacement");
+  assert.equal(typeof cleared.updatedAt, "string");
+  p = await getProject();
+  assert.equal(p.report.blocks.length, 0, "GET shows the cleared canvas");
+});
+
+// =========================================================================
 // main.js question bar — the plan sheet contract
 // =========================================================================
 
