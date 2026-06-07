@@ -1,4 +1,4 @@
-# Concord — compressed working knowledge (through 2026-06-06, pre-context-clear)
+# Concord — compressed working knowledge (through 2026-06-06, post roadmap wave 1)
 
 READ THIS FIRST when resuming. Companion docs: `docs/plans/2026-06-05-concord-v1-implementation.md`
 (**"Contract amendments" section is AUTHORITATIVE** — module interfaces + ledger event taxonomy) and
@@ -6,7 +6,8 @@ READ THIS FIRST when resuming. Companion docs: `docs/plans/2026-06-05-concord-v1
 
 ## State
 
-- ~50 commits, **679/680 tests green** (`npm test`; 1 intentional skip: reporting artifact dump).
+- ~56 commits, **697/698 tests green** (`npm test`; 1 intentional skip: reporting artifact dump). Route suite
+  lives at `tests/unit/routes.test.js`; wave-1 feature tests at `tests/server/*.test.js` (dir created 06-06).
 - Server: run DETACHED — `Start-Process cmd "/c node server\index.js > server-boot.log 2>&1" -WorkingDirectory <repo> -WindowStyle Hidden`. Kill prior port owners first (`Get-NetTCPConnection -LocalPort 7341`). Listens on 127.0.0.1 AND ::1. start.bat = the user's entry. NEVER serve via the preview tool (its servers get reaped → zombies).
 - After every server change: restart detached + tell Ethan to FULL-reload (Ctrl+F5).
 - His projects on disk: `test-2` (favorite_books_people.csv; ordinal construct "Book Enthusiasm Level"; gold set `gs_mq1y81ut0j0zz658oe` in adjudication; one complete gemini run), `new-survey` (Gender for Tech.xlsx, reunitized to abouttxt). OpenRouter key in config/keys.json (he will rotate it).
@@ -20,11 +21,18 @@ from Ethan's real use** — he tests, reports, we fix same-day. He is mid-flight
 test-2, then the Reliability screen (built for him: pairwise κ/α matrix across instruments/coders/gold) and
 Workbench analyses. Next likely asks: more model comparisons, the labeled-CSV in his workflow, report assembly.
 
-**Deferred roadmap** (explicitly promised or flagged): wire PII pseudonymization into import (built+tested,
-unrouted); mid-run/resume budget re-check; goldset resample/delete guards on coded sets; persist stability
-per-rerun outputs so Reliability can show retest rows; consolidate CLASS_MAX_TOKENS (compiler/panels/questionbar
-copies); evidence-dossier test ~1/240 flake; incremental brief streaming (currently one Director call,
-30–60s composing wait).
+**Shipped in roadmap wave 1 (2026-06-06, four parallel agents):** goldset resample/delete guards (409
+CONFIRM_REQUIRED + counts; forced resample CLEARS stale labels/adjudications/finishedAt/humanAgreement;
+ledger `goldset.resampled`); stability reruns persisted (`projects/<slug>/stability/<instrumentId>.json`)
+→ Reliability `retest:<inst>:<k>` sources + mean rerun-vs-rerun α line; PII wired into import confirm
+(`pii: off|scan|pseudonymize`, default scan; vault in-bundle at `vault/<corpusId>.json`, excluded from
+replication archive; real token format `[EMAIL_1]`); report routes pinned in shapes suite.
+
+**Deferred roadmap** (explicitly promised or flagged): mid-run/resume budget re-check; evidence-dossier
+test ~1/240 flake; incremental brief streaming (one Director call, 30–60s composing wait); PII scan covers
+unit text ONLY — metadata columns ride into replication CSVs unmasked (models never see them; flagged as
+background chip); no goldset delete UI exists (server route + guarded wrapper ready). Gotcha for contracts:
+`api.imports.confirm` destructures known fields and DROPS extras — never assume body passthrough in api.js.
 
 ## Recurring error classes + the approaches that beat them
 
