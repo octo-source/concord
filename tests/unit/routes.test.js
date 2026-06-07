@@ -422,6 +422,27 @@ test("corpora: instant read computes locally and caches into the corpus meta", a
   const dept = r.metaMarginals.find((m) => m.column === "dept");
   assert.ok(dept && dept.values.length === 2);
 
+  // chart evidence: every bin/bucket/value carries the unit ids behind it
+  // (capped at 100; n stays the TRUE count so the inspector can say
+  // "first 100 of N")
+  for (const b of r.lengthHist.bins) {
+    assert.ok(Array.isArray(b.unitIds), `length bin carries unitIds (got ${JSON.stringify(b)})`);
+    assert.equal(Math.min(b.n, 100), b.unitIds.length, "ids cap at 100, n stays honest");
+  }
+  assert.equal(r.langUnits.en.unitIds.length, r.langUnits.en.n, "language buckets carry {n, unitIds}");
+  assert.ok(r.langUnits.es.n > 0 && r.langUnits.es.unitIds.length === r.langUnits.es.n);
+  const sentTotal = r.sentimentUnits.positive.n + r.sentimentUnits.neutral.n + r.sentimentUnits.negative.n;
+  assert.equal(sentTotal, 64, "sentiment buckets partition the corpus");
+  assert.ok(r.sentimentUnits.positive.unitIds.length > 0);
+  for (const v of dept.values) {
+    assert.equal(v.unitIds.length, Math.min(v.n, 100), `marginal value carries capped ids (got ${JSON.stringify(v).slice(0, 120)})`);
+  }
+  // every shipped id is a real unit of this corpus
+  const realIds = new Set(S.unitsA.map((u) => u.id));
+  for (const id of [...r.lengthHist.bins.flatMap((b) => b.unitIds), ...r.langUnits.en.unitIds, ...dept.values.flatMap((v) => v.unitIds)]) {
+    assert.ok(realIds.has(id), `evidence id ${id} resolves to a real unit`);
+  }
+
   // the CTA price: the mock Director slot is configured → briefEstimate
   // {usd, etaMin} rides the response (ONE Director call over the stratified
   // sample, priced from the catalog — mock prices $0)
@@ -613,21 +634,27 @@ test("corpora: columns lists real variables with roles/distinct/missing/top valu
 // brief (SSE) + question bar
 // =========================================================================
 
-test("brief: SSE streams paragraphs in order then done; artifact + ledger via the module", async () => {
+test("brief: SSE streams progress stages, then paragraphs in order, then done; artifact + ledger via the module", async () => {
   armMock();
   const { status, events: evs } = await readSse(`/api/projects/${S.slug}/brief`, {
     method: "POST",
     body: { corpusId: S.corpusA },
   });
   assert.equal(status, 200);
-  assert.deepEqual(evs.map((e) => e.event), ["para", "para", "done"]);
-  assert.match(evs[0].data.md, /compensation/);
-  assert.ok(Array.isArray(evs[0].data.refs) && evs[0].data.refs.length >= 1);
-  assert.match(evs[2].data.briefId, /^brief_/);
+  // progress stages ride ahead of the paragraphs; tick count is timing-
+  // dependent (the fast mock usually finishes before the ~2s ticker fires) —
+  // tests/server/brief-progress.test.js pins ticks with a slowed mock
+  assert.deepEqual(evs.map((e) => e.event).filter((n) => n !== "tick"),
+    ["sampling", "prompt-composed", "director-called", "validating", "para", "para", "done"]);
+  const paras = evs.filter((e) => e.event === "para");
+  assert.match(paras[0].data.md, /compensation/);
+  assert.ok(Array.isArray(paras[0].data.refs) && paras[0].data.refs.length >= 1);
+  const done = evs.find((e) => e.event === "done");
+  assert.match(done.data.briefId, /^brief_/);
 
   const p = await getProject();
   assert.equal(p.briefs.length, 1);
-  assert.equal(p.briefs[0].id, evs[2].data.briefId);
+  assert.equal(p.briefs[0].id, done.data.briefId);
   assert.equal((await events({ type: "brief.generated" }))[0].actor, "director");
 });
 
@@ -1010,12 +1037,16 @@ test("freeze BEFORE agreement → 400 (human agreement comes first)", async () =
   assert.match(err.message, /human agreement/i);
 });
 
+// session.url is the human coding PAGE (/coder.html?coder=…) since the coder
+// screen landed; scripted clients address the API at the listener's origin.
+const coderApi = (sess) => `http://127.0.0.1:${sess.port}`;
+
 test("coder sessions: two blind coders label through restricted same-process listeners", async () => {
   armMock();
   const sessA = await ok("POST", `/api/projects/${S.slug}/goldsets/${S.goldsetId}/coder-session`, { coderId: "coder-A" });
   const sessB = await ok("POST", `/api/projects/${S.slug}/goldsets/${S.goldsetId}/coder-session`, { coderId: "coder-B" });
   assert.ok(sessA.port > 0 && sessB.port > 0 && sessA.port !== sessB.port);
-  assert.match(sessA.url, /^http:\/\/127\.0\.0\.1:\d+$/);
+  assert.match(sessA.url, /^http:\/\/127\.0\.0\.1:\d+\/coder\.html\?coder=coder-A$/);
 
   const gsFull = await ok("GET", `/api/projects/${S.slug}/goldsets/${S.goldsetId}`);
   S.flipUnits = gsFull.sample.slice(0, 2).map((s) => s.unitId); // planted human disagreement
@@ -1030,7 +1061,7 @@ test("coder sessions: two blind coders label through restricted same-process lis
   async function codeAll(sess, coderId, otherCoder, flip) {
     let labeled = 0;
     for (;;) {
-      const res = await fetch(`${sess.url}/api/coder/next`);
+      const res = await fetch(`${coderApi(sess)}/api/coder/next`);
       const raw = await res.text();
       assert.equal(res.status, 200);
       blindnessCheck(raw, otherCoder);
@@ -1040,7 +1071,7 @@ test("coder sessions: two blind coders label through restricted same-process lis
       assert.equal(typeof data.unit.text, "string");
       const truth = ORACLE(data.unit.text);
       const label = flip && S.flipUnits.includes(data.unit.id) ? (truth === "yes" ? "no" : "yes") : truth;
-      const post = await fetch(`${sess.url}/api/coder/label`, {
+      const post = await fetch(`${coderApi(sess)}/api/coder/label`, {
         method: "POST",
         headers: { "content-type": "application/json" },
         body: JSON.stringify({ unitId: data.unit.id, label, memo: labeled === 0 ? "first memo" : undefined }),
@@ -1056,7 +1087,7 @@ test("coder sessions: two blind coders label through restricted same-process lis
   assert.equal(await codeAll(sessA, "coder-A", "coder-B", false), 24);
   assert.equal(await codeAll(sessB, "coder-B", "coder-A", true), 24);
 
-  const progA = await fetch(`${sessA.url}/api/coder/progress`).then((r) => r.json());
+  const progA = await fetch(`${coderApi(sessA)}/api/coder/progress`).then((r) => r.json());
   assert.deepEqual([progA.data.done, progA.data.total], [24, 24]);
 
   // main-server next route is equally blind
@@ -1084,7 +1115,7 @@ test("coder sessions: two blind coders label through restricted same-process lis
   // close coder-B's listener; its port must stop answering
   const closed = await ok("DELETE", `/api/projects/${S.slug}/goldsets/${S.goldsetId}/coder-session?coderId=coder-B`);
   assert.equal(closed.closed, 1);
-  await assert.rejects(fetch(`${sessB.url}/api/coder/next`), "closed listener refuses connections");
+  await assert.rejects(fetch(`${coderApi(sessB)}/api/coder/next`), "closed listener refuses connections");
   S.sessA = sessA;
 });
 
@@ -2422,19 +2453,19 @@ test("projects: PUT /api/projects/:p shares the settings downgrade guard + ledge
 });
 
 test("coder listener: serves ONLY the coder surface (other API routes absent) and stays blind after machine runs exist", async () => {
-  const r = await fetch(`${S.sessA.url}/api/projects`);
+  const r = await fetch(`${coderApi(S.sessA)}/api/projects`);
   assert.equal(r.status, 404, "project routes are not mounted on the coder listener");
-  const r2 = await fetch(`${S.sessA.url}/api/projects/${S.slug}/runs/${S.runId}/escalations`);
+  const r2 = await fetch(`${coderApi(S.sessA)}/api/projects/${S.slug}/runs/${S.runId}/escalations`);
   assert.equal(r2.status, 404, "run routes are not mounted on the coder listener");
 
   // post-run blindness: outputs.ndjson is full of machine labels now — the
   // coder payloads still carry none of it
-  const next = await fetch(`${S.sessA.url}/api/coder/next`);
+  const next = await fetch(`${coderApi(S.sessA)}/api/coder/next`);
   const raw = await next.text();
   for (const marker of ['"juror"', '"rationale"', '"confidence"', '"escalat', '"aggregate"']) {
     assert.ok(!raw.includes(marker), `post-run blind payload leaked ${marker}`);
   }
-  const prog = await fetch(`${S.sessA.url}/api/coder/progress`).then((x) => x.json());
+  const prog = await fetch(`${coderApi(S.sessA)}/api/coder/progress`).then((x) => x.json());
   // 25, not 24: the human-queue test routed one more unit into the sample —
   // queued units join the blind coding queue like any sampled unit
   assert.deepEqual([prog.data.done, prog.data.total], [24, 25]);

@@ -187,6 +187,34 @@ test("reunitize keeps honoring the drop — derived meta is built from source un
     assert.ok(!("internal_code" in (u.meta ?? {})), `ignored column must not resurface on reunitize (got ${JSON.stringify(u.meta)})`);
     assert.ok("response" in u.meta, "the old text is preserved under its original column name");
   }
+  S.derivedId = re.corpusId;
+});
+
+test("reunitize copies columnRoles to the derived corpus, adjusted for the promotion", async () => {
+  const p = await ok("GET", `/api/projects/${S.slug}`);
+  const derived = p.corpora.find((c) => c.id === S.derivedId);
+  assert.ok(Array.isArray(derived.columnRoles), `the derived corpus carries the role map (got ${JSON.stringify(derived.columnRoles)})`);
+  const roleOf = (name) => derived.columnRoles.find((c) => c.name === name)?.role;
+  assert.equal(roleOf("dept"), "text", "the promoted column's entry becomes role text");
+  // the demoted old text column takes the detector's call over the derived
+  // units' meta — long prose, so mapping.detect reads it as text
+  assert.equal(roleOf("response"), "text", "the old text column gets the detector's role");
+  assert.equal(roleOf("respondent_id"), "id", "untouched roles copy through");
+  assert.equal(roleOf("internal_code"), "ignore", "ignore provenance survives (the column stays physically absent)");
+  assert.equal(derived.columnRoles.length, 4, "no invented entries");
+});
+
+test("reunitize of a source without a recorded role map fabricates nothing", async () => {
+  const slug = "roles-none-derived";
+  const confirmed = await importRoles(slug, {
+    csv: makeRolesCsv(),
+    filename: "no-roles.csv",
+    mapping: { textColumn: "response" }, // no columns sent → no columnRoles on the source
+  });
+  const re = await ok("POST", `/api/projects/${slug}/corpora/${confirmed.corpusId}/reunitize`, { textColumn: "dept" });
+  const p = await ok("GET", `/api/projects/${slug}`);
+  const derived = p.corpora.find((c) => c.id === re.corpusId);
+  assert.equal(derived.columnRoles, undefined, "no role map invented on the derived corpus");
 });
 
 test("ignore-drop happens BEFORE the pii step: identifiers in an ignored column are never scanned", async () => {

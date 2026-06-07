@@ -144,7 +144,18 @@ function tokenizeWords(text) {
   return (text ?? "").toLowerCase().match(/[\p{L}']+/gu) ?? [];
 }
 
-function lengthHistogram(wordCounts, bins = 10) {
+// Chart evidence: every Instant Read bin/bucket/value carries the unit ids
+// behind it so the bar component can open the evidence inspector. Ids cap at
+// 100 per bin (the same cap as routes/analyses.js evidence cells — a 10k
+// corpus must not ship 10k ids per chart); the `n` beside each list stays the
+// TRUE count, so the inspector can say "first 100 of N".
+const EVIDENCE_CAP = 100;
+
+const pushCapped = (arr, id) => {
+  if (arr.length < EVIDENCE_CAP) arr.push(id);
+};
+
+function lengthHistogram(wordCounts, unitIds, bins = 10) {
   if (wordCounts.length === 0) return { bins: [] };
   const max = Math.max(...wordCounts);
   const width = Math.max(1, Math.ceil((max + 1) / bins));
@@ -152,8 +163,13 @@ function lengthHistogram(wordCounts, bins = 10) {
     lo: i * width,
     hi: (i + 1) * width - 1,
     n: 0,
+    unitIds: [],
   }));
-  for (const c of wordCounts) out[Math.floor(c / width)].n += 1;
+  wordCounts.forEach((c, i) => {
+    const bin = out[Math.floor(c / width)];
+    bin.n += 1;
+    pushCapped(bin.unitIds, unitIds[i]);
+  });
   return { bins: out, unit: "words" };
 }
 
@@ -175,56 +191,67 @@ async function computeInstantRead(slug, corpusId) {
   }
   const tokensPer = units.map((u) => tokenizeWords(u.text));
 
-  // length histogram (word counts)
-  const lengthHist = lengthHistogram(tokensPer.map((t) => t.length));
+  // length histogram (word counts), each bin carrying its unit ids
+  const lengthHist = lengthHistogram(tokensPer.map((t) => t.length), units.map((u) => u.id));
 
-  // language mix
-  const langCounts = { en: 0, es: 0, other: 0 };
-  tokensPer.forEach((toks) => { langCounts[languageOf(toks)] += 1; });
+  // language mix — shares for the chart, {n, unitIds} per language for the
+  // evidence doors (exact counts, never back-derived from rounded shares)
+  const langUnits = { en: { n: 0, unitIds: [] }, es: { n: 0, unitIds: [] }, other: { n: 0, unitIds: [] } };
+  tokensPer.forEach((toks, i) => {
+    const bucket = langUnits[languageOf(toks)];
+    bucket.n += 1;
+    pushCapped(bucket.unitIds, units[i].id);
+  });
   const langMix = Object.fromEntries(
-    Object.entries(langCounts).map(([k, n]) => [k, Math.round((n / units.length) * 1000) / 1000]),
+    Object.entries(langUnits).map(([k, { n }]) => [k, Math.round((n / units.length) * 1000) / 1000]),
   );
 
   // top distinctive terms — tf·idf over the dictionary tokenizer (see above)
   const topTerms = topDistinctiveTerms(units.map((u) => dictTokenize(u.text)));
 
-  // sentiment sketch via the dictionary engine over the VADER lexicon
+  // sentiment sketch via the dictionary engine over the VADER lexicon —
+  // shares for the chart, {n, unitIds} per bucket for the evidence doors
   const payload = await getVaderPayload();
   const scores = dictScore(units.map((u) => u.text), payload);
-  let posN = 0;
-  let negN = 0;
-  let neuN = 0;
+  const sentimentUnits = {
+    positive: { n: 0, unitIds: [] },
+    neutral: { n: 0, unitIds: [] },
+    negative: { n: 0, unitIds: [] },
+  };
   let valenceSum = 0;
-  for (const s of scores) {
+  scores.forEach((s, i) => {
     // negated positive terms count as negative signal and vice versa
     const val = (s.positive ?? 0) + (s.NOT_negative ?? 0) - (s.negative ?? 0) - (s.NOT_positive ?? 0);
     valenceSum += val;
-    if (val > 0) posN++;
-    else if (val < 0) negN++;
-    else neuN++;
-  }
+    const bucket = val > 0 ? sentimentUnits.positive : val < 0 ? sentimentUnits.negative : sentimentUnits.neutral;
+    bucket.n += 1;
+    pushCapped(bucket.unitIds, units[i].id);
+  });
   const sentimentSketch = {
     lexicon: "VADER",
-    positive: Math.round((posN / units.length) * 1000) / 1000,
-    negative: Math.round((negN / units.length) * 1000) / 1000,
-    neutral: Math.round((neuN / units.length) * 1000) / 1000,
+    positive: Math.round((sentimentUnits.positive.n / units.length) * 1000) / 1000,
+    negative: Math.round((sentimentUnits.negative.n / units.length) * 1000) / 1000,
+    neutral: Math.round((sentimentUnits.neutral.n / units.length) * 1000) / 1000,
     meanValence: Math.round((valenceSum / units.length) * 1000) / 1000,
   };
 
-  // metadata marginals: top values per categorical column
+  // metadata marginals: top values per categorical column, ids per value
   const { columns } = detect(units.map((u) => u.meta ?? {}));
   const metaMarginals = columns
     .filter((c) => c.role === "categorical")
     .map((c) => {
-      const counts = new Map();
+      const counts = new Map(); // value → {n, unitIds}
       for (const u of units) {
         const v = String(u.meta?.[c.name] ?? "");
-        counts.set(v, (counts.get(v) ?? 0) + 1);
+        let entry = counts.get(v);
+        if (!entry) counts.set(v, (entry = { n: 0, unitIds: [] }));
+        entry.n += 1;
+        pushCapped(entry.unitIds, u.id);
       }
       const values = [...counts.entries()]
-        .sort((a, b) => b[1] - a[1] || (a[0] < b[0] ? -1 : 1))
+        .sort((a, b) => b[1].n - a[1].n || (a[0] < b[0] ? -1 : 1))
         .slice(0, 10)
-        .map(([value, n]) => ({ value, n }));
+        .map(([value, { n, unitIds }]) => ({ value, n, unitIds }));
       return { column: c.name, values };
     });
 
@@ -236,8 +263,10 @@ async function computeInstantRead(slug, corpusId) {
     meanUnitChars: Math.round(units.reduce((n, u) => n + (u.text ?? "").length, 0) / units.length),
     lengthHist,
     langMix,
+    langUnits,
     topTerms,
     sentimentSketch,
+    sentimentUnits,
     metaMarginals,
     computedAt: new Date().toISOString(),
   };
@@ -388,7 +417,9 @@ export default [
       const project = await loadProject(params.p);
       const corpus = findOr404(project.corpora, params.c, "corpus");
       let read = corpus.instantread; // cached in corpus meta
-      if (!read) {
+      // reads cached before chart evidence existed lack langUnits — recompute
+      // once so every corpus's bars carry their unit ids
+      if (!read || !read.langUnits) {
         read = await computeInstantRead(params.p, params.c);
         await updateProject(params.p, (p) => {
           const c = p.corpora.find((x) => x.id === params.c);
@@ -489,6 +520,28 @@ export default [
         next.map((u) => JSON.stringify(u)).join("\n") + "\n",
       );
 
+      // Column-role provenance: import persists the confirmed map as
+      // corpus.columnRoles; the derived corpus copies it, adjusted for the
+      // promotion — the promoted column's entry becomes role "text", and the
+      // demoted old text column (now metadata under prevKey) takes the
+      // detector's call over the derived units' meta (the same mapping.detect
+      // that proposes roles at import; long prose reads "text", short labels
+      // "categorical"). A source without a recorded map gets none — no
+      // fabricated provenance.
+      let columnRoles = null;
+      if (Array.isArray(source.columnRoles) && source.columnRoles.length > 0) {
+        const detected = detect(next.map((u) => u.meta ?? {})).columns;
+        const prevRole = detected.find((c) => c.name === prevKey)?.role ?? "categorical";
+        columnRoles = source.columnRoles.map((c) => ({ name: c.name, role: c.role }));
+        const upsert = (name, role) => {
+          const hit = columnRoles.find((c) => c.name === name);
+          if (hit) hit.role = role;
+          else columnRoles.push({ name, role });
+        };
+        upsert(textColumn, "text");
+        upsert(prevKey, prevRole);
+      }
+
       const sourceScheme = scopeOf(source).scheme;
       const entry = {
         id: corpusId,
@@ -506,6 +559,8 @@ export default [
         // already covered everything promoted)
         pii,
         metaColumns: metaColumnsOf(next),
+        // the adjusted role map, same provenance contract as import/confirm
+        ...(columnRoles ? { columnRoles } : {}),
         sourceName: source.sourceName ?? source.source?.filename ?? null,
         derivedFrom: source.id,
       };

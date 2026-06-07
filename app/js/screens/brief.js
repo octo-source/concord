@@ -79,24 +79,57 @@ function startStream(column, params, query, project) {
   if (scopeEl) column.append(scopeEl);
 
   const body = el("div", { class: "brief__body", aria: { live: "polite" } });
-  const composeText = el("span", {}, " reading a stratified sample · 0s — one Director call, ~30–60 s on flash-class models");
+  const composeText = el("span", {});
   const composing = el("p", { class: "brief__composing", role: "status" },
     el("span", { class: "brief__cursor", aria: { hidden: "true" } }, "▍"),
     composeText);
   column.append(body, composing);
 
-  // elapsed seconds so a long call reads as working, not hung
+  // Live status: the server streams the stage it is actually in (sampling →
+  // prompt-composed → director-called → tick {elapsed} every ~2s during the
+  // one long call → validating); the clock shows elapsed seconds. Server
+  // ticks also repaint, so a throttled background tab still advances.
   const startedAt = Date.now();
+  const status = { line: "Contacting the server", serverElapsed: 0 };
+  const paint = () => {
+    const sec = Math.max(status.serverElapsed, Math.round((Date.now() - startedAt) / 1000));
+    composeText.textContent = ` ${status.line} · ${sec}s`;
+  };
+  paint();
   clearInterval(composeTimer);
-  composeTimer = setInterval(() => {
-    const sec = Math.round((Date.now() - startedAt) / 1000);
-    composeText.textContent = ` reading a stratified sample · ${sec}s — one Director call, ~30–60 s on flash-class models`;
-  }, 1000);
+  composeTimer = setInterval(paint, 1000);
   const stopClock = () => { clearInterval(composeTimer); composeTimer = null; };
+
+  let sampleN = null;
+  const onStage = (event, data) => {
+    if (event === "sampling") {
+      sampleN = typeof data?.sampleN === "number" ? data.sampleN : null;
+      status.line = sampleN !== null
+        ? `Sampled ${fmtCount(sampleN)} of ${fmtCount(data?.unitCount ?? sampleN)} units`
+        : "Sampling the corpus";
+    } else if (event === "prompt-composed") {
+      status.line = "Prompt composed";
+    } else if (event === "director-called") {
+      const sample = sampleN !== null ? `the ${fmtCount(sampleN)}-unit sample` : "the sample";
+      status.line = data?.model
+        ? `The Director (${data.model}) is reading ${sample}`
+        : `The Director is reading ${sample}`;
+    } else if (event === "tick") {
+      if (typeof data?.elapsed === "number") status.serverElapsed = data.elapsed;
+    } else if (event === "validating") {
+      status.line = "Checking that every cited unit was in the sample";
+    }
+    paint();
+  };
 
   const paras = [];
   stream = api.brief.generate(params.slug, corpusId, {
+    onEvent: onStage,
     onParagraph(para) {
+      if (paras.length === 0) {
+        status.line = "Paragraphs arriving";
+        paint();
+      }
       paras.push(para);
       body.append(paragraphEl(para, paras.length));
     },

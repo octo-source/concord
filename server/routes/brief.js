@@ -1,5 +1,7 @@
-// The Corpus Brief: POST → SSE. Paragraphs stream as `para` events in order
-// (relayed straight from generateBrief's onParagraph), then `done` carries the
+// The Corpus Brief: POST → SSE. Progress stages stream first (sampling →
+// prompt-composed → director-called → tick {elapsed} every ~2s during the one
+// long call → validating; relayed from generateBrief's onStage), then
+// paragraphs as `para` events in order (onParagraph), then `done` carries the
 // persisted briefId. brief.generated is ledgered by the module; the route's
 // only bookkeeping is the Director-meter cost roll-up.
 //
@@ -41,6 +43,7 @@ export default [
       try {
         const brief = await withDirectorSpend(project, () =>
           generateBrief(project, corpusId, {
+            onStage: (event, data) => conn.send(event, data),
             onParagraph: (para) => conn.send("para", { md: para.md, refs: para.refs }),
           }));
         conn.send("done", { briefId: brief.id, paragraphs: brief.paragraphs.length, themes: brief.themes.length, issues: brief.issues });

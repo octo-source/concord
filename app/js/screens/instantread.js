@@ -5,15 +5,22 @@
 //
 // Live contract (GET corpora/:c/instantread):
 //   local: true, unitCount,
-//   lengthHist:      {bins: [{lo, hi, n}], unit: "words"}
+//   lengthHist:      {bins: [{lo, hi, n, unitIds}], unit: "words"}
 //   langMix:         {en, es, other} — shares that sum to ~1
+//   langUnits:       {en: {n, unitIds}, es: …, other: …} — evidence per language
 //   topTerms:        [{term, count}] — tf·idf-ranked, stopworded
 //   sentimentSketch: {lexicon: "VADER", positive, negative, neutral, meanValence}
-//   metaMarginals:   [{column, values: [{value, n}]}]
+//   sentimentUnits:  {positive: {n, unitIds}, neutral: …, negative: …}
+//   metaMarginals:   [{column, values: [{value, n, unitIds}]}]
 //   briefEstimate:   {usd, etaMin} | null — the CTA's price tag (design §6.1:
 //                    the level-up affordance always states its price); null
 //                    only when no Director slot is configured
 //   computedAt:      ISO timestamp (also the cache marker)
+//
+// unitIds lists cap at 100 server-side; the n beside each list is the TRUE
+// count, passed to the chart as evidenceTotal so the inspector can say
+// "first 100 of N". Bars whose datum carries `evidence` are doors into the
+// evidence inspector (components/charts/bar.js).
 
 import { el, clear } from "../dom.js";
 import api from "../api.js";
@@ -46,10 +53,15 @@ export function render(mount, params) {
       return;
     }
 
+    // bins → unit ids rides the live read (older cached reads upgrade on
+    // GET); only claim clickability when the data actually carries the doors
+    const hasEvidence = Boolean(read.langUnits);
     mount.append(screenHead({
       overline: "Instant read",
       title: "What the corpus looks like before anyone reads it.",
-      lede: "Local counts only — lengths, languages, distinctive terms, metadata. The charts summarize the corpus; the Brief below reads a stratified sample and cites the units behind every claim.",
+      lede: "Local counts only — lengths, languages, distinctive terms, metadata."
+        + (hasEvidence ? " Click any bar to read its units." : "")
+        + " The Brief below reads a stratified sample and cites the units behind every claim.",
       actions: [
         el("span", { class: "chip chip--ghost localbadge", title: "Computed from bundled lexicons and local statistics" },
           "⌂ statistics computed locally — no model reads your data here",
@@ -90,12 +102,18 @@ export function render(mount, params) {
     const grid = el("div", { class: "irgrid" });
     mount.append(grid);
 
-    /* -- length histogram: {bins: [{lo, hi, n}], unit} -- */
+    // bar.js datum contract: `evidence` (unit id list, ≤100) opens the
+    // inspector; `evidenceTotal` is the true n behind the door
+    const evidenceOf = (unitIds, n) =>
+      (Array.isArray(unitIds) && unitIds.length > 0 ? { evidence: unitIds, evidenceTotal: n } : {});
+
+    /* -- length histogram: {bins: [{lo, hi, n, unitIds}], unit} -- */
     const lengthCell = el("div", { class: "irgrid__cell" });
     const lengthUnit = read.lengthHist.unit ?? "words";
     bar.render(lengthCell, (read.lengthHist.bins ?? []).map((b) => ({
       label: `${fmtCount(b.lo)}–${fmtCount(b.hi)}`,
       value: b.n,
+      ...evidenceOf(b.unitIds, b.n),
     })), {
       caption: `Units by length (${lengthUnit})`,
       format: (v) => fmtCount(v),
@@ -104,13 +122,14 @@ export function render(mount, params) {
     });
     grid.append(wrapCell("Length", lengthCell));
 
-    /* -- language mix: {en, es, other} shares -- */
+    /* -- language mix: {en, es, other} shares; evidence via langUnits -- */
     const langCell = el("div", { class: "irgrid__cell" });
     bar.render(langCell, Object.entries(read.langMix ?? {})
       .filter(([, share]) => share > 0)
       .map(([lang, share]) => ({
         label: `${LANG_LABELS[lang] ?? lang} (${fmtPct(share, 1)})`,
         value: share,
+        ...evidenceOf(read.langUnits?.[lang]?.unitIds, read.langUnits?.[lang]?.n),
       })), {
       caption: "Language mix — detected locally",
       format: (v) => fmtPct(v, 1),
@@ -130,14 +149,15 @@ export function render(mount, params) {
     grid.append(wrapCell("Top distinctive terms", termList,
       el("p", { class: "faint screen__hint" }, "Frequency damped by document frequency, stopwords removed. Counted, not judged.")));
 
-    /* -- sentiment sketch: {lexicon, positive, negative, neutral, meanValence} -- */
+    /* -- sentiment sketch: {lexicon, positive, negative, neutral, meanValence};
+       evidence via sentimentUnits -- */
     const sketch = read.sentimentSketch ?? {};
     const sentCell = el("div", { class: "irgrid__cell" });
-    bar.render(sentCell, [
-      { label: "positive", value: sketch.positive ?? 0 },
-      { label: "neutral", value: sketch.neutral ?? 0 },
-      { label: "negative", value: sketch.negative ?? 0 },
-    ], {
+    bar.render(sentCell, ["positive", "neutral", "negative"].map((bucket) => ({
+      label: bucket,
+      value: sketch[bucket] ?? 0,
+      ...evidenceOf(read.sentimentUnits?.[bucket]?.unitIds, read.sentimentUnits?.[bucket]?.n),
+    })), {
       caption: `Share of units by ${sketch.lexicon ?? "VADER"} valence — mean net valence ${fmtStat(sketch.meanValence)} (VADER lexicon weight sum — not the VADER compound score). A sketch, not a finding: sarcasm defeats lexicons.`,
       format: (v) => fmtPct(v, 1),
       level: "exploratory",
@@ -146,12 +166,16 @@ export function render(mount, params) {
     });
     grid.append(wrapCell("Sentiment sketch", sentCell));
 
-    /* -- metadata marginals: [{column, values: [{value, n}]}] -- */
+    /* -- metadata marginals: [{column, values: [{value, n, unitIds}]}] -- */
     const mmCell = el("div", { class: "irgrid__wide" });
     smallmultiples.render(mmCell, {
       items: (read.metaMarginals ?? []).map((m) => ({
         title: m.column,
-        data: (m.values ?? []).map((v) => ({ label: String(v.value), value: v.n })),
+        data: (m.values ?? []).map((v) => ({
+          label: String(v.value),
+          value: v.n,
+          ...evidenceOf(v.unitIds, v.n),
+        })),
       })),
       renderFn: bar.render,
       sharedDomain: false,

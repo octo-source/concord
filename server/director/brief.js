@@ -98,14 +98,27 @@ function filterRefs(refs, validIds, counter) {
   return kept;
 }
 
-// generateBrief(project, corpusId, {onParagraph}) → brief artifact.
+// How often the in-flight Director call reports elapsed seconds. ~2s keeps
+// the wait readable without chattering; the timer is cleared the moment the
+// call settles (resolve or reject), so a failed brief leaves no orphan.
+const BRIEF_TICK_MS = 2000;
+
+// generateBrief(project, corpusId, {onParagraph, onStage}) → brief artifact.
 // onParagraph(paragraph, index) fires per validated paragraph, in order, for
-// SSE relay.
-export async function generateBrief(project, corpusId, { onParagraph } = {}) {
+// SSE relay. onStage(event, data) reports honest progress — only stages the
+// server knows to be true, never a fabricated percentage:
+//   sampling {sampleN, unitCount}      the stratified sample is drawn
+//   prompt-composed {chars}            the prompt is built
+//   director-called {provider, model}  the one long call starts
+//   tick {elapsed}                     every ~2s while that call is in flight
+//   validating {sampleN}               refs checked against the shown sample
+export async function generateBrief(project, corpusId, { onParagraph, onStage } = {}) {
+  const stage = (event, data) => { onStage?.(event, data); };
   const { meta, units } = await readCorpusUnits(project, corpusId);
   const target = briefSampleTarget(units.length);
   const { sample, strataColumn, strata } = stratifiedSample(units, corpusId, target);
   const validIds = new Set(sample.map((u) => u.id));
+  stage("sampling", { sampleN: sample.length, unitCount: units.length });
 
   const { columns } = detect(units.map((u) => u.meta ?? {})); // summary for the prompt
   const metaSummary = columns.map((c) => `${c.name} (${c.role})`).join(", ");
@@ -130,21 +143,36 @@ export async function generateBrief(project, corpusId, { onParagraph } = {}) {
   const scopedUser = textColumn
     ? `Unit text comes from the column '${textColumn}'; ${metaColumns} metadata columns are summarized alongside.\n\n${user}`
     : user;
-  const res = await callDirector(project, {
-    messages: [
-      { role: "system", content: system },
-      { role: "user", content: scopedUser },
-    ],
-    schema: BRIEF_SCHEMA,
-    // The brief is the Director's longest structured output — paragraphs +
-    // themes + per-claim unit refs. 4096 truncated in the field (Gemini Flash
-    // via OpenRouter); 16384 leaves real-model verbosity room, and a
-    // truncation still retries once at 2x inside callDirector.
-    maxTokens: 16384,
-  });
+  stage("prompt-composed", { chars: system.length + scopedUser.length });
+
+  stage("director-called", { provider: project?.director?.provider ?? null, model: project?.director?.model ?? null });
+  const calledAt = Date.now();
+  const ticker = onStage
+    ? setInterval(() => stage("tick", { elapsed: Math.round((Date.now() - calledAt) / 1000) }), BRIEF_TICK_MS)
+    : null;
+  let res;
+  try {
+    res = await callDirector(project, {
+      messages: [
+        { role: "system", content: system },
+        { role: "user", content: scopedUser },
+      ],
+      schema: BRIEF_SCHEMA,
+      // The brief is the Director's longest structured output — paragraphs +
+      // themes + per-claim unit refs. 4096 truncated in the field (Gemini Flash
+      // via OpenRouter); 16384 leaves real-model verbosity room, and a
+      // truncation still retries once at 2x inside callDirector.
+      maxTokens: 16384,
+    });
+  } finally {
+    // settle = resolve OR reject: a failed call must not leave the interval
+    // ticking into a closed stream
+    if (ticker) clearInterval(ticker);
+  }
   const out = res.json;
 
   // Evidence validation: every ref must point at a unit the Director saw.
+  stage("validating", { sampleN: sample.length });
   const dropped = { n: 0 };
   const paragraphs = (out.paragraphs ?? []).map((p) => ({ md: p.md, refs: filterRefs(p.refs, validIds, dropped) }));
   const themes = (out.themes ?? []).map((t) => ({
