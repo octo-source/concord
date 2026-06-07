@@ -58,15 +58,30 @@ nominal-π disclosure, weighted-κ naming, ledger-proven silver-before-gold); me
 stop minting export events); gold-verbatims opt-out (?goldText=0); stability response carries `level` (no
 false ◑ claims); stability artifacts version-stamped ("earlier version" marking); + New construct button.
 
-**Deferred roadmap** (explicitly promised or flagged): human coder screen (coder-session URL serves a blind
-API only — copy now says so); per-attempt provider usage metering (base.js); corrected-regression refit
-codegen in replication; inductive-origin sentence in methods (draftedFrom now stamped); refresh legacy
-phrasing pins in tests/unit/reporting.test.js (~:692-703) to the new honest wording; reunitize copying
-columnRoles provenance to derived corpora; fixtures.js api.exports.methodsPreview patch; Instant Read
-chart evidence wiring (bins → unit ids); mid-run/resume budget re-check; evidence-dossier test ~1/240
-flake; incremental brief streaming; no goldset delete UI. Gotchas: `api.imports.confirm` destructures
-known fields and DROPS extras — never assume body passthrough in api.js; test files are shared ground —
-fixers editing the same test file concurrently works but watch for last-writer pins.
+**Shipped 2026-06-07 (roadmap completion, four parallel agents):** HUMAN CODER SCREEN (app/coder.html +
+js/coder.js — blind page driving /api/coder/* only, keyboard-first, pinned codebook; listener gains {host}
+opt-in 0.0.0.0 + lanUrl for handing a second coder a LAN link; session sheet rebuilt; goldset Delete button
+wired to the CONFIRM_REQUIRED guard); BRIEF PROGRESS (server stage events sampling/prompt-composed/
+director-called + 2s elapsed ticks, ticker cleared on settle; screen shows live stage line); INSTANT READ
+EVIDENCE (every chart bin carries ≤100 unitIds + true n — bars open the inspector); PER-ATTEMPT METERING
+(base.js attemptsUsage accumulates all returned attempts; engine meters at its adapter seam; Director
+wrapper removed; quarantined spend reaches run.cost); RESUME BUDGET GATE (remaining-units re-estimate,
+same gate/error as start); CORRECTED-REGRESSION REFIT CODEGEN (R+py rebuild pseudo-outcomes and refit
+dslOLS/dslLogit to 1e-6 — reproduce.py EXECUTED in tests); inductive-origin construct field + methods
+sentence; legacy reporting pins assert the honest wording; fixtures methodsPreview patch; reunitize
+copies adjusted columnRoles. Dossier flake: NO REPRO in 138 full-suite runs; suspect = evidence.js
+swallowed transient reads (.catch(() => []) on outputs / null on goldset) — revisit only with a captured
+failure.
+
+**Deferred (small, recorded):** judge.js could forward attemptsUsage in judgeUnit's return so the engine
+meters from the response (simplifies the adapter-seam wrapper, engine.js:300-305); the PROJECT budget is
+gated at start+resume but not re-checked mid-execution (a cap lowered while a run executes is noticed at
+settle); derived columnRoles can carry two "text" entries when the demoted column reads as prose
+(cosmetic — corpus.textColumn is authoritative); .codeline copy-button label wraps in very narrow sheets.
+Gotchas: `api.imports.confirm` destructures known fields and DROPS extras — never assume body passthrough
+in api.js; test files are shared ground — concurrent fixers editing the same test file works but watch
+for last-writer pins; the workspace-root .claude/launch.json is shared across projects — remove throwaway
+preview entries after browser verification.
 
 ## Recurring error classes + the approaches that beat them
 

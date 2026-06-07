@@ -21,10 +21,13 @@ export const route = "p/:slug/reports";
 export const title = "Reports";
 
 // Side-effect-free methods for screen rendering. Live mode hits the preview
-// route (NO export.methods ledger event); fixtures mode (detected the same
-// way the rest of this screen does) uses the patched api.exports.methods,
-// which is canned data with no ledger behind it.
+// route (NO export.methods ledger event); fixtures mode uses the patched
+// api.exports.methodsPreview (canned data + the preview banner, no ledger),
+// falling back to the plain methods patch for older fixture sets.
 async function loadMethodsPreview(slug) {
+  if (typeof api.exports.methodsPreview === "function") {
+    return api.exports.methodsPreview(slug);
+  }
   if (typeof api.exports.replicationContents === "function") {
     return api.exports.methods(slug);
   }
@@ -48,7 +51,7 @@ export function render(mount, params) {
     mount.append(screenHead({
       overline: "Reports",
       title: "Export the study.",
-      lede: "Three exports: a methods section generated from the ledger, a replication archive that recomputes every corrected proportion outside Concord (corrected regression estimates ship as stored values), and a standalone HTML report you assemble from blocks.",
+      lede: "Three exports: a methods section generated from the ledger, a replication archive that recomputes corrected proportions and corrected regressions (dslOLS/dslLogit) outside Concord — anything not script-covered ships as stored values, listed by id in the archive README — and a standalone HTML report you assemble from blocks.",
     }));
 
     /* ================= methods preview ================= */
@@ -110,7 +113,7 @@ export function render(mount, params) {
     const repHost = el("div", { class: "repcard" });
     if (!replication) {
       repHost.append(el("p", { class: "faint" },
-        "The replication archive builds server-side (zip stream). Contents: codebook, frozen instrument payloads incl. prompts, dictionaries, gold with π, outputs, agreement reports, analysis specs, and reproduce.R / reproduce.py that recompute every corrected proportion outside Concord; corrected regression estimates ship as stored values in analyses/<id>.json."));
+        "The replication archive builds server-side (zip stream). Contents: codebook, frozen instrument payloads incl. prompts, dictionaries, gold with π, outputs, agreement reports, analysis specs, and reproduce.R / reproduce.py that recompute corrected proportions and corrected regressions (dslOLS/dslLogit) outside Concord; analyses the scripts cannot cover ship as stored values in analyses/<id>.json and are listed in the archive README."));
       repHost.append(goldToggle(), downloadRow());
     } else {
       repHost.append(
