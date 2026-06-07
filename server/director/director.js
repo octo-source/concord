@@ -114,29 +114,32 @@ export async function callDirector(project, { messages, schema, maxTokens = DEFA
   // re-prompts (completeWithRepair) and the doubled-budget truncation retry
   // each hit the provider and bill real tokens — metering only the winning
   // attempt under-reported Director spend whenever a call repaired. The
-  // wrapper routes each adapter.complete through the meter; attempts that
-  // THROW before returning usage (e.g. a truncated response surfaced as an
-  // error by the adapter) still cannot be metered without provider-layer
-  // changes.
+  // provider layer now does the accounting (providers/base.js): the response
+  // carries attemptsUsage totals, and a call that throws after attempts
+  // returned carries the same totals on err.details — so this is the ONE
+  // metering site (the old per-attempt adapter wrapper is gone; keeping both
+  // would double-count). Attempts that THREW without returning a usage object
+  // remain unmeterable (the provider-layer boundary).
   const m = meterFor(project);
   const pricing = await directorPricing(adapter, slot);
-  const metered = {
-    complete: async (req) => {
-      const res = await adapter.complete(req);
-      m.meter.add(res.usage ?? { inputTokens: 0, outputTokens: 0 }, pricing);
-      return res;
-    },
-  };
 
-  const res = await withTruncationRetry((budget) => completeWithRepair(metered, {
-    model: slot.model,
-    messages: finalMessages,
-    schema,
-    temperature,
-    maxTokens: budget,
-    ...(seed !== undefined ? { seed } : {}),
-  }), { maxTokens });
+  let res;
+  try {
+    res = await withTruncationRetry((budget) => completeWithRepair(adapter, {
+      model: slot.model,
+      messages: finalMessages,
+      schema,
+      temperature,
+      maxTokens: budget,
+      ...(seed !== undefined ? { seed } : {}),
+    }), { maxTokens });
+  } catch (err) {
+    const billed = err?.details?.attemptsUsage;
+    if (billed) m.meter.add(billed, pricing); // failed calls still billed their returned attempts
+    throw err;
+  }
 
+  m.meter.add(res.attemptsUsage ?? res.usage ?? { inputTokens: 0, outputTokens: 0 }, pricing);
   m.calls += 1; // one LOGICAL Director call, however many attempts it took
   return res;
 }

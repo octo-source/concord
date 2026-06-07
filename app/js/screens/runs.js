@@ -379,7 +379,7 @@ function renderDetail(mount, params) {
           el("span", { class: "overline" }, "escalations"), escChip,
           controlButtons()),
         el("p", { class: "faint monitor__costnote" },
-          "Cost meters worker calls only; Director second opinions and failed attempts are billed by the provider but not metered here."),
+          "Cost meters every worker attempt that returns a token count, including failed and repaired attempts; attempts that error before returning one are billed by the provider but not meterable. Director second opinions are excluded here and count toward the project budget."),
         liveRegion,
         el("div", { class: "monitor__cols" },
           el("div", { class: "monitor__distwrap" },

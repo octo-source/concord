@@ -290,11 +290,28 @@ async function buildContext(project, instrument, { seedOffset = null, concurrenc
       adapters.set(provider, entry);
     }
     const snapshot = j.payload.snapshot ?? j.payload.model ?? "unpinned";
+    const pricing = await pricingFor(entry.adapter, j.payload.model);
     ctx.jurorInfo.set(j.hash, {
       payload: seedOffset === null ? j.payload : { ...j.payload, params: { ...(j.payload.params ?? {}), seed: seedOffset } },
-      adapter: entry.adapter,
+      // Meter EVERY provider attempt at the adapter seam, not the final
+      // response at the callJuror site: schema-repair re-prompts and the
+      // doubled-budget truncation retry bill real tokens, and a unit that
+      // ultimately QUARANTINES (SCHEMA_INVALID after the repair budget) has
+      // billed every one of its attempts — its spend must reach run.cost.
+      // The seam is the only place the engine can see per-attempt usage:
+      // judgeUnit (instruments/judge.js) narrows the provider response to
+      // {label, ..., usage}, so the provider layer's attemptsUsage totals do
+      // not survive the success path. Attempts that THREW without returning
+      // a usage object are unmeterable (providers/base.js boundary).
+      adapter: {
+        complete: async (creq) => {
+          const cres = await entry.adapter.complete(creq);
+          ctx.m.add(cres.usage ?? { inputTokens: 0, outputTokens: 0 }, pricing);
+          return cres;
+        },
+      },
       pool: entry.pool,
-      pricing: await pricingFor(entry.adapter, j.payload.model),
+      pricing,
       // seed participates in the cache namespace: distinct seeds are distinct
       // measurements and must never alias each other's cached outputs.
       cacheSnapshot: seedOffset === null ? snapshot : `${snapshot}#seed:${seedOffset}`,
@@ -317,8 +334,10 @@ async function callJuror(ctx, jurorHash, unit) {
     out.repairs = cached.repairs ?? 0;
     return out;
   }
+  // No ctx.m.add here: the juror's adapter (buildContext) already metered
+  // every attempt as it returned — adding the final usage again would
+  // double-count it.
   const res = await info.pool.run(() => judgeUnit(info.adapter, ctx.construct, info.payload, unit));
-  ctx.m.add(res.usage, info.pricing);
   await cache.put(ctx.pdir, key, {
     label: res.label, confidence: res.confidence, rationale: res.rationale, repairs: res.repairs,
   });

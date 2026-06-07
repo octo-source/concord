@@ -342,6 +342,58 @@ function extractCandidate(res) {
 const textOf = (res) => (typeof res?.text === "string" ? res.text : res?.json !== undefined ? JSON.stringify(res.json) : "");
 
 // ---------------------------------------------------------------------------
+// Per-attempt usage accounting
+// ---------------------------------------------------------------------------
+
+// Every provider attempt bills, not just the winning one: schema-repair
+// re-prompts and the doubled-budget truncation retry each hit the provider
+// with the full conversation. completeWithRepair / withTruncationRetry
+// therefore return ADDITIVE totals beside the final response:
+//
+//   response.usage         — the FINAL attempt's usage (historical contract)
+//   response.attemptsUsage — {inputTokens, outputTokens, attempts} summed
+//                            over every attempt that RETURNED a response
+//
+// and stamp the same totals onto err.details.attemptsUsage when the overall
+// call throws after ≥1 attempt returned (so quarantined units' spend is still
+// meterable by the caller).
+//
+// Boundary (unmeterable by design): an attempt that THREW produced no usage
+// object — adapters raise TRUNCATED / PROVIDER_REFUSAL / PROVIDER_HTTP
+// without attaching token counts, and a network fault has none to attach.
+// Those attempts are provider-billed but invisible to Concord's meters;
+// `attempts` counts only the meterable (returned) ones.
+const newAttemptTotals = () => ({ inputTokens: 0, outputTokens: 0, attempts: 0 });
+
+const addAttempt = (totals, usage) => {
+  totals.inputTokens += usage?.inputTokens ?? 0;
+  totals.outputTokens += usage?.outputTokens ?? 0;
+  totals.attempts += 1;
+};
+
+// Merge two attempts totals; either side may be missing (a pass whose first
+// attempt threw stamped nothing).
+const mergeAttemptsUsage = (a, b) => {
+  if (!a) return b;
+  if (!b) return a;
+  return {
+    inputTokens: a.inputTokens + b.inputTokens,
+    outputTokens: a.outputTokens + b.outputTokens,
+    attempts: a.attempts + b.attempts,
+  };
+};
+
+// Stamp accumulated totals onto a throwing call's error so callers can meter
+// the returned-but-failed attempts. Mutates err.details in place (errors from
+// foreign code get a details object created for them).
+function stampAttemptsUsage(err, totals) {
+  if (!totals || totals.attempts === 0) return;
+  if (!err || typeof err !== "object") return;
+  if (!err.details || typeof err.details !== "object") err.details = {};
+  err.details.attemptsUsage = mergeAttemptsUsage(err.details.attemptsUsage, totals);
+}
+
+// ---------------------------------------------------------------------------
 // Truncation retry — shared by every structured caller (Director AND judges)
 // ---------------------------------------------------------------------------
 
@@ -357,24 +409,45 @@ const TRUNCATION_RETRY_CAP = 32768;
 // SAME budget is waste, but ONE retry at a doubled budget (clamped to `cap`)
 // usually lands. Anything beyond that propagates: the caller's budget (and
 // prompt) need rethinking, not more spend.
+// Usage accounting across the retry: the failed pass's returned attempts
+// (stamped on the TRUNCATED error by completeWithRepair) merge into the
+// second pass's attemptsUsage — on its response, or back onto its error.
+// The truncated attempt itself threw without a usage object: unmeterable
+// (see the per-attempt accounting boundary above).
 export async function withTruncationRetry(attempt, { maxTokens, cap = TRUNCATION_RETRY_CAP } = {}) {
   try {
     return await attempt(maxTokens);
   } catch (err) {
     const bigger = Math.min(maxTokens * 2, cap);
     if (err?.code !== "TRUNCATED" || bigger <= maxTokens) throw err;
-    return await attempt(bigger);
+    const prior = err?.details?.attemptsUsage;
+    let res;
+    try {
+      res = await attempt(bigger);
+    } catch (err2) {
+      stampAttemptsUsage(err2, prior);
+      throw err2;
+    }
+    const merged = mergeAttemptsUsage(prior, res?.attemptsUsage);
+    return merged && res && typeof res === "object" ? { ...res, attemptsUsage: merged } : res;
   }
 }
 
 // Structured-output enforcement shared by every adapter: validate, then up to
 // `maxRepairs` constrained re-prompts, then SCHEMA_INVALID (caller quarantines
 // the unit — never silently dropped).
+//
+// Usage accounting (see the per-attempt section above): every attempt that
+// returns accumulates into attemptsUsage — on the response when the call
+// lands, on the error's details when it throws (schema exhaustion, or an
+// adapter fault on a later attempt). response.usage stays the FINAL attempt's
+// usage so existing single-attempt consumers are untouched.
 export async function completeWithRepair(adapter, req, { maxRepairs = 2 } = {}) {
   if (!req.schema) return adapter.complete(req);
   let messages = req.messages;
   let last = null;
   let problems = [];
+  const totals = newAttemptTotals();
   for (let i = 0; i <= maxRepairs; i++) {
     if (i > 0) {
       messages = [
@@ -390,14 +463,25 @@ export async function completeWithRepair(adapter, req, { maxRepairs = 2 } = {}) 
         },
       ];
     }
-    const res = await adapter.complete({ ...req, messages });
+    let res;
+    try {
+      res = await adapter.complete({ ...req, messages });
+    } catch (err) {
+      // The throwing attempt returned no usage object (unmeterable boundary);
+      // the attempts that DID return still bill — hand their totals to the
+      // caller on the error.
+      stampAttemptsUsage(err, totals);
+      throw err;
+    }
+    addAttempt(totals, res.usage);
     const { value, found } = extractCandidate(res);
     problems = found ? validateSchema(value, req.schema) : ["response is not parseable JSON"];
-    if (problems.length === 0) return { ...res, json: value, repairs: i };
+    if (problems.length === 0) return { ...res, json: value, repairs: i, attemptsUsage: { ...totals } };
     last = res;
   }
   throw new ConcordError("SCHEMA_INVALID", `response failed schema validation after ${maxRepairs} repair attempt(s)`, {
     problems,
     lastText: textOf(last),
+    attemptsUsage: { ...totals }, // every attempt returned (and billed) — callers meter quarantined spend from this
   });
 }

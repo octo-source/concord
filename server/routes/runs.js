@@ -196,6 +196,23 @@ async function launchRun(params, { resume = false } = {}) {
   if (current && !current.terminal) {
     throw new ConcordError("VALIDATION", `run '${run.id}' is already executing`, { runId: run.id });
   }
+  // Budget re-check on resume: the START gate runs spent + estimate against
+  // the project cap, but a cap lowered (or spent against) while a run sat
+  // paused was never re-checked — resume could blow straight past it.
+  // Re-estimate the REMAINING units only (the engine's own pending-set:
+  // units without a final line under the run's pinned juror hash) and apply
+  // the SAME gate — same estimator, same checkBudget, same BUDGET_EXCEEDED
+  // shape the start path produces. Refusal happens BEFORE any status write,
+  // so a refused resume leaves the run exactly as it was.
+  const units = await readCorpusUnits(params.p, run.corpusId,
+    run.unitFilter ? { filter: engineMod.parseUnitFilter(run.unitFilter) } : {});
+  const fin = engineMod.finalJurorOfRun(run, instrument);
+  const doneIds = new Set(
+    (await readNdjson(runOutputsFile(params.p, run.id), { filter: (o) => o.juror === fin })).map((o) => o.unitId),
+  );
+  const remaining = units.filter((u) => !doneIds.has(u.id));
+  const est = await estimateInstrument(project, instrument, remaining);
+  checkBudget((project.budget?.spentUSD ?? 0) + est.estUSD, project.budget?.capUSD ?? null);
   await armDrift(project, instrument, run.id);
   const escalate = project.director ? makeEscalator(project, construct) : undefined;
   // Persist "running" BEFORE answering: the engine runs in the background and
