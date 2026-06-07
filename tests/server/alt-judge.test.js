@@ -213,9 +213,13 @@ test("stability without models: response is exactly {alpha, pass}; artifact carr
   assert.equal(events.find((e) => e.event === "done")?.data.status, "complete", "run completes");
 
   const r = await ok("POST", stabilityUrl(), { k: K, n: N, corpusId: S.corpusA });
-  assert.deepEqual(Object.keys(r).sort(), ["alpha", "pass"], "wave-1 response shape: {alpha, pass} and nothing else");
+  // the response grew the additive `level` field (the instrument's level
+  // AFTER the check — tests/server/stability-honesty.test.js pins it);
+  // otherwise the wave-1 shape stands
+  assert.deepEqual(Object.keys(r).sort(), ["alpha", "level", "pass"], "response shape: {alpha, level, pass} and nothing else");
   assert.equal(r.alpha, 1, "accuracy-1.0 oracle is perfectly stable");
   assert.equal(r.pass, true);
+  assert.equal(r.level, "exploratory", "a pass without silver evidence never promotes");
 
   const art = JSON.parse(await readFile(artifactFile(), "utf8"));
   assert.ok(!("alts" in art), "no models requested → no alts key in the artifact");
@@ -265,11 +269,12 @@ test("stability with two alternates: artifact alts label the same sampled units;
     }
   }
 
-  // the instrument's own stability summary stays wave-1 (no alt leakage)
+  // the instrument's own stability summary: wave-1 fields plus corpusId
+  // (the header chip links the right reliability matrix) — no alt leakage
   const p = await ok("GET", `/api/projects/${S.slug}`);
   const inst = p.instruments.find((i) => i.id === S.instId);
-  assert.deepEqual(Object.keys(inst.stability).sort(), ["alpha", "k", "n", "ranAt"],
-    "instrument.stability summary shape unchanged");
+  assert.deepEqual(Object.keys(inst.stability).sort(), ["alpha", "corpusId", "k", "n", "ranAt"],
+    "instrument.stability summary shape: wave-1 + corpusId, no alt leakage");
   assert.equal(inst.stability.alpha, 1);
 });
 
@@ -279,9 +284,10 @@ test("stability with two alternates: artifact alts label the same sampled units;
 // =========================================================================
 
 test("reliability: alt:<id>:<provider>/<model> sources with pinned labels and kind alt; alt×alt, alt×retest and alt×gold pairs", async () => {
-  // gold over exactly the sampled units: one coder labeling oracle-true makes
-  // every sampled unit a consensus gold label (the routes tests' queue+label
-  // recipe), so gold overlaps the alternates on all N units.
+  // gold over exactly the sampled units: TWO coders labeling oracle-true make
+  // every sampled unit a consensus gold label (the consensus rule requires
+  // ≥2 unanimous label votes — a single coder's vote is not gold), so gold
+  // overlaps the alternates on all N units.
   const lines = (await readFile(
     path.join(projectDir(S.slug), "corpora", S.corpusA, "units.ndjson"), "utf8",
   )).split(/\n/).filter(Boolean).map((l) => JSON.parse(l));
@@ -292,9 +298,11 @@ test("reliability: alt:<id>:<provider>/<model> sources with pinned labels and ki
   });
   for (const unitId of S.unitIds) {
     await ok("POST", `/api/projects/${S.slug}/goldsets/${gs.id}/queue`, { unitId });
-    await ok("POST", `/api/projects/${S.slug}/goldsets/${gs.id}/label`, {
-      coder: "coder-A", unitId, label: ORACLE(textById.get(unitId)),
-    });
+    for (const coder of ["coder-A", "coder-B"]) {
+      await ok("POST", `/api/projects/${S.slug}/goldsets/${gs.id}/label`, {
+        coder, unitId, label: ORACLE(textById.get(unitId)),
+      });
+    }
   }
 
   const rel = await ok("GET", `/api/projects/${S.slug}/reliability/${S.constructId}?corpusId=${S.corpusA}`);

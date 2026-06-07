@@ -291,6 +291,9 @@ export default [
     // Test–retest stability. The module ledgers instrument.stability itself;
     // the route persists the verdict onto the (unfrozen) instrument, writes
     // the per-rerun artifact (stabilityFile) and rolls up the rerun cost.
+    // Response: {alpha, pass, level, alts?} — level is the instrument's
+    // level AFTER the check (a pass promotes ◌ → ◑ only when silver evidence
+    // exists; frozen instruments report their unchanged level).
     //
     // Alternate judges: body.models = [{provider, model, snapshot?}, …] (≤4,
     // judge instruments only) — each labels the SAME sampled units ONCE with
@@ -312,7 +315,7 @@ export default [
       if (body.k !== undefined) opts.k = body.k;
       if (body.n !== undefined) opts.n = body.n;
       if (altModels) opts.alts = altModels;
-      const { alpha, pass, runs, alts } = await stabilityMod.stabilityCheck(project, instrument, units, opts);
+      const { alpha, pass, n: sampleN, runs, alts } = await stabilityMod.stabilityCheck(project, instrument, units, opts);
       await addSpend(params.p,
         runs.reduce((n, r) => n + (r.cost?.actualUSD ?? 0), 0)
         + (alts ?? []).reduce((n, a) => n + (a.cost?.actualUSD ?? 0), 0));
@@ -367,6 +370,9 @@ export default [
         instrumentId: instrument.id,
         constructId: instrument.constructId,
         corpusId,
+        // the compiled prompt this check actually ran — the reliability route
+        // compares it to the instrument's CURRENT hash and marks stale rows
+        versionHash: instrument.versionHash,
         k: runs.length,
         n: unitIds.length,
         alpha,
@@ -376,15 +382,21 @@ export default [
         createdAt: new Date().toISOString(),
       });
 
+      // The response carries the instrument's level AFTER the check, so the
+      // screen can state the truth: a pass promotes ◌ → ◑ only when silver
+      // evidence exists; frozen instruments skip persistence and keep their
+      // level unchanged.
+      let level = instrument.level;
       if (!instrument.frozen) {
         await updateProject(params.p, (p) => {
           const inst = (p.instruments ?? []).find((x) => x.id === params.i);
           if (!inst || inst.frozen) return;
-          inst.stability = { alpha, k: opts.k ?? 3, n: Math.min(opts.n ?? 100, 100, units.length), ranAt: new Date().toISOString() };
+          inst.stability = { alpha, k: opts.k ?? 3, n: sampleN, corpusId, ranAt: new Date().toISOString() };
           if (pass && inst.silver && inst.level === "exploratory") inst.level = "stabilized";
+          level = inst.level;
         });
       }
-      return { alpha, pass, ...(respAlts ? { alts: respAlts } : {}) };
+      return { alpha, pass, level, ...(respAlts ? { alts: respAlts } : {}) };
     },
   },
   {

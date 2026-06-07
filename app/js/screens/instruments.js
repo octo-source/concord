@@ -31,7 +31,7 @@ import * as modelpicker from "../components/modelpicker.js";
 import * as scopechip from "../components/scopechip.js";
 import { contextLine, corpusText } from "../components/contextline.js";
 import * as line from "../components/charts/line.js";
-import { fmt, fmtStat, fmtCost, fmtCount, fmtDateTime } from "../format.js";
+import { fmt, fmtStat, fmtCost, fmtCount, fmtDateTime, fmtPct } from "../format.js";
 import { screenHead, section, asyncMount, ensureProject, refreshProject, emptyState, openSheet, sheetBusy, buttonBusy, kv, kvList, markedValue, normalizeQuarantine } from "./_shared.js";
 
 export const route = "p/:slug/instruments";
@@ -336,7 +336,9 @@ function instrumentEditor(main, params, instRaw, constructs, catalog, project = 
       saveBtn.disabled = true;
       try {
         await api.instruments.update(params.slug, inst.id, inst);
-        toast.success("Instrument saved.", { detail: "edits reset its evidence level to ◌ — run Stability check or calibrate against gold to restore it" });
+        // an edit drops silver evidence too, and stability alone cannot
+        // promote without it — silver-tune reruns the stability check itself
+        toast.success("Instrument saved.", { detail: "edits reset its evidence level to ◌ — run Silver-tune (which reruns the stability check) or calibrate against gold to restore it" });
         dirty = false;
       } catch (err) {
         saveBtn.disabled = false;
@@ -365,7 +367,8 @@ function instrumentEditor(main, params, instRaw, constructs, catalog, project = 
         inst.stability
           ? el("a", {
               class: "chip data",
-              href: reliabilityHref,
+              // older summaries lack corpusId — fall back to the plain link
+              href: inst.stability.corpusId ? `${reliabilityHref}?corpusId=${encodeURIComponent(inst.stability.corpusId)}` : reliabilityHref,
               title: `Test–retest stability: k = ${inst.stability.k} reruns on ${inst.stability.n} units — open the construct's reliability matrix`,
             }, `stability α ${fmtStat(inst.stability.alpha)}`)
           : null,
@@ -706,7 +709,7 @@ function judgeEditor(main, params, inst, catalog, construct, touch) {
   }, payload.promptTemplate ?? "");
   const rawReveal = el("details", { class: "rawreveal" },
     el("summary", { class: "rawreveal__summary" }, "Edit raw template"),
-    el("p", { class: "screen__hint faint" }, "The compiled view is the contract; this is the escape hatch. Slots ", el("code", {}, "{{definition}} {{criteria}} {{examples}} {{unit}}"), " fill from the construct at run time."),
+    el("p", { class: "screen__hint faint" }, "The compiled view is the contract; this is the escape hatch. Slots ", el("code", {}, "{{definition}} {{criteria}} {{examples}}"), " fill from the construct, ", el("code", {}, "{{unit}}"), " from each unit, at call time."),
     rawArea);
 
   main.append(section("Compiled prompt",
@@ -934,6 +937,9 @@ function certificateCard(cert, { reliabilityHref = null } = {}) {
   );
 }
 
+/* it.agreement is PERCENT agreement vs the silver labels (silver.js records
+   it as the plateau scalar); the real Krippendorff α rides the same point as
+   it.alpha (null on degenerate distributions). Never stamp α on the percent. */
 function silverCurve(iterations) {
   const wrap = el("div", { class: "silvercurve" });
   line.render(wrap, [{
@@ -943,7 +949,7 @@ function silverCurve(iterations) {
   }], {
     caption: "Silver agreement by tuning iteration — Director labels, superseded by human gold",
     formatX: (x) => `it ${x}`,
-    formatY: (v) => fmtStat(v),
+    formatY: (v) => fmtPct(v, 0),
     dots: true,
     height: 150,
   });
@@ -951,7 +957,9 @@ function silverCurve(iterations) {
     ...iterations.map((it, i) =>
       el("li", { class: "iterlist__row" },
         el("span", { class: "data iterlist__n" }, `it ${i + 1}`),
-        el("span", { class: "data iterlist__a" }, `α ${fmtStat(it.agreement)}`),
+        el("span", { class: "data iterlist__a" },
+          `agreement ${fmtPct(it.agreement, 0)}`,
+          typeof it.alpha === "number" ? ` · α ${fmtStat(it.alpha)}` : ""),
         el("span", { class: "iterlist__note faint" }, it.note ?? "")))));
   return wrap;
 }
@@ -1029,31 +1037,36 @@ function actionRow(main, params, inst, { onPreviewed, previewScope = null, const
       const pts = [];
       let chart = null;
       api.instruments.silverTune(params.slug, inst.id, { corpusId: previewScope?.corpusId ?? undefined }, {
+        // it.agreement is PERCENT agreement vs silver; the real κ/α ride the
+        // same iteration point (it.kappa / it.alpha, null when degenerate)
         onIteration(it) {
           pts.push({ x: pts.length + 1, y: it.agreement });
           const prev = pts.length > 1 ? pts[pts.length - 2].y : null;
           list.append(el("li", { class: "itercard" },
             el("span", { class: "data itercard__n" }, `iteration ${pts.length}`),
             el("span", { class: "data itercard__a" },
-              `α ${fmtStat(it.agreement)}`,
-              prev !== null ? el("span", { class: `itercard__delta ${it.agreement >= prev ? "" : "itercard__delta--down"}` }, ` ${it.agreement >= prev ? "+" : "−"}${fmtStat(Math.abs(it.agreement - prev))}`) : null),
+              `agreement ${fmtPct(it.agreement, 0)}`,
+              typeof it.alpha === "number" ? ` · α ${fmtStat(it.alpha)}` : "",
+              prev !== null ? el("span", { class: `itercard__delta ${it.agreement >= prev ? "" : "itercard__delta--down"}` }, ` ${it.agreement >= prev ? "+" : "−"}${fmtPct(Math.abs(it.agreement - prev), 0)}`) : null),
             el("span", { class: "itercard__note" }, it.note ?? "")));
           if (!chart) {
             const cWrap = el("div", { class: "itercards__chart" });
             out.append(cWrap);
-            chart = line.render(cWrap, [{ label: "α", emphasis: true, points: [...pts] }],
-              { caption: "agreement curve", formatX: (x) => `it ${x}`, formatY: (v) => fmtStat(v), dots: true, height: 130 });
+            chart = line.render(cWrap, [{ label: "agreement", emphasis: true, points: [...pts] }],
+              { caption: "agreement curve", formatX: (x) => `it ${x}`, formatY: (v) => fmtPct(v, 0), dots: true, height: 130 });
           } else {
-            chart.update([{ label: "α", emphasis: true, points: [...pts] }]);
+            chart.update([{ label: "agreement", emphasis: true, points: [...pts] }]);
           }
         },
         onDone(final) {
           // live done payload: {instrumentId, level, versionHash, stability,
           // curve, cost, stoppedBy?}
           stop();
-          const last = final?.curve?.at?.(-1)?.agreement ?? pts[pts.length - 1]?.y;
+          const lastPt = final?.curve?.at?.(-1) ?? null;
+          const last = lastPt?.agreement ?? pts[pts.length - 1]?.y;
+          const lastAlpha = typeof lastPt?.alpha === "number" ? lastPt.alpha : null;
           out.append(el("p", { class: "screen__hint" },
-            `Plateaued at α = ${fmtStat(last)} on silver`,
+            `Plateaued at ${fmtPct(last, 0)} agreement on silver${lastAlpha !== null ? ` (α = ${fmtStat(lastAlpha)})` : ""}`,
             final?.stability?.alpha !== undefined ? ` · test–retest α = ${fmtStat(final.stability.alpha)}` : "",
             final?.level ? el("span", {}, " — ", ladderC.render({ level: final.level, size: "sm", label: true })) : null,
             " ", el("span", { class: "faint" }, "Human gold supersedes silver.")));
@@ -1070,17 +1083,28 @@ function actionRow(main, params, inst, { onPreviewed, previewScope = null, const
   /* Stability check: an inline panel (the screen's action-output idiom — no
      modal) that states what will run BEFORE it runs: the corpus it reads, k
      and n prefilled with the route's defaults, an optional list of up to 4
-     alternate judge models, and the live call count. With no alternates the
-     request equals today's exactly. */
+     alternate judge models (judge instruments only — the route refuses
+     alternates elsewhere), and the live call-count ceiling. With no
+     alternates the request equals today's exactly. */
   const stability = el("button", {
     class: "btn", type: "button",
     onclick: () => stabilityPanel(),
   }, "Stability check");
 
   function stabilityPanel() {
+    // alternate judges are judge-only (the route 400s otherwise: a dictionary
+    // has no model to swap; a panel's jurors are several models already)
+    const isJudge = inst.kind === "judge";
     const altModels = []; // {provider, model, snapshot}
     let k = STABILITY_DEFAULT_K;
     let n = STABILITY_DEFAULT_N;
+
+    // what the server will actually sample: min(n, 100, corpus units) —
+    // smaller corpora yield fewer calls than the requested n
+    const effectiveN = () => {
+      const count = previewScope?.corpus()?.unitCount;
+      return Number.isFinite(count) && count > 0 ? Math.min(n, 100, count) : Math.min(n, 100);
+    };
 
     const corpusLine = el("p", { class: "screen__hint faint" });
     const paintCorpus = () => {
@@ -1093,12 +1117,27 @@ function actionRow(main, params, inst, { onPreviewed, previewScope = null, const
           : null);
     };
     paintCorpus();
-    previewScope?.onChange(() => { if (corpusLine.isConnected) paintCorpus(); });
 
+    // "Up to": cache hits make rerun calls free; quarantine retries can add
+    // calls — the product N × passes is the ceiling, never a promise
     const callLine = el("p", { class: "screen__hint data", aria: { live: "polite" } });
     const paintCalls = () => {
-      callLine.textContent = `Will make ${n} × (${k} + ${altModels.length}) judge calls.`;
+      if (inst.kind === "dictionary") {
+        callLine.textContent = "No model calls — dictionary scoring is local.";
+        return;
+      }
+      if (inst.kind === "panel") {
+        const jurors = (inst.payload?.jurors ?? []).length;
+        callLine.textContent = `Up to ${effectiveN()} × ${k} × ${jurors} juror calls (cached reruns are free; retries can add calls).`;
+        return;
+      }
+      callLine.textContent = `Up to ${effectiveN()} × (${k} + ${altModels.length}) judge calls (cached reruns are free; retries can add calls).`;
     };
+    previewScope?.onChange(() => {
+      if (!corpusLine.isConnected) return;
+      paintCorpus();
+      paintCalls();
+    });
 
     const kInput = el("input", {
       class: "input input--num", type: "number", min: 2, max: 10, step: 1, value: k,
@@ -1131,7 +1170,7 @@ function actionRow(main, params, inst, { onPreviewed, previewScope = null, const
           }, "×")));
       });
       if (!altModels.length) {
-        chipRow.append(el("span", { class: "faint" }, "none — the check reruns this instrument's own model only"));
+        chipRow.append(el("span", { class: "faint" }, "none — the check reruns this instrument itself only"));
       }
     };
     const altPicker = modelpicker.render({
@@ -1157,17 +1196,25 @@ function actionRow(main, params, inst, { onPreviewed, previewScope = null, const
       onclick: async () => {
         const m = altModels.length;
         const stop = buttonBusy(runBtn, (sec) => `Checking stability · ${sec}s`);
-        status.textContent = `re-running k = ${k} on a ${n}-unit subsample${m ? ` · ${m} alternate judge${m === 1 ? "" : "s"} on the same sample` : ""}…`;
+        status.textContent = `re-running k = ${k} on up to ${effectiveN()} units${m ? ` · ${m} alternate judge${m === 1 ? "" : "s"} on the same sample` : ""}…`;
         try {
           const corpusId = previewScope?.corpusId ?? undefined;
-          // live response: {alpha, pass, alts?: [{provider, model, n} |
-          // {provider, model, error}]} — k/n persist onto instrument.stability
+          // live response: {alpha, pass, level, alts?: [{provider, model, n}
+          // | {provider, model, error}]} — level is the instrument's level
+          // AFTER the check; k/n persist onto instrument.stability
           const res = m
             ? await postStability(params.slug, inst.id, { k, n, corpusId, models: altModels.map((x) => ({ ...x })) })
             : await api.instruments.stability(params.slug, inst.id, { k, n, corpusId });
           stop();
-          paintStabilityResult(res);
-          if (res.pass) toast.success("Stability passed — instrument is ◑.", { detail: `α = ${fmtStat(res.alpha)}`, data: true });
+          paintStabilityResult(res, corpusId ?? null);
+          // the toast claims ◑ only when the response says the level IS
+          // stabilized — a pass without silver evidence stays ◌, and frozen
+          // instruments keep their level (older servers omit level → no claim)
+          if (res.pass && !inst.frozen && res.level === "stabilized") {
+            toast.success("Stability passed — instrument is ◑.", { detail: `α = ${fmtStat(res.alpha)}`, data: true });
+          } else if (res.pass) {
+            toast.success("Test–retest passed (α ≥ .80).", { detail: `α = ${fmtStat(res.alpha)}`, data: true });
+          }
           if ((res.alts ?? []).some((a) => a.error === undefined)) {
             toast.info("Alternate judges labeled the same sample — model-vs-model κ/α is in Reliability →");
           }
@@ -1186,28 +1233,49 @@ function actionRow(main, params, inst, { onPreviewed, previewScope = null, const
       el("div", { class: "controlrow" },
         el("label", { class: "controlrow__item" }, el("span", { class: "overline" }, "reruns k"), kInput),
         el("label", { class: "controlrow__item" }, el("span", { class: "overline" }, "units n"), nInput)),
-      el("div", { class: "field" },
-        el("span", { class: "field__label overline" }, `Also judge with (optional, up to ${STABILITY_MAX_ALTS})`),
-        altPicker.el,
-        chipRow,
-        el("p", { class: "field__hint" },
-          "Each alternate labels the same sampled units once with this instrument's compiled prompt — rows land in Reliability as alt-judge sources. α and pass stay this instrument's own reruns.")),
+      isJudge
+        ? el("div", { class: "field" },
+            el("span", { class: "field__label overline" }, `Also judge with (optional, up to ${STABILITY_MAX_ALTS})`),
+            altPicker.el,
+            chipRow,
+            el("p", { class: "field__hint" },
+              "Each alternate labels the same sampled units once with this instrument's compiled prompt — rows land in Reliability as alt-judge sources. α and pass stay this instrument's own reruns."))
+        : null,
       callLine,
       el("div", { class: "actionrow" }, runBtn),
       status,
     ));
-    paintChips();
+    if (isJudge) paintChips();
     paintCalls();
   }
 
-  function paintStabilityResult(res) {
+  /* The result states what is true of THIS instrument now: the response's
+     level decides the claim. Promoted → "Marked ◑"; passed without silver
+     evidence → the rule that promotes; frozen → no level claim at all. The
+     Reliability links pin the corpus the check ran on, so multi-corpus
+     projects land on the matrix that has the rows. */
+  function paintStabilityResult(res, checkCorpusId = null) {
+    const relHref = checkCorpusId
+      ? `${reliabilityHref}?corpusId=${encodeURIComponent(checkCorpusId)}`
+      : reliabilityHref;
+    const promoted = res.pass && !inst.frozen && res.level === "stabilized";
+    let verdict;
+    if (!res.pass) {
+      verdict = el("span", {}, "— below the .80 bar (Krippendorff's reliable threshold", cite("krippendorff2004"), "); the instrument changes its labels when rerun on the same units.");
+    } else if (promoted) {
+      verdict = el("span", {}, "— the instrument gives the same labels when rerun on the same units. ", el("strong", {}, "Marked ◑ stabilized."));
+    } else if (inst.frozen) {
+      verdict = el("span", {}, "— the instrument gives the same labels when rerun on the same units.");
+    } else {
+      verdict = el("span", {}, "— Test–retest passed (α ≥ .80). Silver-tune + a passing stability check together mark ◑.");
+    }
     clear(out).append(el("p", { class: "screen__hint" },
-      markedValue(`test–retest α = ${fmtStat(res.alpha)}`, res.pass ? "stabilized" : "exploratory"),
+      markedValue(`test–retest α = ${fmtStat(res.alpha)}`, res.level ?? null),
       " ",
-      res.pass
-        ? el("span", {}, "— the instrument gives the same labels when rerun on the same units. ", el("strong", {}, "Marked ◑ stabilized."))
-        : el("span", {}, "— below the .80 bar (Krippendorff's reliable threshold", cite("krippendorff2004"), "); the instrument changes its labels when rerun on the same units."),
-      " Rerun-vs-rerun rows are now in Reliability for this construct."));
+      verdict,
+      " Rerun-vs-rerun rows are now in ",
+      el("a", { href: relHref }, "Reliability"),
+      " for this construct."));
     for (const a of res.alts ?? []) {
       if (a.error !== undefined) {
         out.append(el("p", { class: "annotation annotation--signal" },
@@ -1218,7 +1286,7 @@ function actionRow(main, params, inst, { onPreviewed, previewScope = null, const
     if ((res.alts ?? []).some((a) => a.error === undefined)) {
       out.append(el("p", { class: "screen__hint" },
         "Alternate judges labeled the same sample — model-vs-model κ/α is in ",
-        el("a", { href: reliabilityHref }, "Reliability →")));
+        el("a", { href: relHref }, "Reliability →")));
     }
   }
 
@@ -1226,7 +1294,7 @@ function actionRow(main, params, inst, { onPreviewed, previewScope = null, const
     class: "btn", type: "button",
     onclick: async () => {
       const stop = buttonBusy(preview, (sec) => `Previewing · ${sec}s`);
-      clear(out).append(el("p", { class: "faint", role: "status" }, "previewing on 5 sample units (nothing persists)…"));
+      clear(out).append(el("p", { class: "faint", role: "status" }, "previewing on 5 sample units (no run record or outputs persist; spend is metered)…"));
       try {
         const corpus = previewScope?.corpus() ?? null;
         const units = await sampleUnits(params.slug, corpus, 5);

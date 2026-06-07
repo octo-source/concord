@@ -29,7 +29,9 @@
 // Sibling dependencies are INJECTED per the pinned interface — tests pass
 // doubles; production routes pass the real modules:
 //   engine.runEphemeral(project, instrument, units, opts) → {outputs, cost, quarantine}
-//   stability.stabilityCheck(project, instrument, units, {k, n}) → {alpha, pass, runs}
+//   stability.stabilityCheck(project, instrument, units, {k, n}) → {alpha,
+//     pass, runs, n?} (the real module returns the actual sample size n;
+//     doubles may omit it)
 import { ConcordError } from "../core/errors.js";
 import { createGoldSet, versionInstrument } from "../core/objects.js";
 import { updateProject, projectDir } from "../core/store.js";
@@ -255,8 +257,15 @@ export async function silverTune(project, instrument, units, opts = {}) {
   }
 
   // ---- (3) Stability on the final version; pass + ≥1 silver iteration → ◑
-  const { alpha: stabAlpha, pass } = await stability.stabilityCheck(project, instrument, units, { k: 3, n: 100 });
-  instrument.stability = { alpha: stabAlpha, k: 3, n: 100, ranAt: new Date().toISOString() };
+  const stabRes = await stability.stabilityCheck(project, instrument, units, { k: 3, n: 100 });
+  const { alpha: stabAlpha, pass } = stabRes;
+  // record the check's ACTUAL n (the module caps at min(100, units.length)
+  // and returns it); injected doubles without the field get the same cap
+  instrument.stability = {
+    alpha: stabAlpha, k: 3,
+    n: stabRes.n ?? Math.min(100, units.length),
+    ranAt: new Date().toISOString(),
+  };
   instrument.silver = { goldsetId: goldset.id, iterations: curve };
   if (pass && curve.length >= 1) instrument.level = "stabilized";
 

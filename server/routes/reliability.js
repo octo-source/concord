@@ -27,6 +27,10 @@
 //                        over the same sample with the instrument's compiled
 //                        prompt) — same corpus rule as retest rows; an
 //                        errored alternate becomes a functional note.
+// Staleness: when the artifact's versionHash differs from the instrument's
+// CURRENT versionHash (the instrument was edited after the check), retest and
+// alt labels gain " (earlier version)" and one note says to rerun the check;
+// artifacts without the field are treated as current (back-compat).
 //
 // Pairs: every source combination. Overlap n ≥ 10 → percent always, κ/α via
 // stats/agreement (through agreementReport, which passes the construct's
@@ -38,9 +42,10 @@
 // candidate run's outputs stream once; everything joins in memory.
 import {
   findOr404, loadProject, readGoldset, goldLabelMap, statValue,
-  agreementReport, readNdjson, runOutputsFile, finalJurorOf, readJsonFile,
+  agreementReport, readNdjson, runOutputsFile, readJsonFile,
 } from "./_shared.js";
 import { stabilityFile } from "./instruments.js";
+import { finalJurorOfRun } from "../runs/engine.js";
 
 const MIN_OVERLAP = 10;      // below this, pair statistics are withheld (null)
 const MIN_PARTIAL_RUN = 30;  // a non-complete run must cover ≥ this many units
@@ -50,8 +55,10 @@ const MIN_CODER_LABELS = 10; // a coder qualifies as a source at this many label
 // one usable final label) or partial covering ≥ MIN_PARTIAL_RUN units.
 // Returns {run, labels: Map(unitId → statValue(label))} or null.
 async function latestSourceRun(slug, instrument, runs) {
-  const fin = finalJurorOf(instrument);
   for (const run of runs) {
+    // keyed per run on the hash it RAN under — an unfrozen instrument edited
+    // after the run must not blank its reliability source
+    const fin = finalJurorOfRun(run, instrument);
     const outputs = await readNdjson(runOutputsFile(slug, run.id), {
       filter: (o) => o.juror === fin,
     }).catch(() => []);
@@ -143,7 +150,9 @@ export default [
           }
         }
         if (goldLabels.size > 0) {
-          sources.push({ key: "gold", label: "Adjudicated gold", kind: "gold", n: goldLabels.size, labels: goldLabels });
+          // gold = adjudicated, or ≥2 coders unanimous with no conflicting
+          // verdict (goldLabelMap is the single assembly point for that rule)
+          sources.push({ key: "gold", label: "Gold — adjudicated or ≥2 coders unanimous", kind: "gold", n: goldLabels.size, labels: goldLabels });
         }
         for (const [coderId, m] of [...coderLabels.entries()].sort((a, b) => (a[0] < b[0] ? -1 : 1))) {
           if (m.size < MIN_CODER_LABELS) continue;
@@ -161,6 +170,17 @@ export default [
             notes.push(`A stability check exists for ${inst.name ?? inst.id} on a different corpus. Run the stability check on this corpus to see rerun rows.`);
             continue;
           }
+          // The artifact records the versionHash its reruns actually ran
+          // (the compiled prompt at check time). When the instrument has been
+          // edited since, the rows still show — marked, with one note — so
+          // old reruns are never silently attributed to the current prompt.
+          // Artifacts predating the field are treated as current (no false
+          // alarms on old projects).
+          const stale = artifact.versionHash !== undefined && artifact.versionHash !== inst.versionHash;
+          const versionTag = stale ? " (earlier version)" : "";
+          if (stale) {
+            notes.push(`The stability check for ${inst.name ?? inst.id} ran on an earlier version of the instrument — rerun it to refresh.`);
+          }
           for (const rerun of artifact.reruns ?? []) {
             const labels = new Map();
             for (const [unitId, label] of Object.entries(rerun.labels ?? {})) {
@@ -168,7 +188,7 @@ export default [
             }
             sources.push({
               key: `retest:${inst.id}:${rerun.index}`,
-              label: `${inst.name ?? inst.id} — rerun ${rerun.index} of ${artifact.k}`,
+              label: `${inst.name ?? inst.id} — rerun ${rerun.index} of ${artifact.k}${versionTag}`,
               kind: "retest",
               n: labels.size,
               labels,
@@ -190,7 +210,7 @@ export default [
             }
             sources.push({
               key: `alt:${inst.id}:${alt.provider}/${alt.model}`,
-              label: `${inst.name ?? inst.id} — alt judge ${alt.model}`,
+              label: `${inst.name ?? inst.id} — alt judge ${alt.model}${versionTag}`,
               kind: "alt",
               n: labels.size,
               labels,

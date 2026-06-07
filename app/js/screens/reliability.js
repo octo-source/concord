@@ -66,7 +66,10 @@ export function retestSummaries(sources, pairs) {
     if (!info) {
       byInst.set(instId, (info = {
         instrumentId: instId,
-        name: String(s.label ?? "").replace(/\s*—\s*rerun \d+ of \d+$/, "") || instId,
+        // strip the per-rerun part; the server may suffix " (earlier
+        // version)" when the instrument was edited after the check — that
+        // marker stays on the summary name
+        name: String(s.label ?? "").replace(/\s*—\s*rerun \d+ of \d+(\s*\(earlier version\))?$/, "$1").trim() || instId,
         k: 0,
       }));
     }
@@ -101,11 +104,16 @@ export function render(mount, params, query = {}) {
     return { project, construct, data, dataError };
   }, ({ project, construct, data, dataError }) => {
     const constructName = construct?.name ?? params.cid;
-    // ordinal constructs report Krippendorff's α (order-aware); everything
-    // else reports Cohen's κ — the matrix says which it is showing
-    const ordinal = construct?.type === "ordinal";
-    const stat = ordinal ? "α" : "κ";
-    const statOf = (pair) => (ordinal ? pair.alpha ?? pair.kappa : pair.kappa ?? pair.alpha);
+    // The headline statistic follows the construct's measurement level:
+    // nominal/binary report Cohen's κ; ordinal, continuous, multilabel and
+    // extraction report Krippendorff's α at the type-correct level — the
+    // server's κ is unweighted nominal κ, which is the wrong headline for
+    // anything non-nominal. The matrix says which it is showing.
+    const ctype = construct?.type ?? null;
+    const ordinal = ctype === "ordinal";
+    const alphaHeadline = ordinal || ctype === "continuous" || ctype === "multilabel" || ctype === "extraction";
+    const stat = alphaHeadline ? "α" : "κ";
+    const statOf = (pair) => (alphaHeadline ? pair.alpha ?? pair.kappa : pair.kappa ?? pair.alpha);
 
     mount.append(screenHead({
       overline: "Reliability",
@@ -126,8 +134,10 @@ export function render(mount, params, query = {}) {
           construct?.type ? el("span", { class: "chip" }, construct.type) : null),
       },
       {
+        // the server resolves a default corpus when none is asked for — name
+        // what it resolved; only a corpus-less project has nothing to name
         label: "read over",
-        text: corpus ? corpusText(corpus, project) : (corpusId ?? "all corpora with readings"),
+        text: corpus ? corpusText(corpus, project) : (corpusId ?? "no corpus in this project"),
         faint: !corpus,
       },
     ]));
@@ -192,7 +202,7 @@ export function render(mount, params, query = {}) {
                 el("span", { class: "vsgold__sub data faint" }, `${fmtPct(pair.percent, 0)} raw · n = ${fmtCount(pair.n)}`));
             })),
           el("p", { class: "screen__hint faint" },
-            "Gold is the adjudicated human standard — agreement with it is validity, not just consistency.")));
+            "Gold is the human standard — a unit's gold label is adjudicated, or ≥2 coders unanimous with no conflicting verdict. Agreement with it is validity, not just consistency.")));
       }
     } else {
       /* ---- no gold yet: the one move that anchors everything ---- */
@@ -216,21 +226,33 @@ export function render(mount, params, query = {}) {
         el("p", { class: "screen__hint" },
           `Test–retest: mean rerun-vs-rerun α = ${fmtStat(r.meanAlpha)} across ${r.k} reruns of ${r.name}.`,
           cite("krippendorff2004")));
-      // alternate judges in the matrix: state what their agreement is — and
-      // what it is not — before anyone reads it as a license to switch models
+      // alternate judges in the matrix: state which rows are consistency and
+      // which are validity before anyone reads agreement as a license to
+      // switch models
       const altHint = sources.some((s) => s.kind === "alt")
         ? el("p", { class: "screen__hint" },
-            "Alternate judges ran the same compiled prompt on the same sample. Agreement here is model-vs-model consistency on this construct — not validity; calibrate against gold before trusting a model switch.")
+            "Alternate judges ran the same compiled prompt on the same sample. Rerun-vs-rerun and model-vs-model agreement is consistency; rows against gold are validity evidence. Calibrate against gold before trusting a model switch.")
         : null;
+      // one stability artifact per instrument: rerun/alt rows are the LATEST
+      // check's — say so beside their summary
+      const replacesLine = (retestLines.length || altHint)
+        ? el("p", { class: "screen__hint faint" }, "A newer stability check replaces these rows.")
+        : null;
+      const statLine = ordinal
+        ? "Krippendorff's α — this construct is ordinal, and α respects the category order"
+        : ctype === "continuous"
+          ? "interval-level Krippendorff's α — this construct is continuous, and α weighs disagreements by numeric distance"
+          : (ctype === "multilabel" || ctype === "extraction")
+            ? `Krippendorff's α — this construct is ${ctype}, and its set-valued labels compare as exact signatures`
+            : "Cohen's κ — chance-corrected agreement for nominal labels";
       mount.append(section("The agreement matrix",
         el("p", { class: "screen__hint" },
-          `Showing ${ordinal
-            ? "Krippendorff's α — this construct is ordinal, and α respects the category order"
-            : "Cohen's κ — chance-corrected agreement for nominal labels"}`,
-          cite(ordinal ? "krippendorff2004" : "cohen1960"),
+          `Showing ${statLine}`,
+          cite(alphaHeadline ? "krippendorff2004" : "cohen1960"),
           ". Raw agreement and n ride in each cell's subline."),
         ...retestLines,
         altHint,
+        replacesLine,
         el("div", { class: "relsplit" },
           el("div", { class: "relsplit__main" }, matrix),
           panel),
@@ -300,19 +322,26 @@ function buildMatrix({ params, sources, pairOf, stat, statOf, panel, goldsetForC
 
   function cell(a, b) {
     const pair = pairOf(a.key, b.key);
-    if (!pair) {
+    // "never read the same units" is reserved for a true zero overlap; the
+    // server lists every pair, shipping null statistics when overlap < 10
+    if (!pair || pair.n === 0) {
       return el("td", { class: "relmatrix__td" },
-        el("span", { class: "relcell relcell--empty faint", title: `${a.label} and ${b.label} have not read the same units yet` }, "—"));
+        el("span", { class: "relcell relcell--empty faint", title: `${a.label} and ${b.label} never read the same units` }, "—"));
     }
     const v = statOf(pair);
+    const withheld = pair.percent === null && pair.kappa === null && pair.alpha === null;
     const tint = Math.round(Math.max(0, Math.min(1, v ?? 0)) * 62);
     const goldPair = a.kind === "gold" || b.kind === "gold";
     const btn = el("button", {
       class: `relcell${goldPair ? " relcell--gold" : ""}`,
       type: "button",
       style: { "--tint": `${tint}%` },
-      title: `${a.label} × ${b.label} — κ ${fmtStat(pair.kappa)} · α ${fmtStat(pair.alpha)} · ${fmtPct(pair.percent, 0)} raw agreement · n = ${fmtCount(pair.n)}`,
-      aria: { label: `${a.label} and ${b.label}: ${stat} ${fmtStat(v)}, ${fmtPct(pair.percent, 0)} raw agreement over ${fmtCount(pair.n)} units — open the pair detail` },
+      title: withheld
+        ? `${a.label} × ${b.label} — ${fmtCount(pair.n)} jointly read unit${pair.n === 1 ? "" : "s"} (fewer than 10) — statistics withheld`
+        : `${a.label} × ${b.label} — κ ${fmtStat(pair.kappa)} · α ${fmtStat(pair.alpha)} · ${fmtPct(pair.percent, 0)} raw agreement · n = ${fmtCount(pair.n)}`,
+      aria: { label: withheld
+        ? `${a.label} and ${b.label}: ${fmtCount(pair.n)} jointly read units — fewer than 10, statistics withheld — open the pair detail`
+        : `${a.label} and ${b.label}: ${stat} ${fmtStat(v)}, ${fmtPct(pair.percent, 0)} raw agreement over ${fmtCount(pair.n)} units — open the pair detail` },
       onclick: () => paintPair(panel, params, { a, b, pair, stat, value: v, goldsetForConstruct }),
     },
       el("span", { class: "relcell__value data" }, fmtStat(v)),
@@ -324,7 +353,7 @@ function buildMatrix({ params, sources, pairOf, stat, statOf, panel, goldsetForC
     table,
     el("figcaption", { class: "relmatrix__caption faint" },
       el("span", { class: "overline" }, "sources × sources"),
-      ` ${stat} per pair · the gold row wears gold · — means the two never read the same units`));
+      ` ${stat} per pair · the gold row wears gold · — means fewer than 10 jointly read units — statistics withheld`));
 }
 
 /* ================= pair detail panel ================================================== */

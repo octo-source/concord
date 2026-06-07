@@ -85,9 +85,11 @@ function labeledCount(outputs) {
 }
 
 // stabilityCheck(project, instrument, units, {k=3, n=100, alts?})
-// → {alpha, pass, runs: [{seedOffset, outputs, cost, quarantine}],
+// → {alpha, pass, n, runs: [{seedOffset, outputs, cost, quarantine}],
 //    alts?: [{provider, model, outputs, cost, quarantine}
 //            | {provider, model, error}]}
+// n is the ACTUAL sample size (min(n, 100, units.length)) — callers that
+// record the check must record this, not the requested cap.
 export async function stabilityCheck(project, instrument, units, { k = 3, n = 100, dir, alts = null } = {}) {
   if (!Array.isArray(units) || units.length === 0) {
     throw new ConcordError("VALIDATION", "stabilityCheck requires a non-empty units array", {});
@@ -165,5 +167,5 @@ export async function stabilityCheck(project, instrument, units, { k = 3, n = 10
     } : {}),
   });
 
-  return { alpha, pass, runs, ...(altRuns ? { alts: altRuns } : {}) };
+  return { alpha, pass, n: sample.length, runs, ...(altRuns ? { alts: altRuns } : {}) };
 }
