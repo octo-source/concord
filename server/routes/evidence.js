@@ -62,6 +62,7 @@ export default [
             ...(o.rationale !== undefined ? { rationale: o.rationale } : {}),
             ...(o.escalated ? { escalated: true } : {}),
             ...(o.escalatedBy ? { escalatedBy: o.escalatedBy } : {}),
+            ...(o.repaired ? { repaired: true } : {}), // the inspector's 'repaired' chip reads this
             ...(o.flagged ? { flagged: true } : {}),
             ...(o.entropy !== undefined ? { entropy: o.entropy } : {}),
             ...(o.scores !== undefined ? { scores: o.scores } : {}),

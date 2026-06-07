@@ -9,9 +9,11 @@
 //   layoutBars(data, opts)        → pure geometry (probeable under node)
 //
 // data (simple):  [{ label, value, ci?: [lo,hi], level?, variant?: "solid"|
-//                    "hatch", evidence?: unitId|unitId[] }]
+//                    "hatch", evidence?: unitId|unitId[], evidenceTotal? }]
 // data (paired):  [{ label, corrected: {value, ci?}, naive: {value},
-//                    level?, evidence? }] with opts.paired = true
+//                    level?, evidence?, evidenceTotal? }] with opts.paired = true
+// evidenceTotal: the TRUE unit count behind the door — evidence id lists cap
+// at 100 server-side, and the inspector says "first 100 of N" when capped.
 
 import { svgEl } from "../../dom.js";
 import { linearScale, niceDomain, extent } from "./scale.js";
@@ -160,6 +162,9 @@ export function render(container, data, opts = {}) {
         ...(datum.evidence
           ? {
               "data-evidence": Array.isArray(datum.evidence) ? datum.evidence.join(",") : datum.evidence,
+              ...(datum.evidenceTotal !== undefined && datum.evidenceTotal !== null
+                ? { "data-evidence-total": String(datum.evidenceTotal) }
+                : {}),
               tabindex: "0",
               role: "button",
               "aria-label": `${row.label}: open evidence`,

@@ -128,17 +128,23 @@ function onDoor(e) {
   const ids = String(door.dataset.evidence).split(/[,\s]+/).filter(Boolean);
   if (ids.length === 0) return;
   lastTrigger = door;
-  if (ids.length === 1) openUnit(ids[0]);
-  else openList(ids);
+  // data-evidence-total: the TRUE unit count behind this door — evidence id
+  // lists cap at 100 server-side, so a bare ids.length can under-claim.
+  const total = Number(door.dataset.evidenceTotal);
+  if (ids.length === 1 && !(Number.isFinite(total) && total > 1)) openUnit(ids[0]);
+  else openList(ids, Number.isFinite(total) && total > ids.length ? total : null);
 }
 
-function openList(ids) {
+function openList(ids, total = null) {
   if (!host) init({});
   appRoot?.setAttribute("data-inspector", "open");
-  setTitle(`${ids.length} units`);
+  setTitle(total ? `${ids.length} of ${total} units` : `${ids.length} units`);
   clear(body).append(
     el("p", { class: "inspector__listnote" },
-      "This cell holds ", el("strong", {}, String(ids.length)), " units. Open one:"),
+      total
+        ? el("span", {}, "This cell holds ", el("strong", {}, String(total)),
+            " units; the first ", el("strong", {}, String(ids.length)), " are listed here. Open one:")
+        : el("span", {}, "This cell lists ", el("strong", {}, String(ids.length)), " units. Open one:")),
     el("ul", { class: "inspector__unitlist", role: "list" },
       ...ids.map((id) =>
         el("li", {},

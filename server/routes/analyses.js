@@ -17,9 +17,10 @@ import { ols, logit } from "../stats/models.js";
 import { cohenKappa } from "../stats/agreement.js";
 import {
   findOr404, requireBody, pdirOf, readCorpusUnits, readGoldset, goldLabelMap, piMap,
-  readFinalOutputs, writeJsonAtomic, readJsonFile, labelKey, statValue, round6,
+  writeJsonAtomic, readJsonFile, labelKey, statValue, round6,
   readNdjson, runOutputsFile,
 } from "./_shared.js";
+import { finalJurorOfRun } from "../runs/engine.js";
 import path from "node:path";
 
 const EVIDENCE_CAP = 100; // unit ids per evidence cell
@@ -40,8 +41,12 @@ function pickRun(project, { runId, instrumentId, corpusId }) {
 }
 
 // Join final outputs with corpus units → rows {unitId, label, meta, text}.
+// Final verdicts key on the hash the run RAN under (run.versionHash, via
+// finalJurorOfRun) — an unfrozen instrument edited after the run would
+// otherwise leave every analysis empty ("no labeled outputs").
 async function assembleRows(project, run, instrument) {
-  const outputs = await readFinalOutputs(project.slug, run, instrument);
+  const fin = finalJurorOfRun(run, instrument);
+  const outputs = await readNdjson(runOutputsFile(project.slug, run.id), { filter: (o) => o.juror === fin });
   const byUnit = new Map(outputs.filter((o) => o.label !== undefined).map((o) => [o.unitId, o]));
   const units = await readCorpusUnits(project.slug, run.corpusId, { filter: (u) => byUnit.has(u.id) });
   return units.map((u) => ({
@@ -231,8 +236,12 @@ function computeDescriptive(rows, gold, spec, construct) {
     cellPush(cells, k, r.unitId);
   }
   const n = rows.length;
+  // Every distribution entry is a RAW machine-label proportion and carries
+  // that provenance explicitly (corrected: false): when DSL cells ride beside
+  // it in a "corrected" analysis, the client must never stamp the corrected ◉
+  // on these shares — only results.cells holds corrected numbers.
   const distribution = Object.fromEntries(
-    Object.entries(counts).sort((a, b) => b[1] - a[1]).map(([k, c]) => [k, { n: c, share: round6(c / n) }]),
+    Object.entries(counts).sort((a, b) => b[1] - a[1]).map(([k, c]) => [k, { n: c, share: round6(c / n), corrected: false }]),
   );
   const results = { n, distribution };
   if (gold) {
@@ -429,6 +438,9 @@ async function computeTriangulation(project, spec) {
       n: shared.length,
       percentAgreement: round6(agree / shared.length),
       kappa,
+      // the TRUE divergent count: results.divergent is sliced to 200 and the
+      // evidence cell caps at 100 ids, so the honest total must ride here
+      divergentN: divergent.length,
       divergent: divergent.slice(0, 200),
       pairs,
     },
@@ -622,8 +634,20 @@ export default [
         if (rows.length === 0) {
           throw new ConcordError("VALIDATION", `run '${run.id}' has no labeled outputs to analyze`, { runId: run.id });
         }
-        const gold = await goldFor(project, instrument.constructId);
-        if (gold) spec.goldsetId = gold.goldset.id;
+        let gold = await goldFor(project, instrument.constructId);
+        let goldDesignNote = null;
+        if (gold) {
+          spec.goldsetId = gold.goldset.id;
+          // Uncertainty-ranked gold carries NOMINAL π — not an inclusion
+          // probability. Feeding it to the π-weighted DSL estimators would
+          // mint a "corrected" number whose design assumption is false, so
+          // it never licenses correction (it still serves the agreement
+          // reading in the subgroup audit, which needs no π).
+          if (gold.goldset.design === "uncertainty") {
+            goldDesignNote = "Gold drawn by uncertainty ranking: π is nominal, so design-based correction does not apply.";
+            gold = null;
+          }
+        }
 
         if (kind === "descriptive") {
           computed = computeDescriptive(rows, gold, spec, construct);
@@ -648,6 +672,9 @@ export default [
 
         // the DSL auto-selection rule: corrected only when a correction was
         // actually estimated; otherwise the instrument's level carries over
+        // (an uncertainty-design gold set never reaches the estimators, so
+        // its analyses cap below corrected and carry the note saying why)
+        if (goldDesignNote) computed.results.note = goldDesignNote;
         const dslApplied = computed.dslApplied ?? /^dsl/.test(String(computed.results?.estimator ?? ""));
         level = dslApplied ? "corrected" : instrument.level;
       }

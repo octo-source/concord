@@ -34,7 +34,22 @@
 //   a non-null replacement overwrites label/confidence/rationale on the
 //   written line — still marked escalated: true, still keyed by the WORKER's
 //   juror hash (resume semantics) — and its escalatedBy marker (escalate.js
-//   sets "director") is copied through as structural provenance.
+//   sets "director") is copied through as structural provenance. A null
+//   return means the Director reviewed and CONCURRED (escalate.js contract):
+//   the engine stamps escalatedBy: "director-concurred" so a confirmed
+//   verdict is distinguishable from never-reviewed (no escalator configured
+//   leaves escalatedBy unset entirely).
+//
+// Escalation failure taxonomy (the second opinion itself failing must never
+// reject the worker pool — a mid-flight rejection used to strand the run
+// record at "running" while surviving workers kept dispatching paid calls):
+//   PROVIDER_UNREACHABLE / PROVIDER_HTTP / RATE_LIMITED_EXHAUSTED → the RUN
+//     pauses as resumable (the unit's final line is not appended, so resume
+//     re-runs it off the cached worker verdicts and re-attempts only the
+//     second opinion).
+//   Anything else (REFUSAL/SCHEMA_INVALID/TRUNCATED, deterministic) → the
+//     worker verdict stands, the line stays flagged by the predicate, an
+//     escalation-failed warning lands in live telemetry, the run continues.
 //
 // Dictionary instruments run through the SAME outputs path at $0: units are
 // scored locally via dictionary.score (no adapter, no pool, no cache misses
@@ -64,6 +79,12 @@ const CHECKPOINT_EVERY = 25;
 const DEFAULT_CONCURRENCY = 4;
 const QUARANTINE_CODES = new Set(["SCHEMA_INVALID", "PROVIDER_REFUSAL", "TRUNCATED"]);
 const PAUSE_CODES = new Set(["PROVIDER_UNREACHABLE", "RATE_LIMITED_EXHAUSTED"]);
+// Director second-opinion faults that pause the RUN (resumable). Director
+// calls are unpooled, so a single 429/5xx surfaces as PROVIDER_HTTP here —
+// infrastructure-class, worth pausing for. Deterministic Director faults
+// (refusal, schema, truncation) skip the second opinion instead: see the
+// escalation failure taxonomy in the header.
+const DIRECTOR_PAUSE_CODES = new Set(["PROVIDER_UNREACHABLE", "PROVIDER_HTTP", "RATE_LIMITED_EXHAUSTED"]);
 
 // Quarantine entries carry their reasons: {unitId, code, message} (message
 // trimmed to ≤200 chars). A researcher staring at an empty preview or a
@@ -131,6 +152,20 @@ function jurorsOf(instrument) {
   throw new ConcordError("VALIDATION", `instrument kind "${instrument.kind}" is not runnable by the engine`, {
     kind: instrument.kind, instrumentId: instrument.id,
   });
+}
+
+// The juror key a RUN's final verdict lines carry. Non-panel lines are
+// stamped with the hash the run STARTED under (run.versionHash): an unfrozen
+// instrument's versionHash mutates on every edit and silver-tune, which would
+// otherwise orphan a finished run's outputs — blank exports, empty analyses,
+// and a resume that re-bills every unit because neither the done-set nor the
+// cache keys match anymore. Panels key their final on the constant
+// "aggregate" line (per-juror lines keep per-juror payload hashes), so they
+// are untouched. Route modules that read a run's final outputs call THIS,
+// never _shared.finalJurorOf(instrument), which keys the current hash.
+export function finalJurorOfRun(run, instrument) {
+  if (instrument.kind === "panel") return "aggregate";
+  return run?.versionHash ?? instrument.versionHash;
 }
 
 // unitFilter v1: "meta.<key>=<value>" (string compare on String(meta[key])).
@@ -302,8 +337,10 @@ async function processUnit(ctx, unit, have = new Map()) {
   if (instrument.kind === "dictionary") {
     const scores = dictScore([unit.text], instrument.payload)[0];
     const label = dictionaryLabel(ctx.construct.type, instrument.payload, scores, binaryOptionsOf(ctx.construct));
-    // the dictionary line IS the final line — the caller appends it once
-    const final = { unitId: unit.id, juror: instrument.versionHash, label, scores };
+    // the dictionary line IS the final line — the caller appends it once.
+    // Persisted runs stamp the hash the run STARTED under (ctx.finalJurorHash,
+    // see finalJurorOfRun); ephemeral callers keep the current hash.
+    const final = { unitId: unit.id, juror: ctx.finalJurorHash ?? instrument.versionHash, label, scores };
     return { newLines: [], final, quarantined: false };
   }
 
@@ -376,6 +413,12 @@ async function maybeEscalate(ctx, unit, final, { escalate, p99 }) {
       // key on it) but carries the escalator's escalatedBy marker so a
       // Director override is structurally distinguishable downstream.
       if (replacement.escalatedBy !== undefined) final.escalatedBy = replacement.escalatedBy;
+    } else {
+      // The escalator contract (director/escalate.js) returns null when the
+      // Director reviewed the unit and CONCURRED with the worker. Stamp that
+      // provenance: a confirmed verdict must be distinguishable from a unit
+      // nobody reviewed (no escalator configured leaves escalatedBy unset).
+      final.escalatedBy = "director-concurred";
     }
   }
   return true;
@@ -515,6 +558,24 @@ async function executeRunInner(project, run, opts) {
   const pdir = ctx.pdir;
   const outputsFile = path.join(pdir, "runs", run.id, "outputs.ndjson");
 
+  // Pin the run to the version it STARTED under (see finalJurorOfRun): the
+  // done-set, the cache keys and every new line key on run.versionHash, so an
+  // instrument edit between sessions can neither blank a complete run's
+  // outputs nor force a resume to re-bill finished units. Panels are
+  // untouched: their finals key the constant "aggregate" line and per-juror
+  // lines keep per-juror payload hashes.
+  if (instrument.kind !== "panel") {
+    const pinnedHash = run.versionHash ?? instrument.versionHash;
+    ctx.finalJurorHash = pinnedHash;
+    if (instrument.kind === "judge" && ctx.jurors[0]?.hash !== pinnedHash) {
+      const j = ctx.jurors[0];
+      const info = ctx.jurorInfo.get(j.hash);
+      ctx.jurorInfo.delete(j.hash);
+      ctx.jurorInfo.set(pinnedHash, info);
+      ctx.jurors = [{ ...j, hash: pinnedHash }];
+    }
+  }
+
   const units = await loadUnits(pdir, run.corpusId, run.unitFilter);
   const p99 = p99Length(units);
   const capUSD = opts.capUSD ?? run.capUSD ?? null;
@@ -527,7 +588,7 @@ async function executeRunInner(project, run, opts) {
     if (!m) byUnit.set(line.unitId, (m = new Map()));
     m.set(line.juror, line);
   }
-  const finalJuror = instrument.kind === "panel" ? "aggregate" : instrument.versionHash;
+  const finalJuror = finalJurorOfRun(run, instrument);
   const isDone = (u) => byUnit.get(u.id)?.has(finalJuror) ?? false;
   const pending = units.filter((u) => !isDone(u));
   let done = units.length - pending.length;
@@ -569,9 +630,18 @@ async function executeRunInner(project, run, opts) {
     monitor.addCost(run.id, run.cost.actualUSD - (monitor.runState(run.id)?.costUSD ?? 0));
   };
 
+  // labelDist persists onto the run record at every checkpoint write and at
+  // completion: the monitor already aggregates it (replayed from disk on
+  // resume), and downstream planners (calibration's planning-pe) read
+  // run.labelDist — a monitor-only distribution vanished with the process.
+  const syncLabelDist = () => {
+    run.labelDist = monitor.runState(run.id)?.labelDist ?? run.labelDist ?? {};
+  };
+
   const checkpoint = async () => {
     run.checkpoint = { done, total: units.length };
     run.quarantine = [...quarantine.values()];
+    syncLabelDist();
     syncCost();
     await persistRun(slug, run, dir);
   };
@@ -607,6 +677,7 @@ async function executeRunInner(project, run, opts) {
     if (result.quarantined) {
       quarantine.set(unit.id, quarantineEntry(unit.id, result.error));
       done += 1; // quarantined units count as handled for progress purposes
+      monitor.recordQuarantine(run.id); // …and the LIVE bar must reach total too
       monitor.warn(run.id, {
         kind: "quarantine",
         message: `unit ${unit.id} quarantined: ${result.error?.code}`,
@@ -615,7 +686,30 @@ async function executeRunInner(project, run, opts) {
       });
     } else {
       const final = result.final;
-      const escalated = await maybeEscalate(ctx, unit, final, { escalate: opts.escalate, p99 });
+      let escalated = false;
+      try {
+        escalated = await maybeEscalate(ctx, unit, final, { escalate: opts.escalate, p99 });
+      } catch (err) {
+        // The Director's second opinion failed — classify INSIDE the per-unit
+        // taxonomy so the worker pool never rejects (see the header contract).
+        if (DIRECTOR_PAUSE_CODES.has(err?.code)) {
+          // infrastructure fault → the RUN pauses, resumable: this unit's
+          // final line is not appended, so resume re-runs it off the cached
+          // worker verdicts and re-attempts only the second opinion
+          stop.reason = "paused";
+          stop.error = err;
+          return false;
+        }
+        // deterministic fault → the worker verdict stands; the line stays
+        // flagged by the predicate, and the failure is visible in telemetry
+        escalated = final.escalated === true;
+        monitor.warn(run.id, {
+          kind: "escalation-failed",
+          message: `unit ${unit.id}: Director second opinion failed (${err?.code ?? "ERROR"}) — the worker verdict stands`,
+          unitId: unit.id,
+          code: err?.code ?? null,
+        });
+      }
       if (escalated) run.escalation.count += 1;
       await appendNdjson(outputsFile, cleanLine(final));
       done += 1;
@@ -636,6 +730,7 @@ async function executeRunInner(project, run, opts) {
   syncCost();
   run.checkpoint = { done, total: units.length };
   run.quarantine = [...quarantine.values()];
+  syncLabelDist();
   if (stop.reason === "failed") {
     run.status = "failed";
     run.error = { code: stop.error?.code ?? "UNKNOWN", message: stop.error?.message ?? String(stop.error) };

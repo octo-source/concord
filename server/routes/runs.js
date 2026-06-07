@@ -21,7 +21,7 @@ import { directorCosts } from "../director/director.js";
 import { entropy as panelEntropy } from "../instruments/panel.js";
 import {
   findOr404, requireBody, pdirOf, readCorpusUnits, unitsById, readGoldset,
-  goldLabelMap, addSpend, readNdjson, runOutputsFile, finalJurorOf, round6, labelKey,
+  goldLabelMap, addSpend, readNdjson, runOutputsFile, round6, labelKey,
   writeJsonAtomic, corpusDisplayName, validateName,
 } from "./_shared.js";
 // the replication archive's CSV writer is the single home for RFC-4180
@@ -147,6 +147,19 @@ function startExecution(slug, runId, { escalate } = {}) {
       outcome = { status: run.status };
     } catch (err) {
       outcome = { status: "failed", error: { code: err?.code ?? "INTERNAL", message: err?.message ?? String(err) } };
+      // Backstop: the engine persists its own terminal statuses, but a throw
+      // BEFORE that persistence (validation/config faults in setup) would
+      // strand the disk record at "running" — Pause/Abort would 400 and the
+      // monitor would replay failed-vs-running forever. Settle the disk.
+      try {
+        await updateProject(slug, (p) => {
+          const r = (p.runs ?? []).find((x) => x.id === runId);
+          if (r && r.status === "running") {
+            r.status = "failed";
+            r.error = outcome.error;
+          }
+        });
+      } catch { /* best-effort — the registry outcome still reports failed */ }
     }
 
     // cost roll-up: this execution's run-cost delta plus any Director
@@ -303,7 +316,9 @@ export default [
         done: r.checkpoint?.done ?? 0,
         total: r.checkpoint?.total ?? 0,
         costUSD: r.cost?.actualUSD ?? 0,
-        labelDist: {},
+        // the engine persists labelDist at checkpoints and completion — a
+        // cold tick reports the stored distribution, not an empty one
+        labelDist: r.labelDist ?? {},
         warnings: [],
         escalations: r.escalation?.count ?? 0,
       });
@@ -452,8 +467,11 @@ export default [
       const units = await readCorpusUnits(params.p, run.corpusId,
         run.unitFilter ? { filter: engineMod.parseUnitFilter(run.unitFilter) } : {});
 
-      // one final verdict per unit: the judge line, or the aggregate line for panels
-      const fin = finalJurorOf(instrument);
+      // One final verdict per unit: the judge line, or the aggregate line for
+      // panels — keyed on the hash the run RAN under (run.versionHash), never
+      // the instrument's current hash: an unfrozen instrument edited after the
+      // run would otherwise export every label blank.
+      const fin = engineMod.finalJurorOfRun(run, instrument);
       const outputs = await readNdjson(runOutputsFile(params.p, params.r), { filter: (o) => o.juror === fin });
       const finals = new Map(outputs.map((o) => [o.unitId, o]));
       const quarantined = new Map(engineMod.normalizeQuarantine(run.quarantine).map((q) => [q.unitId, q.code ?? ""]));

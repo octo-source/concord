@@ -91,7 +91,7 @@ export function render(mount, params, query = {}) {
     mount.append(screenHead({
       overline: "Workbench",
       title: "Analyze what the runs measured.",
-      lede: "Pick an analysis kind on the left, choose variables, and run it over a measured corpus. Where a gold sample exists, estimates arrive bias-corrected (◉) with the naive number hatched beside them. Every analysis reads the labeled outputs of one run.",
+      lede: "Pick an analysis kind on the left, choose variables, and run it over a measured corpus. Where a complete human gold sample with recorded π exists, estimates arrive bias-corrected (◉) with the naive number hatched beside them. Every analysis reads the labeled outputs of one run.",
     }));
 
     const split = el("div", { class: "split split--workbench" });
@@ -128,7 +128,7 @@ export function render(mount, params, query = {}) {
     } else if (analysis) {
       canvas.append(emptyState({
         title: `${analysis.kind} analysis · ${analysis.id}`,
-        body: "Its computed artifact is no longer on disk — recompute it from the builder to read the numbers (cached calls keep it cheap).",
+        body: "Its computed artifact is no longer on disk — recompute it from the builder to read the numbers. Recompute re-reads the stored outputs — no model calls.",
         hint: `level: ${analysis.level}`,
       }));
     } else if (!params.id) {
@@ -257,6 +257,8 @@ function builderRail(rail, canvas, params, project, presetRunId = null, { column
     clear(variableHost);
     if (kind === "triangulation") {
       variableHost.append(
+        el("p", { class: "screen__hint faint" },
+          "Triangulation ignores the run picker above — it reads each instrument's latest complete run on the corpus."),
         varField("instrument A", instASel),
         varField("instrument B", instBSel));
     } else if (kind === "subgroup") {
@@ -370,20 +372,28 @@ function renderResult(canvas, params, analysis, project = null) {
       onclick: () => addToReport(params, analysis),
     }, "Add to report →")));
 
-  /* -- scope: which corpus/column/rows these numbers were computed over -- */
+  /* -- scope: which corpus/column/rows these numbers were computed over.
+     No corpus in the spec (triangulation reads per-instrument runs) → NO
+     chip: a guessed corpora[0] would claim a scope nothing computed over. -- */
   const scopeCorpusId = analysis.spec?.corpusId
     ?? (project?.runs ?? []).find((r) => r.id === analysis.spec?.runId)?.corpusId
     ?? null;
-  const corpusEntry = (project?.corpora ?? []).find((c) => c.id === scopeCorpusId)
-    ?? project?.corpora?.[0] ?? null;
+  const corpusEntry = (project?.corpora ?? []).find((c) => c.id === scopeCorpusId) ?? null;
   const scope = scopechip.fromCorpus(corpusEntry, project);
   if (scope) canvas.append(el("div", { class: "scopebar" }, scopechip.render(scope)));
+
+  /* -- server-side honesty notes (e.g. uncertainty-design gold: π nominal,
+     no design-based correction) render before any number -- */
+  if (typeof analysis.results?.note === "string" && analysis.results.note) {
+    canvas.append(el("p", { class: "annotation annotation--still" },
+      el("span", { class: "chip chip--signal" }, "note"), " ", analysis.results.note));
+  }
 
   if (analysis.kind === "crosstab") crosstabResult(canvas, analysis);
   else if (analysis.kind === "model") modelResult(canvas, analysis);
   else if (analysis.kind === "triangulation") triangulationResult(canvas, params, analysis);
   else if (analysis.kind === "subgroup") subgroupResult(canvas, analysis);
-  else descriptiveResult(canvas, analysis);
+  else descriptiveResult(canvas, analysis, project);
 }
 
 const cellsOf = (analysis) => analysis.evidence?.cells ?? {};
@@ -392,27 +402,37 @@ const doorIds = (analysis, key) => {
   return ids?.length ? ids : null;
 };
 
-/* -- descriptive: {n, distribution: {label: {n, share}}} -- */
-function descriptiveResult(canvas, analysis) {
+/* -- descriptive: {n, distribution: {label: {n, share, corrected: false}}}.
+   The distribution is the RAW machine-label proportion (the server stamps
+   corrected: false on every entry) — it must NEVER wear the analysis's
+   corrected ◉: only results.cells holds DSL-corrected numbers, and they
+   render in the Correction Reveal below. Raw bars wear the instrument's own
+   level instead (or no mark when it cannot be resolved). -- */
+function descriptiveResult(canvas, analysis, project = null) {
   const r = analysis.results ?? {};
   const entries = Object.entries(r.distribution ?? {});
   if (!entries.length) {
     canvas.append(emptyState({ title: "Nothing to describe.", body: "Run an instrument first." }));
     return;
   }
+  const hasCorrected = Boolean(r.cells?.length && r.estimator);
+  const instrument = (project?.instruments ?? []).find((i) => i.id === analysis.spec?.instrumentId) ?? null;
+  const rawLevel = analysis.level === "corrected" ? (instrument?.level ?? null) : analysis.level;
   const cell = el("div", {});
   bar.render(cell, entries.map(([label, d]) => ({
     label,
     value: d.share,
-    level: analysis.level,
+    level: rawLevel,
     evidence: doorIds(analysis, label) ?? undefined,
+    evidenceTotal: d.n,
   })), {
-    caption: `Label distribution over ${fmtCount(r.n)} units — every bar opens its units`,
+    caption: `Raw machine-label shares over ${fmtCount(r.n)} units — every bar opens its units`
+      + (hasCorrected ? "; the corrected estimates are in the Correction Reveal below" : ""),
     format: (v) => fmtStat(v),
-    level: analysis.level,
+    level: rawLevel,
     domain: [0, 1],
   });
-  canvas.append(section("Distribution", cell));
+  canvas.append(section(hasCorrected ? "Distribution — raw machine labels" : "Distribution", cell));
   correctedCellsBlock(canvas, analysis); // descriptive can carry corrected cells too
 }
 
@@ -440,7 +460,9 @@ function crosstabResult(canvas, analysis) {
                 const text = fmtCount(t.matrix[i][j]);
                 return el("td", { class: "table__num data" },
                   ids
-                    ? el("button", { class: "evidence-door table__doorbtn", type: "button", dataset: { evidence: ids.join(",") } }, text)
+                    // evidenceTotal: the TRUE cell count — evidence ids cap at
+                    // 100, and the inspector says "first 100 of N" when capped
+                    ? el("button", { class: "evidence-door table__doorbtn", type: "button", dataset: { evidence: ids.join(","), evidenceTotal: String(t.matrix[i][j]) } }, text)
                     : text);
               }),
               el("td", { class: "table__num data" }, fmtCount(t.rowTotals?.[i])))),
@@ -456,6 +478,16 @@ function crosstabResult(canvas, analysis) {
       ...(r.warnings ?? []).map((w) =>
         el("p", { class: "annotation annotation--still" },
           el("span", { class: "chip chip--signal" }, w.kind ?? "note"), " ", w.message ?? String(w)))));
+  }
+
+  // In a corrected analysis the contingency table and its χ²/df/p are STILL
+  // computed on raw machine labels — only results.cells carries DSL-corrected
+  // numbers. The per-analysis ◉ badge sits above, so this section must say
+  // which numbers it covers.
+  if (level === "corrected" && r.cells?.length) {
+    canvas.append(el("p", { class: "annotation annotation--still" },
+      "The table and χ² above are computed on ", el("strong", {}, "raw machine labels"),
+      "; the corrected shares (◉) are in the Correction Reveal below."));
   }
 
   correctedCellsBlock(canvas, analysis);
@@ -583,9 +615,13 @@ function triangulationResult(canvas, params, analysis) {
   }
 
   const divergent = r.divergent ?? [];
+  const divergentN = r.divergentN ?? divergent.length; // the TRUE count (the list is capped server-side)
   const browser = el("div", { class: "divbrowser" });
   if (!divergent.length) {
     browser.append(el("p", { class: "faint" }, "No divergent units — the instruments read alike here."));
+  } else if (divergentN > 25) {
+    browser.append(el("p", { class: "screen__hint faint" },
+      `Showing the first 25 of ${fmtCount(divergentN)} divergent units.`));
   }
   for (const d of divergent.slice(0, 25)) {
     const row = el("div", { class: "divrow" },
@@ -600,7 +636,7 @@ function triangulationResult(canvas, params, analysis) {
       .catch(() => {});
     browser.append(row);
   }
-  canvas.append(section(`Divergence browser — ${fmtCount(divergent.length)} units the instruments label differently`, browser));
+  canvas.append(section(`Divergence browser — ${fmtCount(divergentN)} units the instruments label differently`, browser));
 }
 
 /* -- subgroup: the reliability audit — {by, positive, overall {goldN,

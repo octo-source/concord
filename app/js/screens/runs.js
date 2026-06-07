@@ -197,7 +197,7 @@ async function preflightSheet(params, project, instruments, presetInstrument) {
             el("span", { class: "faint" }, ` → ${fmtCount(pf.calls)} call${pf.calls === 1 ? "" : "s"}`)),
           kv("Tokens", el("span", { class: "data" }, `~${fmtCount(pf.inputTokens)} in · ~${fmtCount(pf.outputTokens)} out`)),
           kv("Estimated cost", el("span", { class: "data preflight__cost" }, fmtCost(pf.estUSD)),
-            el("span", { class: "faint" }, " (±15%)")),
+            el("span", { class: "faint" }, " — assumes the full output-token budget; excludes Director second opinions and retries")),
           kv("ETA", el("span", { class: "data" }, fmtDuration(pf.etaMin))),
           kv("Privacy", pf.privacyOk
             ? el("span", { class: "preflight__privacy preflight__privacy--ok" }, "✓ allowed under this project's mode")
@@ -279,7 +279,7 @@ function renderDetail(mount, params) {
     // instrument's columns; the server marks partial files in the filename
     const csvBtn = () => el("button", {
       class: "btn", type: "button",
-      title: "Your rows, plus the instrument's columns: label, confidence, escalated.",
+      title: "Your rows back, plus the run's columns: the label under the construct's name, confidence when the model reported one (dictionary runs have none), escalated, an error column when units quarantined, and unit_id.",
       onclick: () => api.runs.exportCsv(params.slug, run.id),
     }, "Download labeled CSV");
     const hasOutputs = (run.checkpoint?.done ?? 0) > 0;
@@ -344,6 +344,18 @@ function renderDetail(mount, params) {
           : null,
     ]));
 
+    /* -- the persisted failure/pause reason: run.error {code, message}. The
+       failed lede says "see the warnings below", so the stored error must
+       actually render — both here and in the warnings feed. -- */
+    if (run.error) {
+      mount.append(el("p", { class: "annotation annotation--still" },
+        el("span", { class: "chip chip--signal data" }, String(run.error.code ?? "ERROR")),
+        " ", run.error.message ?? "no message recorded",
+        run.status === "failed" || run.status === "paused"
+          ? el("span", { class: "faint" }, " — Resume retries only the unfinished units; finished outputs are kept.")
+          : null));
+    }
+
     /* -- monitor surface -- */
     const progFill = el("span", { class: "monitor__fill", style: { width: total0 ? `${(done0 / total0) * 100}%` : "0%" } });
     const progText = el("span", { class: "data monitor__progresstext" }, `${fmtCount(done0)} / ${fmtCount(total0)}`);
@@ -366,6 +378,8 @@ function renderDetail(mount, params) {
           el("span", { class: "overline" }, "running cost"), costEl,
           el("span", { class: "overline" }, "escalations"), escChip,
           controlButtons()),
+        el("p", { class: "faint monitor__costnote" },
+          "Cost meters worker calls only; Director second opinions and failed attempts are billed by the provider but not metered here."),
         liveRegion,
         el("div", { class: "monitor__cols" },
           el("div", { class: "monitor__distwrap" },
@@ -378,8 +392,9 @@ function renderDetail(mount, params) {
 
     let distChart = null;
     const paintDist = (labelDist) => {
-      // labelDist arrives ONLY through monitor ticks (in-memory telemetry);
-      // the persisted run record carries no distribution
+      // labelDist arrives through monitor ticks while the run executes; the
+      // run record also persists it at checkpoints and completion, so cold
+      // (non-live) views paint the stored distribution below
       const entries = Object.entries(labelDist ?? {});
       if (!entries.length) return;
       const total = entries.reduce((s, [, v]) => s + v, 0) || 1;
@@ -391,10 +406,12 @@ function renderDetail(mount, params) {
         distChart.update(data);
       }
     };
-    // a run that is not executing states what the empty chart means
+    // the persisted distribution (checkpointed by the engine) paints first
+    // for non-live views; the status line under it states what it means
+    if (!live && Object.keys(run.labelDist ?? {}).length) paintDist(run.labelDist);
     if (run.status === "complete") {
       distHost.append(el("p", { class: "faint" },
-        "Finished — the final distribution is in ",
+        "Finished — drill into the distribution in ",
         el("a", { href: `#/p/${params.slug}/explore/${run.id}` }, "Explore results"), "."));
     } else if (run.status === "paused" || run.status === "aborted" || run.status === "failed") {
       distHost.append(el("p", { class: "faint" }, "Partial — resume to continue; outputs so far are kept."));
@@ -406,7 +423,7 @@ function renderDetail(mount, params) {
     // leaves the moment a real warning lands
     const seenWarnings = new Set();
     const noWarningsLine = el("li", { class: "monitor__warning monitor__warning--none faint" },
-      "No warnings. A label taking over the distribution (degenerate output) or agreement slipping below the calibration certificate (drift) would be flagged here.");
+      "No warnings. A label taking over the distribution (degenerate output) is flagged here; drift is flagged when sampled agreement drops more than 0.15 below the certificate (checked every 2,000 outputs on up to 20 gold units).");
     const pushWarnings = (warnings = []) => {
       for (const w of warnings) {
         const text = typeof w === "string" ? w : w?.message ?? JSON.stringify(w);
@@ -421,7 +438,10 @@ function renderDetail(mount, params) {
         warnFeed.append(noWarningsLine);
       }
     };
-    pushWarnings([]);
+    // a failed/paused run's persisted error opens the feed — the lede points here
+    pushWarnings(run.error
+      ? [{ kind: String(run.error.code ?? "error"), message: run.error.message ?? "no message recorded" }]
+      : []);
 
     if (live) {
       monitor?.close?.();
@@ -446,18 +466,19 @@ function renderDetail(mount, params) {
           } else if (status === "failed") {
             toast.error("Run failed.", { detail: `${run.id} — open it for the error; resume retries unfinished units`, data: true });
           }
-          // Loop guard: re-render ONLY when the status actually moved. The
-          // server heals orphaned "running" records to paused before its done
-          // event, so an echo of our own status means something upstream is
-          // wrong — a visible note beats flickering forever.
-          if (status === run.status) {
-            liveRegion.textContent = `The monitor stream ended while the run still reads "${status}".`;
-            pushWarnings([{ kind: "monitor", message: `Stream ended without a status change (still ${status}) — reload the page to reconnect.` }]);
+          // Loop guard on the REFRESHED disk status: refetch first, then
+          // re-render only when the STORED record actually moved off the
+          // status this screen rendered. Guarding on the stream's status
+          // alone looped forever when the stream said "failed" but the disk
+          // record had never settled — every re-render re-subscribed and
+          // replayed the same done event.
+          const fresh = await refreshProject(params.slug).catch(() => null);
+          const freshStatus = (fresh?.runs ?? []).find((r) => r.id === run.id)?.status ?? run.status;
+          if (freshStatus === run.status) {
+            liveRegion.textContent = `The monitor stream ended (${status}) while the stored run still reads "${run.status}".`;
+            pushWarnings([{ kind: "monitor", message: `Stream ended (${status}) but the stored status is still ${run.status} — reload the page to reconnect.` }]);
             return;
           }
-          // Refresh BEFORE re-rendering: a re-render against stale status
-          // would re-subscribe the monitor and loop this handler.
-          await refreshProject(params.slug).catch(() => {});
           window.dispatchEvent(new HashChangeEvent("hashchange"));
         },
         onError(err) {
@@ -468,18 +489,30 @@ function renderDetail(mount, params) {
 
     /* -- escalations: output LINES with escalated: true. The line keeps the
        worker's juror hash; a Director override replaces label/rationale in
-       place and marks escalatedBy: "director" (escalate.js provenance). -- */
+       place and marks escalatedBy: "director"; a Director that reviewed and
+       agreed marks escalatedBy: "director-concurred" (engine provenance).
+       Without a Director configured (run.escalation.directorModel null) the
+       predicate still flags units — but NO second opinion ever ran, and the
+       copy must not imply one did. -- */
+    const hasDirector = Boolean(run.escalation?.directorModel);
     const escHost = el("div", {});
     mount.append(section("Escalation queue", escHost));
     api.runs.escalations(params.slug, run.id)
       .then((escalations) => {
         if (!escalations?.length) {
-          escHost.append(el("p", { class: "faint" }, "No escalations. Low-confidence, high-entropy, repaired, and oddly long units queue here for the Director's second opinion."));
+          escHost.append(el("p", { class: "faint" }, hasDirector
+            ? "No escalations. Low-confidence, high-entropy, repaired, and oddly long units queue here for the Director's second opinion."
+            : "No escalations. Low-confidence, high-entropy, repaired, and oddly long units are flagged here; no Director is configured, so no second opinion would run."));
           return;
         }
         escChip.textContent = `${escalations.length} escalation${escalations.length === 1 ? "" : "s"}`;
+        if (!hasDirector) {
+          escHost.append(el("p", { class: "screen__hint faint" },
+            "Flagged by the predicate (low confidence / high entropy / repaired / unusually long); no Director is configured, so no second opinion ran. Review these units yourself."));
+        }
         for (const esc of escalations) {
           const overridden = esc.escalatedBy === "director";
+          const concurred = esc.escalatedBy === "director-concurred";
           escHost.append(el("div", { class: "escrow" },
             el("button", {
               class: "refchip data evidence-door escrow__unit", type: "button",
@@ -490,7 +523,9 @@ function renderDetail(mount, params) {
                 String(esc.juror ?? "").slice(0, 12),
                 overridden
                   ? el("span", { class: "chip chip--machine" }, "Director override ✦")
-                  : el("span", { class: "chip chip--ghost" }, "worker verdict stands")),
+                  : concurred
+                    ? el("span", { class: "chip chip--ghost" }, "worker verdict stands (Director concurred)")
+                    : el("span", { class: "chip chip--ghost" }, "flagged — no second opinion recorded")),
               el("p", {}, el("span", { class: "chip chip--machine" }, String(esc.label)),
                 esc.confidence !== undefined ? el("span", { class: "data faint" }, ` conf ${fmtStat(esc.confidence)}`) : null),
               esc.rationale ? el("p", { class: "escrow__rationale" }, esc.rationale) : null),
@@ -506,7 +541,7 @@ function renderDetail(mount, params) {
     const qHost = el("div", {});
     if (quarantined.length) {
       qHost.append(el("p", { class: "screen__hint faint" },
-        "These units produced no valid output — schema failure, refusal, or truncation, even after automatic repairs. They carry no label and are excluded from every count above."));
+        "These units produced no valid output — schema failure, refusal, or truncation, even after automatic repairs. They carry no label and are excluded from results and the label distribution; they count toward progress."));
       for (const q of quarantined) {
         qHost.append(el("div", { class: "quarrow" },
           q.unitId

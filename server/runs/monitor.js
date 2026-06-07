@@ -97,6 +97,15 @@ export function recordOutput(runId, output) {
   return s;
 }
 
+// Record one QUARANTINED unit: it counts toward progress (the live bar must
+// reach total) but never toward labelDist/escalations — the unit produced no
+// verdict, so results and the label distribution exclude it.
+export function recordQuarantine(runId) {
+  const s = stateOf(runId);
+  s.done += 1;
+  return s;
+}
+
 export function addCost(runId, usd) {
   const s = stateOf(runId);
   s.costUSD = Math.round((s.costUSD + usd) * 1e6) / 1e6;

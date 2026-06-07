@@ -12,7 +12,10 @@
 //                  1..k via each category's anchor (or label). Values keep
 //                  their construct type: numeric category values yield numeric
 //                  labels (so mean/median panel aggregation works).
-//   score0to100  → a number in [0, 100] (continuous constructs).
+//   score0to100  → a number in [0, 100] (continuous constructs); a construct
+//                  with a declared scale {min, max} carries those bounds on
+//                  the schema instead, and the prompt + JSON enforcement use
+//                  them (a 1–7 construct must never instruct "0 to 100").
 //   multilabel   → array of construct.categories[].value entries.
 //   extraction   → the model answers {rationale, spans: [...], confidence?};
 //                  judgeUnit returns label = spans (string[]), satisfying the
@@ -98,8 +101,14 @@ export function outputSchemaFor(construct) {
       for (const c of cats) anchors[String(c.value)] = c.anchor ?? c.label ?? String(c.value);
       return { type: "likert", options: cats.map((c) => String(c.value)), anchors };
     }
-    case "continuous":
-      return { type: "score0to100" };
+    case "continuous": {
+      // a declared scale rides on the schema so prompt text and JSON
+      // enforcement state the construct's REAL bounds, not a 0–100 default
+      const s = construct.scale;
+      return s && typeof s.min === "number" && typeof s.max === "number"
+        ? { type: "score0to100", min: s.min, max: s.max }
+        : { type: "score0to100" };
+    }
     case "multilabel":
       return { type: "multilabel", options: categoryValues(construct, "categories").map(String) };
     case "extraction":
@@ -138,7 +147,13 @@ export function jsonSchemaFor(outputSchema) {
       base.properties.label = { enum: enumValues(outputSchema.options) };
       break;
     case "score0to100":
-      base.properties.label = { type: "number", minimum: 0, maximum: 100 };
+      // bounds from the schema when a construct scale was declared; the
+      // historical [0, 100] contract is unchanged otherwise
+      base.properties.label = {
+        type: "number",
+        minimum: outputSchema.min ?? 0,
+        maximum: outputSchema.max ?? 100,
+      };
       break;
     case "multilabel":
       base.properties.label = { type: "array", items: { enum: enumValues(outputSchema.options) } };
@@ -176,7 +191,7 @@ function renderExamples(construct) {
     .join("\n\n");
 }
 
-function renderOptions(outputSchema) {
+function renderOptions(outputSchema, construct) {
   switch (outputSchema.type) {
     case "binary":
     case "kclass":
@@ -186,8 +201,15 @@ function renderOptions(outputSchema) {
         `Allowed labels (anchored scale): ${outputSchema.options.join(" | ")}`,
         ...outputSchema.options.map((o) => `  ${o}: ${outputSchema.anchors?.[o] ?? o}`),
       ].join("\n");
-    case "score0to100":
-      return "Label is a number from 0 to 100.";
+    case "score0to100": {
+      // the construct's ACTUAL scale bounds when declared (schema bounds win;
+      // a stored pre-bounds schema falls back to the construct's scale) —
+      // instructing "0 to 100" on a 1–7 construct contradicted the worked
+      // examples and miscoded everything between the two scales
+      const min = outputSchema.min ?? construct?.scale?.min ?? 0;
+      const max = outputSchema.max ?? construct?.scale?.max ?? 100;
+      return `Label is a number from ${min} to ${max}.`;
+    }
     case "multilabel":
       return `Label is an array of zero or more of: ${outputSchema.options.join(" | ")}`;
     case "extraction":
@@ -229,7 +251,7 @@ export function assemble(construct, judgePayload, unit) {
   const systemParts = [];
   if (judgePayload?.workerClass === "small") systemParts.push(SMALL_CLASS_SCAFFOLD);
   systemParts.push(head.trim());
-  systemParts.push(renderOptions(outputSchema));
+  systemParts.push(renderOptions(outputSchema, construct));
   if (judgePayload?.rationaleFirst !== false) systemParts.push(RATIONALE_FIRST_INSTRUCTION);
 
   return [
@@ -260,7 +282,15 @@ const WORKER_TRUNCATION_CAP = 8192;
 // PROVIDER_* errors propagate untouched. TRUNCATED gets ONE doubled-budget
 // retry (see WORKER_TRUNCATION_CAP above) before propagating.
 export async function judgeUnit(adapter, construct, judgePayload, unit) {
-  const outputSchema = judgePayload?.schema ?? outputSchemaFor(construct);
+  let outputSchema = judgePayload?.schema ?? outputSchemaFor(construct);
+  // a stored pre-bounds schema on a scaled construct inherits the construct's
+  // declared bounds, so prompt text and JSON enforcement always agree
+  if (
+    outputSchema.type === "score0to100" && outputSchema.min === undefined &&
+    typeof construct?.scale?.min === "number" && typeof construct?.scale?.max === "number"
+  ) {
+    outputSchema = { ...outputSchema, min: construct.scale.min, max: construct.scale.max };
+  }
   const schema = jsonSchemaFor(outputSchema);
   const messages = assemble(construct, judgePayload, unit);
   const params = judgePayload?.params ?? {};

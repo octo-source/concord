@@ -126,7 +126,8 @@ test("outputSchemaFor: ordinal → likert with anchors (anchor, else label)", ()
 });
 
 test("outputSchemaFor: continuous → score0to100; multilabel and extraction", () => {
-  assert.deepEqual(outputSchemaFor(continuousConstruct), { type: "score0to100" });
+  // a declared scale rides the schema so prompt and enforcement agree
+  assert.deepEqual(outputSchemaFor(continuousConstruct), { type: "score0to100", min: 0, max: 100 });
   assert.deepEqual(outputSchemaFor(multilabelConstruct), { type: "multilabel", options: ["pay", "growth"] });
   assert.deepEqual(outputSchemaFor(extractionConstruct), { type: "extraction" });
 });

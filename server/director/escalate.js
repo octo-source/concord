@@ -2,9 +2,11 @@
 // panel entropy, schema repairs, atypical length) and calls the escalator the
 // Director module hands it. The Director judges the unit independently under
 // the same codebook; if it agrees with the worker the original output stands
-// (null), if it disagrees it returns a replacement Output marked
-// escalated: true whose rationale leads with a one-line reason the
-// researcher can read in the escalation queue.
+// (null — and the ENGINE stamps escalatedBy: "director-concurred" on the
+// written line, so a reviewed-and-confirmed verdict stays distinguishable
+// from a unit nobody reviewed), if it disagrees it returns a replacement
+// Output marked escalated: true whose rationale leads with a one-line reason
+// the researcher can read in the escalation queue.
 import { callDirector } from "./director.js";
 import { escalationPrompt, escalationSchema } from "./prompts.js";
 
