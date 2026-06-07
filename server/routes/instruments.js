@@ -57,6 +57,44 @@ function modelPinnedOf(instrument) {
   return false;
 }
 
+// Stability-check alternate judges: body.models must be an array of ≤4 plain
+// objects with non-empty string provider/model (snapshot optional, string or
+// null) — and only judge instruments take alternates (a dictionary has no
+// model to swap; a panel's jurors are several models already). Returns the
+// normalized [{provider, model, snapshot}] or null when none were requested.
+const MAX_ALT_MODELS = 4;
+
+function validateAltModels(models, instrument) {
+  if (models === undefined) return null;
+  if (!Array.isArray(models)) {
+    throw new ConcordError("VALIDATION", "models must be an array of {provider, model} objects", { value: typeof models });
+  }
+  if (models.length === 0) return null;
+  if (models.length > MAX_ALT_MODELS) {
+    throw new ConcordError("VALIDATION", `at most ${MAX_ALT_MODELS} alternate judge models per stability check`, { count: models.length });
+  }
+  if (instrument.kind !== "judge") {
+    throw new ConcordError("VALIDATION",
+      `alternate judges apply to judge instruments — "${instrument.kind}" instruments have no single model to swap`,
+      { kind: instrument.kind });
+  }
+  return models.map((m, i) => {
+    if (m === null || typeof m !== "object" || Array.isArray(m)) {
+      throw new ConcordError("VALIDATION", `models[${i}] must be an object with provider and model`, { index: i });
+    }
+    if (typeof m.provider !== "string" || m.provider === "") {
+      throw new ConcordError("VALIDATION", `models[${i}].provider must be a non-empty string`, { index: i });
+    }
+    if (typeof m.model !== "string" || m.model === "") {
+      throw new ConcordError("VALIDATION", `models[${i}].model must be a non-empty string`, { index: i });
+    }
+    if (m.snapshot !== undefined && m.snapshot !== null && typeof m.snapshot !== "string") {
+      throw new ConcordError("VALIDATION", `models[${i}].snapshot must be a string when present`, { index: i });
+    }
+    return { provider: m.provider, model: m.model, snapshot: m.snapshot ?? null };
+  });
+}
+
 export default [
   {
     method: "GET",
@@ -253,19 +291,31 @@ export default [
     // Test–retest stability. The module ledgers instrument.stability itself;
     // the route persists the verdict onto the (unfrozen) instrument, writes
     // the per-rerun artifact (stabilityFile) and rolls up the rerun cost.
+    //
+    // Alternate judges: body.models = [{provider, model, snapshot?}, …] (≤4,
+    // judge instruments only) — each labels the SAME sampled units ONCE with
+    // the instrument's same compiled prompt/params/schema, persisting beside
+    // the reruns as artifact.alts so the reliability matrix can surface
+    // model-vs-model agreement WITHOUT minting a new instrument. alpha/pass
+    // stay own-model-reruns-only; a failing alternate records {provider,
+    // model, error} and never sinks the check.
     method: "POST",
     pattern: "/api/projects/:p/instruments/:i/stability",
     handler: async (req, res, params) => {
       const project = await loadProject(params.p);
       const instrument = findOr404(project.instruments, params.i, "instrument");
       const body = req.body ?? {};
+      const altModels = validateAltModels(body.models, instrument);
       const corpusId = body.corpusId ?? project.corpora?.[0]?.id ?? null;
       const units = await corpusUnitsFor(project, corpusId);
       const opts = {};
       if (body.k !== undefined) opts.k = body.k;
       if (body.n !== undefined) opts.n = body.n;
-      const { alpha, pass, runs } = await stabilityMod.stabilityCheck(project, instrument, units, opts);
-      await addSpend(params.p, runs.reduce((n, r) => n + (r.cost?.actualUSD ?? 0), 0));
+      if (altModels) opts.alts = altModels;
+      const { alpha, pass, runs, alts } = await stabilityMod.stabilityCheck(project, instrument, units, opts);
+      await addSpend(params.p,
+        runs.reduce((n, r) => n + (r.cost?.actualUSD ?? 0), 0)
+        + (alts ?? []).reduce((n, a) => n + (a.cost?.actualUSD ?? 0), 0));
 
       // Persist the per-rerun labels so the reliability matrix can read the
       // reruns back as retest:<instrumentId>:<index> sources. Same final-line
@@ -287,6 +337,31 @@ export default [
         }
         return { index: i + 1, labels };
       });
+
+      // Alternate judges persist beside the reruns (same label filter); the
+      // key is omitted entirely when none were requested — byte-compatible
+      // with the wave-1 artifact. Errored alternates keep their error.
+      let altsOut = null;
+      let respAlts = null;
+      if (alts) {
+        altsOut = [];
+        respAlts = [];
+        for (const a of alts) {
+          if (a.error !== undefined) {
+            altsOut.push({ provider: a.provider, model: a.model, error: a.error });
+            respAlts.push({ provider: a.provider, model: a.model, error: a.error });
+            continue;
+          }
+          const labels = {};
+          for (const o of a.outputs ?? []) {
+            if (o.label === undefined || o.flagged) continue;
+            labels[o.unitId] = o.label;
+          }
+          altsOut.push({ provider: a.provider, model: a.model, labels });
+          respAlts.push({ provider: a.provider, model: a.model, n: Object.keys(labels).length });
+        }
+      }
+
       await writeJsonAtomic(stabilityFile(params.p, instrument.id), {
         id: newId("st"),
         instrumentId: instrument.id,
@@ -297,6 +372,7 @@ export default [
         alpha,
         unitIds,
         reruns,
+        ...(altsOut ? { alts: altsOut } : {}),
         createdAt: new Date().toISOString(),
       });
 
@@ -308,7 +384,7 @@ export default [
           if (pass && inst.silver && inst.level === "exploratory") inst.level = "stabilized";
         });
       }
-      return { alpha, pass };
+      return { alpha, pass, ...(respAlts ? { alts: respAlts } : {}) };
     },
   },
   {

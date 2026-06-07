@@ -18,7 +18,8 @@
 // project Director's provider/model — so the user lands IN the action.
 
 import { el, clear, frag } from "../dom.js";
-import api from "../api.js";
+import api, { ApiError } from "../api.js";
+import { fixturesEnabled } from "../fixtures.js";
 import * as router from "../router.js";
 import * as toast from "../components/toast.js";
 import { cite } from "../components/cite.js";
@@ -369,7 +370,17 @@ function instrumentEditor(main, params, instRaw, constructs, catalog, project = 
             }, `stability α ${fmtStat(inst.stability.alpha)}`)
           : null,
         inst.frozen ? el("span", { class: "chip chip--gold" }, "frozen — edits fork") : null)),
-    el("div", { class: "editor__headactions" }, saveBtn),
+    el("div", { class: "editor__headactions" },
+      // the model is part of instrument identity (calibration does not
+      // transfer between models) — switching models means a NEW instrument
+      inst.kind === "judge"
+        ? el("button", {
+            class: "btn btn--quiet", type: "button",
+            title: "Create a separate instrument with this compiled prompt and another model — calibration does not transfer between models",
+            onclick: () => duplicateSheet(params, inst, catalog),
+          }, "Duplicate with another model")
+        : null,
+      saveBtn),
   ));
 
   /* -- context: what this instrument measures and what it reads, in ONE
@@ -401,9 +412,65 @@ function instrumentEditor(main, params, instRaw, constructs, catalog, project = 
     onPreviewed: () => { previewed = true; paintStrip(); },
     previewScope,
     construct,
+    catalog,
   });
   main.append(section("Actions", actions.el));
   paintStrip();
+}
+
+/* "Duplicate with another model": the model is part of instrument identity,
+   so a model switch is a NEW instrument — same constructId/kind/payload,
+   only provider/model/snapshot replaced, named "<name> · <model tail>". It
+   starts at ◌ exploratory like every new instrument; nothing transfers. */
+function duplicateSheet(params, inst, catalog) {
+  const s = openSheet({ title: "Duplicate with another model", overline: "Same prompt, different judge" });
+  let choice = null;
+  const picker = modelpicker.render({
+    catalog,
+    structuredFilter: true,
+    label: "Model for the duplicate",
+    onPick: (p) => { choice = p; },
+  });
+  s.body.append(
+    el("p", {},
+      "Creates a separate instrument with this one's compiled prompt, parameters, and schema — only the model changes. The duplicate starts at ◌ exploratory: calibration does not transfer between models."),
+    el("div", { class: "field" }, el("span", { class: "field__label overline" }, "Judge with"), picker.el),
+  );
+  const createBtn = el("button", {
+    class: "btn btn--primary", type: "button",
+    onclick: async () => {
+      if (!choice) {
+        toast.info("Pick a model for the duplicate first.");
+        return;
+      }
+      const tail = String(choice.entry.id).split("/").pop();
+      createBtn.disabled = true;
+      try {
+        const created = await api.instruments.create(params.slug, {
+          constructId: inst.constructId,
+          kind: inst.kind,
+          name: `${inst.name} · ${tail}`,
+          payload: {
+            ...inst.payload,
+            provider: choice.provider,
+            model: choice.entry.id,
+            snapshot: choice.entry.snapshot ?? null,
+          },
+        });
+        s.close();
+        toast.success("Created as a separate instrument — calibration does not transfer between models. Gold-test it before trusting it.");
+        await refreshProject(params.slug).catch(() => {});
+        router.navigate(`p/${params.slug}/instruments/${created.id}`);
+      } catch (err) {
+        createBtn.disabled = false;
+        toast.error("Could not duplicate the instrument.", { detail: String(err.message ?? err) });
+      }
+    },
+  }, "Create the duplicate");
+  s.foot.replaceChildren(
+    el("button", { class: "btn btn--quiet", type: "button", onclick: () => s.close() }, "Cancel"),
+    createBtn,
+  );
 }
 
 /* The calibration step at any level: open the construct's gold set, creating
@@ -891,9 +958,47 @@ function silverCurve(iterations) {
 
 /* ================= actions =========================================================== */
 
-function actionRow(main, params, inst, { onPreviewed, previewScope = null, construct = null } = {}) {
+/* The stability route's own defaults (server/routes/instruments.js →
+   stabilityCheck): k = 3 reruns over an n = 100 seeded subsample (the server
+   caps n at the corpus size). The inline panel prefills these. */
+const STABILITY_DEFAULT_K = 3;
+const STABILITY_DEFAULT_N = 100;
+const STABILITY_MAX_ALTS = 4;
+
+/* POST instruments/:i/stability with the FULL body. The api.instruments
+   .stability wrapper forwards only {k, n, corpusId} and would silently drop
+   the `models` (alternate judges) field; api.js is frozen for this change,
+   so the screen speaks the same JSON envelope itself — fold this into
+   api.instruments.stability once the wrapper is free to edit. Fixtures mode
+   patches api.instruments.stability in place, so the demo routes through
+   the wrapper as before. */
+async function postStability(slug, instId, body) {
+  if (fixturesEnabled()) return api.instruments.stability(slug, instId, body);
+  let res;
+  try {
+    res = await fetch(`/api/projects/${encodeURIComponent(slug)}/instruments/${encodeURIComponent(instId)}/stability`, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify(body),
+    });
+  } catch (err) {
+    throw new ApiError("UNREACHABLE", `Concord server unreachable (${err.message})`, { status: 0 });
+  }
+  let envelope = null;
+  try { envelope = JSON.parse(await res.text()); } catch { /* non-JSON body */ }
+  if (envelope?.ok === true) return envelope.data;
+  if (envelope?.ok === false && envelope.error) {
+    throw new ApiError(envelope.error.code || "ERROR", envelope.error.message || "Request failed", {
+      status: res.status, details: envelope.error,
+    });
+  }
+  throw new ApiError("HTTP_" + res.status, `POST stability → ${res.status}`, { status: res.status });
+}
+
+function actionRow(main, params, inst, { onPreviewed, previewScope = null, construct = null, catalog = {} } = {}) {
   const out = el("div", { class: "actionout" });
   const row = el("div", { class: "actionrow" });
+  const reliabilityHref = `#/p/${params.slug}/reliability/${encodeURIComponent(inst.constructId)}`;
 
   const compile = el("button", {
     class: "btn", type: "button",
@@ -962,29 +1067,160 @@ function actionRow(main, params, inst, { onPreviewed, previewScope = null, const
     },
   }, "Silver-tune");
 
+  /* Stability check: an inline panel (the screen's action-output idiom — no
+     modal) that states what will run BEFORE it runs: the corpus it reads, k
+     and n prefilled with the route's defaults, an optional list of up to 4
+     alternate judge models, and the live call count. With no alternates the
+     request equals today's exactly. */
   const stability = el("button", {
     class: "btn", type: "button",
-    onclick: async () => {
-      const stop = buttonBusy(stability, (sec) => `Checking stability · ${sec}s`);
-      clear(out).append(el("p", { class: "faint", role: "status" }, "re-running k = 3 on a 100-unit subsample…"));
-      try {
-        // live response: {alpha, pass} (k/n persist onto instrument.stability)
-        const res = await api.instruments.stability(params.slug, inst.id, { corpusId: previewScope?.corpusId ?? undefined });
-        clear(out).append(el("p", { class: "screen__hint" },
-          markedValue(`test–retest α = ${fmtStat(res.alpha)}`, res.pass ? "stabilized" : "exploratory"),
-          " ",
-          res.pass
-            ? el("span", {}, "— the instrument gives the same labels when rerun on the same units. ", el("strong", {}, "Marked ◑ stabilized."))
-            : el("span", {}, "— below the .80 bar (Krippendorff's reliable threshold", cite("krippendorff2004"), "); the instrument changes its labels when rerun on the same units."),
-          " Rerun-vs-rerun rows are now in Reliability for this construct."));
-        if (res.pass) toast.success("Stability passed — instrument is ◑.", { detail: `α = ${fmtStat(res.alpha)}`, data: true });
-        await refreshProject(params.slug).catch(() => {});
-      } catch (err) {
-        toast.error("Stability check failed.", { detail: String(err.message ?? err) });
-      }
-      stop();
-    },
+    onclick: () => stabilityPanel(),
   }, "Stability check");
+
+  function stabilityPanel() {
+    const altModels = []; // {provider, model, snapshot}
+    let k = STABILITY_DEFAULT_K;
+    let n = STABILITY_DEFAULT_N;
+
+    const corpusLine = el("p", { class: "screen__hint faint" });
+    const paintCorpus = () => {
+      const corpus = previewScope?.corpus() ?? null;
+      clear(corpusLine).append(
+        "Reads ", el("span", { class: "data" }, corpus ? scopechip.displayName(corpus) : "no corpus — import one first"),
+        corpus
+          ? frag(" (text: ", el("span", { class: "data" }, textColumnOf(corpus) ?? "not recorded"),
+              ") — change it in the scope line above.")
+          : null);
+    };
+    paintCorpus();
+    previewScope?.onChange(() => { if (corpusLine.isConnected) paintCorpus(); });
+
+    const callLine = el("p", { class: "screen__hint data", aria: { live: "polite" } });
+    const paintCalls = () => {
+      callLine.textContent = `Will make ${n} × (${k} + ${altModels.length}) judge calls.`;
+    };
+
+    const kInput = el("input", {
+      class: "input input--num", type: "number", min: 2, max: 10, step: 1, value: k,
+      "aria-label": "Reruns (k)",
+      onchange: (e) => {
+        k = Math.max(2, Math.floor(Number(e.target.value) || STABILITY_DEFAULT_K));
+        e.target.value = k;
+        paintCalls();
+      },
+    });
+    const nInput = el("input", {
+      class: "input input--num", type: "number", min: 2, max: 100, step: 1, value: n,
+      "aria-label": "Subsample size (n)",
+      onchange: (e) => {
+        n = Math.min(100, Math.max(2, Math.floor(Number(e.target.value) || STABILITY_DEFAULT_N)));
+        e.target.value = n;
+        paintCalls();
+      },
+    });
+
+    const chipRow = el("div", { class: "termchips" });
+    const paintChips = () => {
+      clear(chipRow);
+      altModels.forEach((m, i) => {
+        chipRow.append(el("span", { class: "chip chip--machine" },
+          `${m.provider} · ${m.model}`,
+          el("button", {
+            class: "termchip__x", type: "button", aria: { label: `Remove alternate judge ${m.model}` },
+            onclick: () => { altModels.splice(i, 1); paintChips(); paintCalls(); },
+          }, "×")));
+      });
+      if (!altModels.length) {
+        chipRow.append(el("span", { class: "faint" }, "none — the check reruns this instrument's own model only"));
+      }
+    };
+    const altPicker = modelpicker.render({
+      catalog,
+      structuredFilter: true,
+      showSelected: false,
+      label: "Also judge with",
+      placeholder: "add an alternate judge — search models…",
+      onPick: ({ provider, entry }) => {
+        if (altModels.length >= STABILITY_MAX_ALTS) {
+          toast.info(`Up to ${STABILITY_MAX_ALTS} alternate judges per check.`);
+          return;
+        }
+        altModels.push({ provider, model: entry.id, snapshot: entry.snapshot ?? null });
+        paintChips();
+        paintCalls();
+      },
+    });
+
+    const status = el("p", { class: "faint", role: "status" });
+    const runBtn = el("button", {
+      class: "btn btn--primary", type: "button",
+      onclick: async () => {
+        const m = altModels.length;
+        const stop = buttonBusy(runBtn, (sec) => `Checking stability · ${sec}s`);
+        status.textContent = `re-running k = ${k} on a ${n}-unit subsample${m ? ` · ${m} alternate judge${m === 1 ? "" : "s"} on the same sample` : ""}…`;
+        try {
+          const corpusId = previewScope?.corpusId ?? undefined;
+          // live response: {alpha, pass, alts?: [{provider, model, n} |
+          // {provider, model, error}]} — k/n persist onto instrument.stability
+          const res = m
+            ? await postStability(params.slug, inst.id, { k, n, corpusId, models: altModels.map((x) => ({ ...x })) })
+            : await api.instruments.stability(params.slug, inst.id, { k, n, corpusId });
+          stop();
+          paintStabilityResult(res);
+          if (res.pass) toast.success("Stability passed — instrument is ◑.", { detail: `α = ${fmtStat(res.alpha)}`, data: true });
+          if ((res.alts ?? []).some((a) => a.error === undefined)) {
+            toast.info("Alternate judges labeled the same sample — model-vs-model κ/α is in Reliability →");
+          }
+          await refreshProject(params.slug).catch(() => {});
+        } catch (err) {
+          stop();
+          status.textContent = "";
+          toast.error("Stability check failed.", { detail: String(err.message ?? err) });
+        }
+      },
+    }, "Run the stability check");
+
+    clear(out).append(el("div", {},
+      el("p", { class: "overline" }, "Stability check — test–retest"),
+      corpusLine,
+      el("div", { class: "controlrow" },
+        el("label", { class: "controlrow__item" }, el("span", { class: "overline" }, "reruns k"), kInput),
+        el("label", { class: "controlrow__item" }, el("span", { class: "overline" }, "units n"), nInput)),
+      el("div", { class: "field" },
+        el("span", { class: "field__label overline" }, `Also judge with (optional, up to ${STABILITY_MAX_ALTS})`),
+        altPicker.el,
+        chipRow,
+        el("p", { class: "field__hint" },
+          "Each alternate labels the same sampled units once with this instrument's compiled prompt — rows land in Reliability as alt-judge sources. α and pass stay this instrument's own reruns.")),
+      callLine,
+      el("div", { class: "actionrow" }, runBtn),
+      status,
+    ));
+    paintChips();
+    paintCalls();
+  }
+
+  function paintStabilityResult(res) {
+    clear(out).append(el("p", { class: "screen__hint" },
+      markedValue(`test–retest α = ${fmtStat(res.alpha)}`, res.pass ? "stabilized" : "exploratory"),
+      " ",
+      res.pass
+        ? el("span", {}, "— the instrument gives the same labels when rerun on the same units. ", el("strong", {}, "Marked ◑ stabilized."))
+        : el("span", {}, "— below the .80 bar (Krippendorff's reliable threshold", cite("krippendorff2004"), "); the instrument changes its labels when rerun on the same units."),
+      " Rerun-vs-rerun rows are now in Reliability for this construct."));
+    for (const a of res.alts ?? []) {
+      if (a.error !== undefined) {
+        out.append(el("p", { class: "annotation annotation--signal" },
+          el("span", { class: "chip chip--signal" }, "alt judge failed"),
+          ` ${a.model} (${a.provider}): ${a.error}`));
+      }
+    }
+    if ((res.alts ?? []).some((a) => a.error === undefined)) {
+      out.append(el("p", { class: "screen__hint" },
+        "Alternate judges labeled the same sample — model-vs-model κ/α is in ",
+        el("a", { href: reliabilityHref }, "Reliability →")));
+    }
+  }
 
   const preview = el("button", {
     class: "btn", type: "button",

@@ -10,7 +10,8 @@
       { "key": "inst:inst_judge_s", "label": "exit-theme · judge v3 (tuned)", "kind": "instrument", "n": 18, "level": "stabilized" },
       { "key": "inst:inst_panel", "label": "exit-theme · panel ×3", "kind": "instrument", "n": 2500, "level": "exploratory", "runId": "run_panel_full" },
       { "key": "retest:inst_judge_s:1", "label": "exit-theme · judge v3 (tuned) — rerun 1 of 2", "kind": "retest", "n": 100 },
-      { "key": "retest:inst_judge_s:2", "label": "exit-theme · judge v3 (tuned) — rerun 2 of 2", "kind": "retest", "n": 100 }
+      { "key": "retest:inst_judge_s:2", "label": "exit-theme · judge v3 (tuned) — rerun 2 of 2", "kind": "retest", "n": 100 },
+      { "key": "alt:inst_judge_s:openrouter/google-gemini-3.5-flash", "label": "exit-theme · judge v3 (tuned) — alt judge google-gemini-3.5-flash", "kind": "alt", "n": 100 }
     ],
     "pairs": [
       { "a": "coder:pat", "b": "coder:sam", "n": 14, "percent": 0.786, "kappa": 0.72, "alpha": 0.71 },
@@ -25,7 +26,10 @@
       { "a": "coder:pat", "b": "inst:inst_judge_f", "n": 14, "percent": 0.786, "kappa": 0.73, "alpha": 0.72 },
       { "a": "inst:inst_judge_s", "b": "retest:inst_judge_s:1", "n": 100, "percent": 0.94, "kappa": 0.91, "alpha": 0.91 },
       { "a": "inst:inst_judge_s", "b": "retest:inst_judge_s:2", "n": 100, "percent": 0.93, "kappa": 0.9, "alpha": 0.9 },
-      { "a": "retest:inst_judge_s:1", "b": "retest:inst_judge_s:2", "n": 100, "percent": 0.95, "kappa": 0.92, "alpha": 0.92 }
+      { "a": "retest:inst_judge_s:1", "b": "retest:inst_judge_s:2", "n": 100, "percent": 0.95, "kappa": 0.92, "alpha": 0.92 },
+      { "a": "gold", "b": "alt:inst_judge_s:openrouter/google-gemini-3.5-flash", "n": 18, "percent": 0.833, "kappa": 0.78, "alpha": 0.77 },
+      { "a": "inst:inst_judge_s", "b": "alt:inst_judge_s:openrouter/google-gemini-3.5-flash", "n": 100, "percent": 0.91, "kappa": 0.87, "alpha": 0.87 },
+      { "a": "retest:inst_judge_s:1", "b": "alt:inst_judge_s:openrouter/google-gemini-3.5-flash", "n": 100, "percent": 0.9, "kappa": 0.86, "alpha": 0.85 }
     ],
     "notes": [
       "Judges read the 18-unit adjudicated gold sample during calibration; the panel's full-corpus run overlaps it on the same 18 units.",

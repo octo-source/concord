@@ -9,8 +9,11 @@
 //
 // Live contract (GET reliability/:constructId?corpusId=):
 //   {constructId, corpusId, sources: [{key, label, kind: instrument|gold|
-//   coder|retest, n, runId?, level?}], pairs: [{a, b, n, percent, kappa,
+//   coder|retest|alt, n, runId?, level?}], pairs: [{a, b, n, percent, kappa,
 //   alpha}], notes: [string], retestAvailable?: false}
+// alt sources (key alt:<instrumentId>:<provider>/<model>) are alternate
+// judges from a stability check: the same compiled prompt over the same
+// sample, another model — model-vs-model consistency, never validity.
 
 import { el, clear, frag } from "../dom.js";
 import api from "../api.js";
@@ -26,8 +29,8 @@ import { benchmarkBand } from "./calibration.js";
 export const route = "p/:slug/reliability/:cid";
 export const title = "Reliability";
 
-const KIND_RANK = { coder: 0, gold: 1, instrument: 2, retest: 3 };
-const KIND_CHIP = { coder: "human", gold: "gold", retest: "retest" };
+const KIND_RANK = { coder: 0, gold: 1, instrument: 2, retest: 3, alt: 4 };
+const KIND_CHIP = { coder: "human", gold: "gold", retest: "retest", alt: "alt judge" };
 
 /** Humans first, gold second, machines after, reruns last — stable within kinds. */
 export function sortSources(sources) {
@@ -213,6 +216,12 @@ export function render(mount, params, query = {}) {
         el("p", { class: "screen__hint" },
           `Test–retest: mean rerun-vs-rerun α = ${fmtStat(r.meanAlpha)} across ${r.k} reruns of ${r.name}.`,
           cite("krippendorff2004")));
+      // alternate judges in the matrix: state what their agreement is — and
+      // what it is not — before anyone reads it as a license to switch models
+      const altHint = sources.some((s) => s.kind === "alt")
+        ? el("p", { class: "screen__hint" },
+            "Alternate judges ran the same compiled prompt on the same sample. Agreement here is model-vs-model consistency on this construct — not validity; calibrate against gold before trusting a model switch.")
+        : null;
       mount.append(section("The agreement matrix",
         el("p", { class: "screen__hint" },
           `Showing ${ordinal
@@ -221,6 +230,7 @@ export function render(mount, params, query = {}) {
           cite(ordinal ? "krippendorff2004" : "cohen1960"),
           ". Raw agreement and n ride in each cell's subline."),
         ...retestLines,
+        altHint,
         el("div", { class: "relsplit" },
           el("div", { class: "relsplit__main" }, matrix),
           panel),
@@ -267,7 +277,7 @@ function buildMatrix({ params, sources, pairOf, stat, statOf, panel, goldsetForC
   const sourceLabel = (s) => frag(
     s.label,
     s.kind === "instrument" && s.level ? ladderC.render({ level: s.level, size: "sm" }) : null,
-    KIND_CHIP[s.kind] ? el("span", { class: `chip ${s.kind === "retest" ? "chip--ghost" : "chip--gold"}` }, KIND_CHIP[s.kind]) : null,
+    KIND_CHIP[s.kind] ? el("span", { class: `chip ${s.kind === "retest" || s.kind === "alt" ? "chip--ghost" : "chip--gold"}` }, KIND_CHIP[s.kind]) : null,
   );
 
   const table = el("table", { class: "relmatrix" },

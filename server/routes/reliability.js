@@ -20,7 +20,13 @@
 //                        projects/<slug>/stability/<instrumentId>.json (one
 //                        per instrument, newest check wins) — only when the
 //                        artifact's corpus is THIS corpus; a check on a
-//                        different corpus yields a note instead of sources.
+//                        different corpus yields a note instead of sources;
+//   alt:<id>:<provider>/<model>
+//                        one source per successful alternate judge in that
+//                        same artifact (the stability check ran the model
+//                        over the same sample with the instrument's compiled
+//                        prompt) — same corpus rule as retest rows; an
+//                        errored alternate becomes a functional note.
 //
 // Pairs: every source combination. Overlap n ≥ 10 → percent always, κ/α via
 // stats/agreement (through agreementReport, which passes the construct's
@@ -168,6 +174,27 @@ export default [
               labels,
             });
             retestAvailable = true;
+          }
+          // alternate judges from the same check: one ordinary source per
+          // successful alternate (the generic loop below yields alt-vs-alt,
+          // alt-vs-retest, alt-vs-inst, alt-vs-coder and alt-vs-gold pairs);
+          // an errored alternate is a note, never a source.
+          for (const alt of artifact.alts ?? []) {
+            if (alt.error !== undefined) {
+              notes.push(`Alternate judge ${alt.model} failed during the stability check: ${alt.error}.`);
+              continue;
+            }
+            const labels = new Map();
+            for (const [unitId, label] of Object.entries(alt.labels ?? {})) {
+              labels.set(unitId, statValue(label));
+            }
+            sources.push({
+              key: `alt:${inst.id}:${alt.provider}/${alt.model}`,
+              label: `${inst.name ?? inst.id} — alt judge ${alt.model}`,
+              kind: "alt",
+              n: labels.size,
+              labels,
+            });
           }
         }
       } else {
