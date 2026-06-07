@@ -15,13 +15,12 @@
 //   coder:<coderId>      each human coder with ≥10 labels in those gold sets
 //                        (uncodable marks are absent rows by construction —
 //                        they live outside coders[].labels);
-//   retest:<id>:<k>      NOT AVAILABLE: stability checks persist only the
-//                        summary α onto the instrument (instruments route
-//                        stability handler) — the per-rerun outputs are
-//                        discarded, so retest sources cannot be
-//                        reconstructed. The response says so via
-//                        retestAvailable: false + a note instead of
-//                        fabricating sources.
+//   retest:<id>:<k>      one source per stability-check rerun, read from the
+//                        per-rerun artifact the instruments route persists at
+//                        projects/<slug>/stability/<instrumentId>.json (one
+//                        per instrument, newest check wins) — only when the
+//                        artifact's corpus is THIS corpus; a check on a
+//                        different corpus yields a note instead of sources.
 //
 // Pairs: every source combination. Overlap n ≥ 10 → percent always, κ/α via
 // stats/agreement (through agreementReport, which passes the construct's
@@ -33,8 +32,9 @@
 // candidate run's outputs stream once; everything joins in memory.
 import {
   findOr404, loadProject, readGoldset, goldLabelMap, statValue,
-  agreementReport, readNdjson, runOutputsFile, finalJurorOf,
+  agreementReport, readNdjson, runOutputsFile, finalJurorOf, readJsonFile,
 } from "./_shared.js";
+import { stabilityFile } from "./instruments.js";
 
 const MIN_OVERLAP = 10;      // below this, pair statistics are withheld (null)
 const MIN_PARTIAL_RUN = 30;  // a non-complete run must cover ≥ this many units
@@ -89,6 +89,7 @@ export default [
 
       const notes = [];
       const sources = []; // {key, label, kind, n, runId?, level?, labels: Map}
+      let retestAvailable = false;
 
       if (corpusId) {
         // ---- instrument sources: latest complete/partial run per instrument
@@ -142,18 +143,36 @@ export default [
           if (m.size < MIN_CODER_LABELS) continue;
           sources.push({ key: `coder:${coderId}`, label: coderId, kind: "coder", n: m.size, labels: m });
         }
+
+        // ---- test–retest sources: the per-rerun artifact the stability
+        // route persists (one per instrument, newest check wins). Reruns on
+        // THIS corpus become ordinary sources and ride the same pairwise
+        // loop; a check on a different corpus gets a note, never sources.
+        for (const inst of (project.instruments ?? []).filter((i) => i.constructId === construct.id)) {
+          const artifact = await readJsonFile(stabilityFile(project.slug, inst.id)).catch(() => null);
+          if (!artifact) continue;
+          if (artifact.corpusId !== corpusId) {
+            notes.push(`A stability check exists for ${inst.name ?? inst.id} on a different corpus. Run the stability check on this corpus to see rerun rows.`);
+            continue;
+          }
+          for (const rerun of artifact.reruns ?? []) {
+            const labels = new Map();
+            for (const [unitId, label] of Object.entries(rerun.labels ?? {})) {
+              labels.set(unitId, statValue(label));
+            }
+            sources.push({
+              key: `retest:${inst.id}:${rerun.index}`,
+              label: `${inst.name ?? inst.id} — rerun ${rerun.index} of ${artifact.k}`,
+              kind: "retest",
+              n: labels.size,
+              labels,
+            });
+            retestAvailable = true;
+          }
+        }
       } else {
         notes.push("this project has no corpus yet — import data to populate the matrix");
       }
-
-      // ---- test–retest: per-rerun stability outputs are not persisted (the
-      // stability route keeps only the summary α on the instrument), so
-      // retest sources cannot be read back. Say so instead of inventing them.
-      const retestAvailable = false;
-      notes.push(
-        "test–retest sources are unavailable: stability checks persist only the summary α "
-        + "(instrument.stability), not the per-rerun outputs",
-      );
 
       if (sources.length < 2) {
         notes.push("fewer than two comparable label sources on this corpus — run instruments, complete a gold set, or add coders");

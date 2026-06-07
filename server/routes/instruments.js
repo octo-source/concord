@@ -9,10 +9,12 @@
 //     remaining headroom rides into the loop as its capUSD;
 //   - cost roll-up: every runEphemeral/stability/silver/Director call adds to
 //     project.budget.spentUSD.
+import path from "node:path";
 import { ConcordError } from "../core/errors.js";
 import { sse } from "../router.js";
 import { createInstrument, versionInstrument, freeze as freezeInstrument } from "../core/objects.js";
 import { loadProject, updateProject } from "../core/store.js";
+import { newId } from "../core/ids.js";
 import * as ledger from "../core/ledger.js";
 import { checkBudget } from "../providers/costs.js";
 import * as engineMod from "../runs/engine.js";
@@ -24,10 +26,19 @@ import { seededSample } from "../director/director.js";
 import {
   findOr404, requireBody, pdirOf, readCorpusUnits, unitsById, readGoldset,
   goldLabelMap, agreementReport, statValue, finalsOf, addSpend, withDirectorSpend, round6,
+  writeJsonAtomic,
 } from "./_shared.js";
 
 function constructOf(project, instrument) {
   return findOr404(project.constructs, instrument.constructId, "construct");
+}
+
+// The persisted stability artifact: projects/<slug>/stability/<instrumentId>
+// .json — ONE per instrument (a newer check overwrites the older). Carries
+// the per-rerun labels the reliability route reads back as retest sources;
+// the summary on instrument.stability stays exactly as before.
+export function stabilityFile(slug, instrumentId) {
+  return path.join(pdirOf(slug), "stability", `${instrumentId}.json`);
 }
 
 async function corpusUnitsFor(project, corpusId) {
@@ -240,20 +251,55 @@ export default [
   },
   {
     // Test–retest stability. The module ledgers instrument.stability itself;
-    // the route persists the verdict onto the (unfrozen) instrument and rolls
-    // up the rerun cost.
+    // the route persists the verdict onto the (unfrozen) instrument, writes
+    // the per-rerun artifact (stabilityFile) and rolls up the rerun cost.
     method: "POST",
     pattern: "/api/projects/:p/instruments/:i/stability",
     handler: async (req, res, params) => {
       const project = await loadProject(params.p);
       const instrument = findOr404(project.instruments, params.i, "instrument");
       const body = req.body ?? {};
-      const units = await corpusUnitsFor(project, body.corpusId);
+      const corpusId = body.corpusId ?? project.corpora?.[0]?.id ?? null;
+      const units = await corpusUnitsFor(project, corpusId);
       const opts = {};
       if (body.k !== undefined) opts.k = body.k;
       if (body.n !== undefined) opts.n = body.n;
       const { alpha, pass, runs } = await stabilityMod.stabilityCheck(project, instrument, units, opts);
       await addSpend(params.p, runs.reduce((n, r) => n + (r.cost?.actualUSD ?? 0), 0));
+
+      // Persist the per-rerun labels so the reliability matrix can read the
+      // reruns back as retest:<instrumentId>:<index> sources. Same final-line
+      // filter as the stability module's own α data: panels keep only the
+      // aggregate verdict; flagged/no-label lines are missing data.
+      const finalJuror = instrument.kind === "panel" ? "aggregate" : null;
+      const unitIds = [];
+      const seenUnits = new Set();
+      const reruns = runs.map((run, i) => {
+        const labels = {};
+        for (const o of run.outputs ?? []) {
+          if (finalJuror !== null && o.juror !== finalJuror) continue;
+          if (!seenUnits.has(o.unitId)) {
+            seenUnits.add(o.unitId);
+            unitIds.push(o.unitId);
+          }
+          if (o.label === undefined || o.flagged) continue;
+          labels[o.unitId] = o.label;
+        }
+        return { index: i + 1, labels };
+      });
+      await writeJsonAtomic(stabilityFile(params.p, instrument.id), {
+        id: newId("st"),
+        instrumentId: instrument.id,
+        constructId: instrument.constructId,
+        corpusId,
+        k: runs.length,
+        n: unitIds.length,
+        alpha,
+        unitIds,
+        reruns,
+        createdAt: new Date().toISOString(),
+      });
+
       if (!instrument.frozen) {
         await updateProject(params.p, (p) => {
           const inst = (p.instruments ?? []).find((x) => x.id === params.i);

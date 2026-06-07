@@ -44,6 +44,46 @@ export function bandClass(value, stat = "κ") {
   return value >= hi ? "high" : value >= lo ? "mid" : "low";
 }
 
+/** "retest:<instrumentId>:<index>" → instrumentId, else null. */
+function retestInstrumentOf(key) {
+  const m = /^retest:(.+):(\d+)$/.exec(String(key ?? ""));
+  return m ? m[1] : null;
+}
+
+/** Per instrument with retest sources: {instrumentId, name, k, meanAlpha} —
+    meanAlpha is the mean of α over the pairs whose BOTH keys are reruns of
+    that instrument (null when no such pair carries a numeric α). */
+export function retestSummaries(sources, pairs) {
+  const byInst = new Map();
+  for (const s of sources ?? []) {
+    if (s.kind !== "retest") continue;
+    const instId = retestInstrumentOf(s.key);
+    if (!instId) continue;
+    let info = byInst.get(instId);
+    if (!info) {
+      byInst.set(instId, (info = {
+        instrumentId: instId,
+        name: String(s.label ?? "").replace(/\s*—\s*rerun \d+ of \d+$/, "") || instId,
+        k: 0,
+      }));
+    }
+    info.k += 1;
+  }
+  const out = [];
+  for (const info of byInst.values()) {
+    const alphas = (pairs ?? [])
+      .filter((p) => retestInstrumentOf(p.a) === info.instrumentId
+        && retestInstrumentOf(p.b) === info.instrumentId
+        && typeof p.alpha === "number" && !Number.isNaN(p.alpha))
+      .map((p) => p.alpha);
+    out.push({
+      ...info,
+      meanAlpha: alphas.length ? alphas.reduce((a, b) => a + b, 0) / alphas.length : null,
+    });
+  }
+  return out;
+}
+
 export function render(mount, params, query = {}) {
   asyncMount(mount, async () => {
     const project = await ensureProject(params.slug);
@@ -167,6 +207,12 @@ export function render(mount, params, query = {}) {
 
     if (sources.length >= 2) {
       const matrix = buildMatrix({ params, sources, pairOf, stat, statOf, panel, goldsetForConstruct });
+      // test–retest summary: one line per instrument with rerun rows — the
+      // mean α over its rerun-vs-rerun pairs (self-consistency, not validity)
+      const retestLines = retestSummaries(sources, pairs).map((r) =>
+        el("p", { class: "screen__hint" },
+          `Test–retest: mean rerun-vs-rerun α = ${fmtStat(r.meanAlpha)} across ${r.k} reruns of ${r.name}.`,
+          cite("krippendorff2004")));
       mount.append(section("The agreement matrix",
         el("p", { class: "screen__hint" },
           `Showing ${ordinal
@@ -174,6 +220,7 @@ export function render(mount, params, query = {}) {
             : "Cohen's κ — chance-corrected agreement for nominal labels"}`,
           cite(ordinal ? "krippendorff2004" : "cohen1960"),
           ". Raw agreement and n ride in each cell's subline."),
+        ...retestLines,
         el("div", { class: "relsplit" },
           el("div", { class: "relsplit__main" }, matrix),
           panel),

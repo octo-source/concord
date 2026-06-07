@@ -975,7 +975,8 @@ function actionRow(main, params, inst, { onPreviewed, previewScope = null, const
           " ",
           res.pass
             ? el("span", {}, "— the instrument gives the same labels when rerun on the same units. ", el("strong", {}, "Marked ◑ stabilized."))
-            : el("span", {}, "— below the .80 bar (Krippendorff's reliable threshold", cite("krippendorff2004"), "); the instrument changes its labels when rerun on the same units.")));
+            : el("span", {}, "— below the .80 bar (Krippendorff's reliable threshold", cite("krippendorff2004"), "); the instrument changes its labels when rerun on the same units."),
+          " Rerun-vs-rerun rows are now in Reliability for this construct."));
         if (res.pass) toast.success("Stability passed — instrument is ◑.", { detail: `α = ${fmtStat(res.alpha)}`, data: true });
         await refreshProject(params.slug).catch(() => {});
       } catch (err) {
