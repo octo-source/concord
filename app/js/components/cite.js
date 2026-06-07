@@ -36,7 +36,7 @@ export const CITATIONS = {
   },
   donner1992: {
     short: "Donner & Eliasziw 1992",
-    full: "Donner, A. & Eliasziw, M. (1992). Sample size requirements for reliability studies. Statistics in Medicine 11.",
+    full: "Donner, A. & Eliasziw, M. (1992). A goodness-of-fit approach to inference procedures for the kappa statistic: confidence interval construction, significance-testing and sample size estimation. Statistics in Medicine 11.",
   },
 };
 

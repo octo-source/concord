@@ -1,9 +1,11 @@
 // Reports — #/p/:slug/reports — what leaves the room. Three surfaces:
-//   Methods preview — the generated methods section, every sentence wearing a
-//     [ledger:…] citation chip whose hover shows the event it cites; one
-//     "Export of record" button downloads the .md.
-//   Replication archive — contents list, the includeGoldText decision stated
-//     honestly, download.
+//   Methods preview — the generated methods section (side-effect-free preview
+//     route: a screen visit never mints an export.methods ledger event),
+//     every sentence wearing a [ledger:…] citation chip whose hover shows the
+//     event it cites; one "Export of record" button performs the LEDGERED
+//     export and downloads the .md.
+//   Replication archive — contents list, the gold-verbatim decision a real
+//     checkbox whose state rides the download URL (?goldText=0), download.
 //   Report canvas — blocks (chart / table / quote / text / methods excerpt)
 //     assembled from project artifacts, reorderable, rendered to a standalone
 //     HTML file.
@@ -18,10 +20,25 @@ import { screenHead, section, asyncMount, ensureProject, emptyState, mdBlock, do
 export const route = "p/:slug/reports";
 export const title = "Reports";
 
+// Side-effect-free methods for screen rendering. Live mode hits the preview
+// route (NO export.methods ledger event); fixtures mode (detected the same
+// way the rest of this screen does) uses the patched api.exports.methods,
+// which is canned data with no ledger behind it.
+async function loadMethodsPreview(slug) {
+  if (typeof api.exports.replicationContents === "function") {
+    return api.exports.methods(slug);
+  }
+  const res = await fetch(`/api/projects/${encodeURIComponent(slug)}/exports/methods/preview`);
+  let envelope = null;
+  try { envelope = await res.json(); } catch { /* non-JSON body falls through */ }
+  if (envelope?.ok === true) return envelope.data;
+  throw new Error(envelope?.error?.message ?? `methods preview failed (HTTP ${res.status})`);
+}
+
 export function render(mount, params) {
   asyncMount(mount, async () => {
     const project = await ensureProject(params.slug);
-    const methods = await api.exports.methods(params.slug).catch((err) => ({ error: err }));
+    const methods = await loadMethodsPreview(params.slug).catch((err) => ({ error: err }));
     let replication = null;
     if (typeof api.exports.replicationContents === "function") {
       replication = await api.exports.replicationContents(params.slug).catch(() => null);
@@ -31,7 +48,7 @@ export function render(mount, params) {
     mount.append(screenHead({
       overline: "Reports",
       title: "Export the study.",
-      lede: "Three exports: a methods section generated from the ledger, a replication archive that recomputes every number outside Concord, and a standalone HTML report you assemble from blocks.",
+      lede: "Three exports: a methods section generated from the ledger, a replication archive that recomputes every corrected proportion outside Concord (corrected regression estimates ship as stored values), and a standalone HTML report you assemble from blocks.",
     }));
 
     /* ================= methods preview ================= */
@@ -58,9 +75,19 @@ export function render(mount, params) {
         el("div", { class: "methods__actions" },
           el("button", {
             class: "btn btn--primary", type: "button",
-            onclick: () => {
-              downloadText(`${params.slug}-methods.md`, methods.markdown ?? "", "text/markdown");
-              toast.success("Methods exported.", { detail: `${params.slug}-methods.md — every sentence keeps its ledger citation`, data: true });
+            // the screen renders the side-effect-free preview; the export of
+            // record is minted HERE, at the click — it appends export.methods
+            // to the ledger and downloads that ledgered text
+            onclick: async (e) => {
+              e.target.disabled = true;
+              try {
+                const record = await api.exports.methods(params.slug);
+                downloadText(`${params.slug}-methods.md`, record.markdown ?? "", "text/markdown");
+                toast.success("Methods exported.", { detail: `${params.slug}-methods.md — export.methods ledgered; every sentence keeps its citation`, data: true });
+              } catch (err) {
+                toast.error("Export of record failed.", { detail: String(err.message ?? err) });
+              }
+              e.target.disabled = false;
             },
           }, "Export of record (.md)"),
           el("span", { class: "faint data" }, `${(methods.citations ?? []).length} ledger citations`)),
@@ -69,33 +96,58 @@ export function render(mount, params) {
     mount.append(section("Methods — generated from the ledger", methodsHost));
 
     /* ================= replication archive ================= */
+    // the gold-verbatim decision is a REAL control: default checked (text
+    // ships), and the checkbox state rides the download URL as ?goldText=0
+    const goldState = { includeGoldText: true };
+    const goldToggle = () => el("label", { class: "switch repcard__toggle" },
+      el("input", {
+        type: "checkbox", checked: true,
+        onchange: (e) => { goldState.includeGoldText = e.target.checked; },
+      }),
+      el("span", {}, "Include gold-set verbatims"),
+      el("span", { class: "faint" }, " — gold rows include unit text by default; uncheck to ship labels/π only. License and PII review is yours."));
+
     const repHost = el("div", { class: "repcard" });
     if (!replication) {
       repHost.append(el("p", { class: "faint" },
-        "The replication archive builds server-side (zip stream). Contents: codebook, frozen instrument payloads incl. prompts, dictionaries, gold with π, outputs, agreement reports, analysis specs, and reproduce.R / reproduce.py that recompute every corrected estimate."));
-      repHost.append(downloadRow());
+        "The replication archive builds server-side (zip stream). Contents: codebook, frozen instrument payloads incl. prompts, dictionaries, gold with π, outputs, agreement reports, analysis specs, and reproduce.R / reproduce.py that recompute every corrected proportion outside Concord; corrected regression estimates ship as stored values in analyses/<id>.json."));
+      repHost.append(goldToggle(), downloadRow());
     } else {
-      let includeGoldText = false;
       repHost.append(
         el("ul", { class: "repfiles", role: "list" },
           ...(replication.files ?? []).map((f) =>
             el("li", { class: "repfile" },
               el("code", { class: "data repfile__path" }, f.path),
               el("span", { class: "repfile__note faint" }, f.note)))),
-        el("label", { class: "switch repcard__toggle" },
-          el("input", { type: "checkbox", onchange: (e) => { includeGoldText = e.target.checked; } }),
-          el("span", {}, "Include gold-set verbatims"),
-          el("span", { class: "faint" }, ` — ${replication.goldTextNote ?? "license and PII review is yours."}`)),
+        goldToggle(),
         downloadRow(replication.sizeApprox),
       );
     }
     mount.append(section("Replication archive", repHost));
 
+    function downloadReplication() {
+      // fixtures mode has no zip stream behind the button — keep its notice
+      if (typeof api.exports.replicationContents === "function") {
+        api.exports.download(params.slug, "replication");
+        return;
+      }
+      const url = api.exports.replicationUrl(params.slug) + (goldState.includeGoldText ? "" : "?goldText=0");
+      const a = document.createElement("a");
+      a.href = url;
+      a.download = "";
+      document.body.append(a);
+      a.click();
+      a.remove();
+      toast.success("Replication archive downloading.", {
+        detail: goldState.includeGoldText ? "gold rows include unit text" : "goldText=0 — labels/π only, no unit text", data: true,
+      });
+    }
+
     function downloadRow(sizeApprox) {
       return el("p", { class: "repcard__dl" },
         el("button", {
           class: "btn", type: "button",
-          onclick: () => api.exports.download(params.slug, "replication"),
+          onclick: () => downloadReplication(),
         }, "Download zip"),
         sizeApprox ? el("span", { class: "faint data" }, ` ~${sizeApprox}`) : null);
     }
@@ -134,7 +186,7 @@ const BLOCK_TYPES = [
   { kind: "table", label: "Table", hint: "a computed analysis, tabulated" },
   { kind: "quote", label: "Quote", hint: "a verbatim, with its source line" },
   { kind: "text", label: "Text", hint: "your prose" },
-  { kind: "methods-excerpt", label: "Methods excerpt", hint: "a section of the generated methods" },
+  { kind: "methods-excerpt", label: "Methods excerpt", hint: "the full generated methods document" },
 ];
 
 // A human label for a persisted block. chart/table/methods carry a title;
@@ -305,7 +357,9 @@ async function renderReport(params, project) {
 
   let methodsMd = "";
   try {
-    const m = await api.exports.methods(params.slug);
+    // the local draft is a preview surface — render through the
+    // side-effect-free path, never minting an export-of-record event
+    const m = await loadMethodsPreview(params.slug);
     methodsMd = m.markdown ?? "";
   } catch { /* methods optional */ }
 

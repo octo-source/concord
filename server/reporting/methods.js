@@ -42,6 +42,22 @@ const LEVEL_SENTENCES = {
   corrected: "Estimates are corrected for machine misclassification against designed human gold labels",
 };
 
+// The corrected one-liner hedges for uncertainty-targeted gold designs, whose
+// recorded π are nominal n/N over a deterministic ranking — not a probability
+// design, so the design-based unbiasedness guarantee does not transfer.
+function levelSentence(level, goldset) {
+  if (level === "corrected" && goldset?.design === "uncertainty") {
+    return "Estimates are corrected for machine misclassification against human gold labels from an uncertainty-targeted sample; the design-based unbiasedness guarantee does not apply";
+  }
+  return LEVEL_SENTENCES[level] ?? LEVEL_SENTENCES.exploratory;
+}
+
+// Providers whose ADAPTERS actually transmit a seed parameter on the wire:
+// openai (body.seed), openrouter (inherits the openai body), ollama
+// (options.seed) and mock (the seed feeds its deterministic stream).
+// anthropic exposes no seed parameter — a recorded seed is metadata only.
+const SEED_TRANSMITTING_PROVIDERS = new Set(["openai", "openrouter", "ollama", "mock"]);
+
 function fail(message, details = {}) {
   throw new ConcordError("VALIDATION", message, details);
 }
@@ -285,9 +301,14 @@ async function compose(project, analysisId, { projectDir } = {}, mode) {
     } else {
       sentences.push(s("The codebook entry was authored by the research team", created ?? edited));
     }
-    // "As frozen" is earned only when the measuring instrument is actually
-    // frozen; otherwise the entry is simply the state recorded at export time.
-    sentences.push(s(`${instrument?.frozen ? "As frozen for this analysis" : "As recorded at export time"}, the entry specifies ${count(construct.criteria?.include?.length ?? 0, "inclusion criterion", "inclusion criteria")}, ${count(construct.criteria?.exclude?.length ?? 0, "exclusion criterion", "exclusion criteria")}, ${count(construct.edgeCases?.length ?? 0, "documented edge case")} and ${count(construct.examples?.length ?? 0, "worked example")}`, anchorEvent));
+    // Constructs are never frozen: even a frozen instrument's prompt slots
+    // are filled from the LIVE construct at call time, so the entry is always
+    // the state recorded at export time. (A construct snapshot taken at
+    // instrument freeze is roadmap; until then the gap is disclosed below.)
+    sentences.push(s(`As recorded at export time, the entry specifies ${count(construct.criteria?.include?.length ?? 0, "inclusion criterion", "inclusion criteria")}, ${count(construct.criteria?.exclude?.length ?? 0, "exclusion criterion", "exclusion criteria")}, ${count(construct.edgeCases?.length ?? 0, "documented edge case")} and ${count(construct.examples?.length ?? 0, "worked example")}`, anchorEvent));
+    if (instrument?.frozen) {
+      sentences.push(s(`The instrument freeze versions the prompt template, not the codebook entry: these counts read the live construct rather than a snapshot "As frozen for this analysis", which Concord does not yet take`, anchorEvent));
+    }
     para(...sentences);
   }
 
@@ -297,29 +318,46 @@ async function compose(project, analysisId, { projectDir } = {}, mode) {
     const sampled = find("goldset.sampled", goldset.id) ?? find("goldset.created", goldset.id);
     const labelEv = find("goldset.label", goldset.id);
     const adjudicatedEv = find("goldset.adjudicated", goldset.id);
-    const nGold = goldset.sample?.length ?? 0;
-    const pis = (goldset.sample ?? []).map((x) => x.pi).filter((p) => typeof p === "number");
+    // hand-queued rows ({pi: null, queued: true}) are NOT design-sampled and
+    // never enter the corrected estimators — report them separately, never
+    // inside the design-sample n
+    const sampleRows = goldset.sample ?? [];
+    const designRows = sampleRows.filter((x) => typeof x.pi === "number" && Number.isFinite(x.pi));
+    const queuedN = sampleRows.length - designRows.length;
+    const nGold = designRows.length;
+    const pis = designRows.map((x) => x.pi);
     const piMin = Math.min(...pis);
     const piMax = Math.max(...pis);
     const design = DESIGN_PHRASES[goldset.design] ?? `a ${goldset.design} sample`;
     const strata = goldset.strata?.by ? ` stratified by ${inline(goldset.strata.by)}` : "";
     const sentences = [];
-    sentences.push(s(`A gold-standard validation sample of n = ${nGold} units was drawn as ${design}${strata}`, sampled));
+    sentences.push(s(queuedN > 0
+      ? `A gold-standard validation sample of n = ${nGold} design-sampled units (π recorded) was drawn as ${design}${strata}, plus ${count(queuedN, "hand-queued unit")} excluded from the corrected estimators`
+      : `A gold-standard validation sample of n = ${nGold} units was drawn as ${design}${strata}`, sampled));
     if (pis.length > 0) {
       const piText = piMax - piMin < 1e-12
         ? `π = ${fmt(piMin, 3)} for every sampled unit`
         : `π ranging from ${fmt(piMin, 3)} to ${fmt(piMax, 3)} across strata`;
-      sentences.push(s(`Unit inclusion probabilities were fixed by the design and recorded at sampling time (${piText})`, sampled));
+      // uncertainty targeting records π as nominal n/N over a deterministic
+      // ranking — that is not a probability design, and the prose must not
+      // claim design-fixed inclusion probabilities for it
+      sentences.push(s(goldset.design === "uncertainty"
+        ? `Unit inclusion probabilities were recorded as nominal n/N over a deterministic uncertainty ranking (${piText}); the design-based unbiasedness guarantee does not apply`
+        : `Unit inclusion probabilities were fixed by the design and recorded at sampling time (${piText})`, sampled));
     }
     const coders = goldset.coders ?? [];
     if (coders.length > 0) {
       // the blind flags record blindness to machine labels and to the other
-      // coders' labels — claim exactly that, no enforcement-mechanism claims
+      // coders' labels; the structural claim is about the INTERFACE — the
+      // blind /next route serves coders no machine labels and no co-coder
+      // labels — not about what a coder might have seen elsewhere
       const blind = coders.every((c) => c.blind);
-      sentences.push(s(`${count(coders.length, "human coder")} labeled the sample independently${blind ? ", blind to machine labels and to each other's labels" : ""}`, labelEv ?? sampled));
+      sentences.push(s(`${count(coders.length, "human coder")} labeled the sample independently${blind ? "; labels were collected through Concord's blind coding interface, which serves coders no machine labels and no co-coder labels, so each coder was blind to machine labels and to each other's labels" : ""}`, labelEv ?? sampled));
     }
     if (goldset.adjudicated) {
-      sentences.push(s("Coder disagreements were resolved by adjudication, and the adjudicated labels constitute the gold standard used below", adjudicatedEv ?? anchorEvent));
+      // matches the gold assembly rule: explicit adjudications win, and units
+      // where at least two coders agreed unanimously carry the consensus label
+      sentences.push(s("Coder disagreements were resolved by adjudication, and the adjudicated labels, together with units where at least two coders agreed unanimously, constitute the gold standard used below", adjudicatedEv ?? anchorEvent));
     }
     para(...sentences);
   }
@@ -341,7 +379,9 @@ async function compose(project, analysisId, { projectDir } = {}, mode) {
     const blindCoders = (goldset?.coders ?? []).length > 0 && goldset.coders.every((c) => c.blind);
     const bits = [];
     if (typeof ha.percent === "number") bits.push(`raw agreement of ${fmtPct(ha.percent)}`);
-    if (typeof ha.kappa === "number") bits.push(`Cohen's kappa = ${fmt(ha.kappa)}`);
+    // ordinal constructs are scored with linear weights (agreementReport
+    // passes weighted: "linear") — name the statistic that was computed
+    if (typeof ha.kappa === "number") bits.push(`${construct?.type === "ordinal" ? "linear-weighted Cohen's kappa" : "Cohen's kappa"} = ${fmt(ha.kappa)}`);
     if (typeof ha.alpha === "number") bits.push(`Krippendorff's alpha = ${fmt(ha.alpha)}${fmtCI(ha.ci) ? `, 95% CI ${fmtCI(ha.ci)} (${ha.ci.method ?? "bootstrap"})` : ""}`);
     const sentences = [
       s(orderProven
@@ -395,8 +435,25 @@ async function compose(project, analysisId, { projectDir } = {}, mode) {
           typeof params.temperature === "number" ? `temperature ${params.temperature}` : "a temperature that was not recorded",
           typeof params.maxTokens === "number" ? `a maximum of ${params.maxTokens} output tokens` : "an output-token maximum that was not recorded",
         ];
-        if (params.seed !== undefined) decode.push(`a fixed seed of ${params.seed}`);
+        // "a fixed seed" is earned only when every serving adapter actually
+        // transmits the seed parameter; otherwise the seed is a recorded
+        // intention the provider never saw, and the prose must say so
+        const seedProviders = [...new Set(jurors.map((j) => j?.provider).filter(Boolean))];
+        const seedNonTransmitting = seedProviders.filter((pr) => !SEED_TRANSMITTING_PROVIDERS.has(pr));
+        if (params.seed !== undefined && seedProviders.length > 0 && seedNonTransmitting.length === 0) {
+          decode.push(`a fixed seed of ${params.seed}`);
+        }
         sentences.push(s(`Decoding used ${decode.join(", ")}`, compiledEv ?? createdEv));
+        if (params.seed !== undefined && (seedProviders.length === 0 || seedNonTransmitting.length > 0)) {
+          const transmitting = seedProviders.filter((pr) => SEED_TRANSMITTING_PROVIDERS.has(pr));
+          const plural = (list) => (list.length > 1 ? "do" : "does");
+          const text = seedProviders.length === 0
+            ? `A seed of ${params.seed} was recorded, but no serving provider was recorded, so whether the seed was transmitted is unknown`
+            : transmitting.length === 0
+              ? `A seed of ${params.seed} was recorded; ${seedNonTransmitting.map(inline).join(", ")} ${plural(seedNonTransmitting)} not accept a seed parameter, so the seed was not transmitted with the calls`
+              : `A seed of ${params.seed} was recorded; it was transmitted to ${transmitting.map(inline).join(", ")}, while ${seedNonTransmitting.map(inline).join(", ")} ${plural(seedNonTransmitting)} not accept a seed parameter`;
+          sentences.push(s(text, compiledEv ?? createdEv));
+        }
       }
       // "injected verbatim" only when every juror's template actually carries
       // all three codebook slots
@@ -418,7 +475,17 @@ async function compose(project, analysisId, { projectDir } = {}, mode) {
     }
     sentences.push(s("The complete instrument specification, including the full prompt text where applicable, is available in the replication archive export accompanying this report", anchorEvent));
     if (instrument.silver?.iterations?.length) {
-      sentences.push(s(`Before any human validation, the instrument was tuned against ${silverset?.sample?.length ?? "a sample of"} Director-labeled silver units over ${count(instrument.silver.iterations.length, "iteration")}, reaching agreement of ${fmt(instrument.silver.iterations.at(-1).agreement)}`, silverEv ?? createdEv));
+      // "Before any human validation" is claimed only when the ledger proves
+      // the order: the latest silver-tune event must precede every human
+      // gold-labeling event (same pattern as the agreement-order proof)
+      const HUMAN_VALIDATION_TYPES = new Set(["goldset.label", "goldset.adjudicated"]);
+      const silverIdx = silverEv ? events.indexOf(silverEv) : -1;
+      const firstHumanIdx = events.findIndex((e) => HUMAN_VALIDATION_TYPES.has(e.type));
+      const tunedFirst = silverIdx !== -1 && (firstHumanIdx === -1 || silverIdx < firstHumanIdx);
+      const tuned = `the instrument was tuned against ${silverset?.sample?.length ?? "a sample of"} Director-labeled silver units over ${count(instrument.silver.iterations.length, "iteration")}, reaching agreement of ${fmt(instrument.silver.iterations.at(-1).agreement)}`;
+      sentences.push(s(tunedFirst
+        ? `Before any human validation, ${tuned}`
+        : `${tuned.charAt(0).toUpperCase()}${tuned.slice(1)}; the ledger does not establish whether tuning preceded human validation`, silverEv ?? createdEv));
     }
     if (instrument.stability) {
       sentences.push(s(`A ${instrument.stability.k}-run test-retest stability check on ${instrument.stability.n} units yielded alpha = ${fmt(instrument.stability.alpha)}`, stabilityEv ?? anchorEvent));
@@ -426,12 +493,28 @@ async function compose(project, analysisId, { projectDir } = {}, mode) {
     if (instrument.frozen) {
       sentences.push(s(`The instrument was frozen as version ${instrument.version} with content hash ${instrument.versionHash.slice(0, 12)}…, so any subsequent edit forks a new version rather than altering the version reported here`, frozenEv ?? anchorEvent));
     }
-    // pinning is the RUN's recorded fact, not the certificate's promise
+    // Pinning is the RUN's recorded fact — and run.pinned records only that a
+    // snapshot string was RECORDED for every juror. No adapter transmits the
+    // snapshot to the provider (ollama records a digest while calling a
+    // mutable tag), so the prose claims recording, never verified serving.
     if (run) {
       const runStartedEv = find("run.started", run.id);
-      sentences.push(s(run.pinned
-        ? "The model snapshot was pinned for every call in this run"
-        : "The run did not pin a model snapshot; the recorded snapshot string identifies the model as served at run time, and this limitation should be weighed when interpreting reproducibility", runStartedEv ?? anchorEvent));
+      if (run.pinned && instrument.kind === "dictionary") {
+        sentences.push(s("The dictionary instrument executed locally with no model call; the run records the instrument version hash as its snapshot, pinned for every call in this run", runStartedEv ?? anchorEvent));
+      } else if (run.pinned) {
+        const jurorList = instrument.kind === "panel" ? (p.jurors ?? []) : [p];
+        const snaps = [...new Set(jurorList.map((j) => j?.snapshot).filter((x) => typeof x === "string" && x.length > 0))];
+        const everyRecorded = jurorList.length > 0 && jurorList.every((j) => typeof j?.snapshot === "string" && j.snapshot.length > 0);
+        if (everyRecorded) {
+          sentences.push(s(`A model snapshot identifier was recorded for every juror (${snaps.map(inline).join(", ")}) and is reported as pinned for every call in this run; Concord records but does not verify that the provider served ${snaps.length === 1 ? "that snapshot" : "those snapshots"}`, runStartedEv ?? anchorEvent));
+        } else if (typeof run.snapshot === "string" && run.snapshot) {
+          sentences.push(s(`A model snapshot identifier was recorded (${inline(run.snapshot)}) and is reported as pinned for every call in this run; Concord records but does not verify that the provider served that snapshot`, runStartedEv ?? anchorEvent));
+        } else {
+          sentences.push(s("The run reports its model snapshot as pinned for every call in this run, but no snapshot identifier was recorded; this gap should be weighed when interpreting reproducibility", runStartedEv ?? anchorEvent));
+        }
+      } else {
+        sentences.push(s("The run did not pin a model snapshot; the recorded snapshot string identifies the model as served at run time, and this limitation should be weighed when interpreting reproducibility", runStartedEv ?? anchorEvent));
+      }
     }
     para(...sentences);
   }
@@ -483,19 +566,26 @@ async function compose(project, analysisId, { projectDir } = {}, mode) {
       const progress = typeof done === "number" && typeof total === "number"
         ? `completing ${done} of ${total} units`
         : "with completion counts not recorded";
+      // costs are token counts metered from responses, priced from a STATIC
+      // rate table (anthropic rates are estimate-grade; unknown models meter
+      // $0) — never a provider-billed amount, so say what the number is
       const cost = typeof run.cost?.actualUSD === "number"
-        ? `at a metered cost of $${fmt(run.cost.actualUSD, 2)}`
+        ? `at a cost of $${fmt(run.cost.actualUSD, 2)} (metered token counts priced at estimate-grade static rates)`
         : "with no metered cost recorded";
       sentences.push(s(`The instrument was applied to the corpus in run ${run.id}, ${progress}, ${cost}`, completedEv ?? startedEv ?? anchorEvent));
-      // escalations are methodologically material: say how many, what an
-      // escalation is, and which Director model gave the second opinion
+      // escalations are methodologically material: say how many, what the
+      // predicate is (engine: low confidence, panel entropy, schema repair,
+      // atypical length), and whether a Director gave a second opinion — a
+      // run without a configured Director records flags, nothing more
       const escN = run.escalation?.count;
       if (typeof escN === "number" && escN > 0) {
         const dm = run.escalation?.directorModel;
-        sentences.push(s(`${count(escN, "unit")} ${escN === 1 ? "was" : "were"} escalated: the primary judgment was flagged (for low confidence, panel disagreement or schema repair) and replaced by a second opinion from the Director model (${dm ? inline(dm) : "not recorded"}), so escalated units carry the Director's verdict rather than a single primary judgment`, completedEv ?? anchorEvent));
+        sentences.push(s(dm
+          ? `${count(escN, "unit")} ${escN === 1 ? "was" : "were"} escalated: the primary judgment was flagged by the escalation predicate (low confidence, panel disagreement, schema repair, or unusually long text) and judged again by the Director model (${inline(dm)}); on disagreement the Director's verdict replaced the primary judgment`
+          : `${count(escN, "unit")} ${escN === 1 ? "was" : "were"} escalated: the primary judgment was flagged by the escalation predicate (low confidence, high entropy, schema repair, or unusually long text); the run names no Director model (not recorded), so flags carry no second opinion and escalated units keep the primary judgment`, completedEv ?? anchorEvent));
       }
       if (run.quarantine?.length > 0) {
-        sentences.push(s(`${run.quarantine.length} units failed schema validation after constrained repair and were quarantined rather than silently dropped`, completedEv ?? anchorEvent));
+        sentences.push(s(`${count(run.quarantine.length, "unit")} failed structured-output enforcement (schema validation after constrained repair, provider refusal, or truncation) and ${run.quarantine.length === 1 ? "was" : "were"} quarantined rather than silently dropped`, completedEv ?? anchorEvent));
       }
     }
     para(...sentences);
@@ -513,14 +603,22 @@ async function compose(project, analysisId, { projectDir } = {}, mode) {
     const design = DESIGN_PHRASES[goldset?.design] ?? "a designed gold sample";
     const sentences = [];
     sentences.push(s(`Population estimates were corrected for machine misclassification with ${estimatorName}, combining the machine labels on every unit with the adjudicated gold labels on ${design} whose inclusion probabilities were recorded at sampling time (Egami, Hinck, Stewart, and Wei 2023; Angelopoulos, Bates, Fannjiang, Jordan and Zrnic 2023)`, analysisEv));
+    if (goldset?.design === "uncertainty") {
+      sentences.push(s("The gold sample was uncertainty-targeted: its recorded inclusion probabilities are nominal n/N over a deterministic uncertainty ranking, so the design-based unbiasedness guarantee of this estimator does not apply", analysisEv));
+    }
     sentences.push(s("For each estimand the gold-corrected pseudo-outcome replaces the raw machine label in the usual moment condition, and sandwich standard errors with normal-quantile 95% confidence intervals are reported", analysisEv));
     sentences.push(s("The uncorrected naive estimate is reported beside every corrected value, never instead of it", analysisEv));
     if (results.diff && typeof results.diff.est === "number") {
       const d = results.diff;
       sentences.push(s(`The corrected ${inline(results.outcome ?? "outcome")} difference between ${inline(d.a)} and ${inline(d.b)} was ${fmt(d.est, 3)} (SE ${fmt(d.se, 3)}), 95% CI [${fmt(d.ciLo, 3)}, ${fmt(d.ciHi, 3)}], against a naive difference of ${fmt(d.naive?.est, 3)}`, analysisEv));
     } else if (Array.isArray(results.cells) && results.cells[0] && typeof results.cells[0].est === "number") {
+      // the naive companion rides the per-cell sentence too — the promise two
+      // sentences up ("beside every corrected value") must hold right here
       const c = results.cells[0];
-      sentences.push(s(`The corrected estimate for ${inline(String(c.group))} was ${fmt(c.est, 3)} (SE ${fmt(c.se, 3)}), 95% CI [${fmt(c.ciLo, 3)}, ${fmt(c.ciHi, 3)}]`, analysisEv));
+      const naiveBit = c.naive && typeof c.naive.est === "number"
+        ? `, against a naive estimate of ${fmt(c.naive.est, 3)}`
+        : ", with no naive companion recorded";
+      sentences.push(s(`The corrected estimate for ${inline(String(c.group))} was ${fmt(c.est, 3)} (SE ${fmt(c.se, 3)}), 95% CI [${fmt(c.ciLo, 3)}, ${fmt(c.ciHi, 3)}]${naiveBit}`, analysisEv));
     }
     sentences.push(s(`This analysis carries the ${levelName} (${mark}) evidence mark, the highest level on Concord's evidence ladder`, analysisEv));
     para(...sentences);
@@ -530,7 +628,7 @@ async function compose(project, analysisId, { projectDir } = {}, mode) {
     para(
       s("No statistical correction was applied to the reported estimates", analysisEv),
       s(`This analysis carries the ${levelName} (${mark}) evidence mark`, analysisEv),
-      s(LEVEL_SENTENCES[analysis.level] ?? LEVEL_SENTENCES.exploratory, anchorEvent)
+      s(levelSentence(analysis.level, goldset), anchorEvent)
     );
   }
 

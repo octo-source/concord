@@ -1,10 +1,12 @@
 // Exports: the methods section of record (methods.generate — it ledgers
-// export.methods itself), the replication archive (zip stream; module ledgers
-// export.replication), and the standalone report HTML (which renders methods
-// excerpts through the side-effect-free preview path).
+// export.methods itself), the side-effect-free methods PREVIEW (no ledger
+// event; what the Reports screen renders on every visit), the replication
+// archive (zip stream; module ledgers export.replication; ?goldText=0 ships
+// gold labels/π without unit text), and the standalone report HTML (which
+// renders methods excerpts through the side-effect-free preview path).
 import { ConcordError } from "../core/errors.js";
 import { loadProject } from "../core/store.js";
-import { generate as generateMethods } from "../reporting/methods.js";
+import { generate as generateMethods, generatePreview as generateMethodsPreview } from "../reporting/methods.js";
 import { build as buildReplication } from "../reporting/replication.js";
 import { render as renderReport } from "../reporting/report.js";
 import { pdirOf } from "./_shared.js";
@@ -34,12 +36,28 @@ export default [
     },
   },
   {
+    // Same prose as the export of record, NO ledger append: screens render
+    // this on mount so a visit can never mint an export.methods event.
+    method: "GET",
+    pattern: "/api/projects/:p/exports/methods/preview",
+    handler: async (req, res, params) => {
+      const project = await loadProject(params.p);
+      const ids = analysisIdsFrom(req, project);
+      const analysisId = req.query.analysisId ?? ids[ids.length - 1];
+      const { markdown, citations } = await generateMethodsPreview(project, analysisId, { projectDir: pdirOf(params.p) });
+      return { analysisId, markdown, citations };
+    },
+  },
+  {
     method: "GET",
     pattern: "/api/projects/:p/exports/replication",
     handler: async (req, res, params) => {
       const project = await loadProject(params.p);
       const ids = analysisIdsFrom(req, project);
-      const { zipBuffer } = await buildReplication(project, ids, { projectDir: pdirOf(params.p) });
+      // gold verbatims ship by default; ?goldText=0 ships labels/π only —
+      // the researcher owns the license/PII call, the route owns the wiring
+      const includeGoldText = !["0", "false"].includes(String(req.query.goldText ?? "").toLowerCase());
+      const { zipBuffer } = await buildReplication(project, ids, { projectDir: pdirOf(params.p), includeGoldText });
       res.writeHead(200, {
         "content-type": "application/zip",
         "content-disposition": `attachment; filename="${project.slug}-replication.zip"`,

@@ -17,10 +17,15 @@ export const routes = ["settings", "p/:slug/settings"];
 export const title = "Settings";
 
 const PRIVACY_ORDER = { open: 0, "no-training": 1, strict: 2 };
+// Copy states exactly what the adapter gate enforces. The registry carries a
+// justification-override capability for no-training, but no product surface
+// reaches it in v1 (roadmap) — so the copy must not promise an override path.
+// Strict mode gates PROJECT TEXT, not all network: provider model-catalog
+// fetches (model lists, no project data) still happen.
 const PRIVACY_DESC = {
   open: "Any configured backend may read project text.",
-  "no-training": "Only backends with contractual no-training terms, plus local models. Overrides require a logged justification.",
-  strict: "Network adapters are disabled app-wide. Everything — including the Director — runs locally.",
+  "no-training": "Only backends with contractual no-training terms, plus local models.",
+  strict: "Only local backends (Ollama, mock) can receive this project's text — including the Director. Provider model-catalog fetches (model lists, no project data) still occur.",
 };
 
 // Mirror of the server registry's privacy gates (server/providers/registry.js)
@@ -33,7 +38,9 @@ function privacyBlocks(mode, provider) {
     return `strict mode only allows local models (mock, ollama), not ${provider}.`;
   }
   if (mode === "no-training" && !NO_TRAINING_ALLOWED.has(provider)) {
-    return `no-training mode blocks ${provider} (no contractual no-training terms) unless a justification is logged. Switch the project to open, or use anthropic/openai/local.`;
+    // (the registry's logged-justification override is unreachable in v1
+    // product code — do not advertise it; roadmap)
+    return `no-training mode blocks ${provider} (no contractual no-training terms). Switch the project to open, or use anthropic/openai/local.`;
   }
   return null;
 }
@@ -99,7 +106,7 @@ export function render(mount, params) {
               el("td", {}, (() => { const b = modelpicker.capBadges(m); return b.length ? b : "—"; })()),
               el("td", { class: "data settings__snapshot" }, m.snapshot ?? "—")))))),
       el("p", { class: "screen__hint faint" },
-        "Parameter support varies by model; unsupported settings are ignored by the provider.")));
+        "Parameter support varies by model; unsupported settings may be ignored or rejected by the provider — a rejected call pauses the run with the provider's error.")));
 
     /* ---- Director slot — a PROJECT field, saved via PUT /api/settings
        {project: {slug, director}} (no global Director exists) ---- */
@@ -196,10 +203,13 @@ export function render(mount, params) {
 // via PUT /api/settings {keys: {name: <key>}} → response keys[name].apiKey.
 function providerCard(name, entry, reachable) {
   const local = LOCAL_PROVIDERS.has(name);
+  // three states, matching the visual: ok dot = reachable, down dot = a
+  // definite refusal, no dot = the probe could not answer (status unknown) —
+  // the aria text must never claim "not reachable" for an unanswered probe
   const dot = el("span", {
     class: `status-dot ${reachable === true ? "status-dot--ok" : reachable === false ? "status-dot--down" : ""}`,
     role: "img",
-    aria: { label: `${name} ${reachable === true ? "reachable" : "not reachable"}` },
+    aria: { label: `${name} ${reachable === true ? "reachable" : reachable === false ? "not reachable" : "status unknown"}` },
   });
   const keyHost = el("div", { class: "provcard__key" });
 
@@ -289,7 +299,7 @@ function privacyEditor(params, project) {
     }, `Change to ${next}`);
     s.body.append(
       el("p", {}, `From `, el("strong", {}, mode), ` to `, el("strong", {}, next), `. ${PRIVACY_DESC[next]}`),
-      el("p", { class: "screen__hint" }, "Loosening privacy means backends that could not see this corpus now can. The change is written to the project ledger with your confirmation — it will appear in the methods audit trail."),
+      el("p", { class: "screen__hint" }, "Loosening privacy means backends that could not see this corpus now can. The change is written to the project ledger (privacy.mode_changed) with your confirmation."),
       el("label", { class: "switch" }, checkbox, el("span", {}, "I understand what this exposes, and I want the change recorded.")),
     );
     s.foot.append(
