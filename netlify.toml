@@ -1,0 +1,5 @@
+# Concord demo deployment: the static app only (fixtures mode turns on
+# automatically off-localhost — see app/js/fixtures.js fixturesEnabled).
+# The Node server, project data, and API keys never deploy.
+[build]
+  publish = "app"

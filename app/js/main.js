@@ -571,6 +571,10 @@ async function boot() {
     try {
       await installFixtures();
       console.info("concord: fixtures mode — api resolves from app/fixtures/*.json");
+      // a public/static deployment must say what it is: sample data, no
+      // model calls, nothing saved
+      document.body.prepend(el("div", { class: "demobanner", role: "note" },
+        "Demo — sample data only. Nothing is saved and no model is called. Run Concord locally for real projects."));
     } catch (err) {
       console.error("fixtures failed to install", err);
       toast.error("Fixtures failed to load.", { detail: String(err.message ?? err) });

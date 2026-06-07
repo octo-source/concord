@@ -236,3 +236,18 @@ kbd {
   .app-topbar, .app-rail, .app-inspector, .toast-shelf, .skip-link { display: none !important; }
   .app-work { overflow: visible; }
 }
+
+/* ---- static-demo banner ----------------------------------------------------
+   Shown only in fixtures mode (main.js boot): sample data, no server,
+   nothing saved. Fixed to the bottom so the shell grid is untouched. */
+.demobanner {
+  position: fixed;
+  inset: auto 0 0 0;
+  z-index: 200;
+  padding: 0.4rem 1rem;
+  text-align: center;
+  font-size: var(--fs-caption);
+  background: var(--ground);
+  color: var(--ink-muted);
+  border-top: 1px solid var(--rule-color-strong);
+}

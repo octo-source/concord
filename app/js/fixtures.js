@@ -28,6 +28,11 @@ let db = null; // in-memory clone of all fixture JSON, mutable for the session
 
 export function fixturesEnabled() {
   try {
+    // The Concord server only ever runs on localhost. Any other host is a
+    // static deployment (e.g. the Netlify demo) — there is no API to call,
+    // so fixtures mode is always on there.
+    const host = location.hostname;
+    if (host && host !== "localhost" && host !== "127.0.0.1" && host !== "[::1]") return true;
     const q = String(location.hash).split("?")[1] ?? "";
     if (/(^|&)fixtures=1(&|$)/.test(q)) {
       localStorage.setItem("concordFixtures", "1");
