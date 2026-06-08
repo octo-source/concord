@@ -12,7 +12,7 @@ import { ConcordError } from "../core/errors.js";
 import { sse } from "../router.js";
 import { loadProject } from "../core/store.js";
 import { generateBrief } from "../director/brief.js";
-import { findOr404, withDirectorSpend, pdirOf, readJsonFile } from "./_shared.js";
+import { findOr404, withDirectorSpend, pdirOf, readJsonFile, safeId } from "./_shared.js";
 
 export default [
   {
@@ -20,6 +20,7 @@ export default [
     pattern: "/api/projects/:p/briefs/:bid",
     handler: async (req, res, params) => {
       await loadProject(params.p); // unknown project → 404 before any file read
+      safeId(params.bid, "brief"); // never let a traversal id reach the path
       const brief = await readJsonFile(path.join(pdirOf(params.p), "briefs", `${params.bid}.json`));
       if (!brief) throw new ConcordError("NOT_FOUND", `brief '${params.bid}' not found`, { briefId: params.bid });
       return brief;

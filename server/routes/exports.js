@@ -9,7 +9,7 @@ import { loadProject } from "../core/store.js";
 import { generate as generateMethods, generatePreview as generateMethodsPreview } from "../reporting/methods.js";
 import { build as buildReplication } from "../reporting/replication.js";
 import { render as renderReport } from "../reporting/report.js";
-import { pdirOf } from "./_shared.js";
+import { pdirOf, safeId } from "./_shared.js";
 
 function analysisIdsFrom(req, project, { required = true } = {}) {
   const q = req.query.analyses ?? req.query.analysisId ?? req.query.analysisIds;
@@ -19,6 +19,9 @@ function analysisIdsFrom(req, project, { required = true } = {}) {
   if (ids.length === 0 && required) {
     throw new ConcordError("VALIDATION", "this project has no analyses yet — create one before exporting", {});
   }
+  // a query-supplied id becomes analyses/<id>.json inside the bundle — reject
+  // traversal before it reaches loadAnalysis (project-derived ids are already safe)
+  for (const id of ids) safeId(id, "analysis");
   return ids;
 }
 

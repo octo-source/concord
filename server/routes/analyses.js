@@ -18,7 +18,7 @@ import { cohenKappa } from "../stats/agreement.js";
 import {
   findOr404, requireBody, pdirOf, readCorpusUnits, readGoldset, goldLabelMap, piMap,
   writeJsonAtomic, readJsonFile, labelKey, statValue, round6,
-  readNdjson, runOutputsFile,
+  readNdjson, runOutputsFile, safeId,
 } from "./_shared.js";
 import { finalJurorOfRun } from "../runs/engine.js";
 import path from "node:path";
@@ -596,6 +596,7 @@ export default [
     pattern: "/api/projects/:p/analyses/:id",
     handler: async (req, res, params) => {
       await loadProject(params.p); // unknown project → 404 before any file read
+      safeId(params.id, "analysis"); // never let a traversal id reach the path
       const analysis = await readJsonFile(path.join(pdirOf(params.p), "analyses", `${params.id}.json`));
       if (!analysis) {
         throw new ConcordError("NOT_FOUND", `analysis '${params.id}' not found`, { analysisId: params.id });

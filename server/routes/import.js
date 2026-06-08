@@ -30,7 +30,7 @@ import { detect, bestTextColumn } from "../ingest/mapping.js";
 import { unitize } from "../ingest/unitize.js";
 import { scan as junkScan } from "../ingest/junk.js";
 import { scan as piiScan, pseudonymize } from "../ingest/pii.js";
-import { pdirOf, writeJsonAtomic, writeTextAtomic, readJsonFile, corpusUnitsFile } from "./_shared.js";
+import { pdirOf, writeJsonAtomic, writeTextAtomic, readJsonFile, corpusUnitsFile, safeId } from "./_shared.js";
 
 const PARSERS = {
   ".csv": { mod: "../ingest/csv.js", format: "csv" },
@@ -178,6 +178,7 @@ export default [
       if (!importId) {
         throw new ConcordError("VALIDATION", "no pending import to confirm — upload a file first", {});
       }
+      safeId(importId, "importId"); // never let a traversal id reach the read/rm path
       const record = await readJsonFile(path.join(importsDir(project.slug), `${importId}.json`));
       if (!record) {
         throw new ConcordError("NOT_FOUND", `pending import '${importId}' not found (already confirmed?)`, { importId });

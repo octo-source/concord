@@ -47,6 +47,21 @@ export function requireBody(req, fields = []) {
   return body;
 }
 
+// Every id/slug that becomes a filesystem path segment MUST pass through here
+// first. ids are newId() output (prefix_base36) and slugs are [a-z0-9-]; both
+// fit [A-Za-z0-9_-]. Anything else — a dot, slash, backslash, or encoded
+// traversal that survived URL decoding — is rejected before it can escape the
+// project bundle (e.g. "../../../config/keys" reading the key file). The path
+// builders below call this, so every route is covered at the seam, and the
+// route handlers call it on body-supplied ids that never reach a builder.
+const SAFE_ID = /^[A-Za-z0-9_-]+$/;
+export function safeId(id, what = "id") {
+  if (typeof id !== "string" || !SAFE_ID.test(id)) {
+    throw new ConcordError("VALIDATION", `invalid ${what} (must be letters, digits, "-" or "_")`, { [what]: id });
+  }
+  return id;
+}
+
 export function findOr404(list, id, what) {
   const found = (list ?? []).find((x) => x.id === id);
   if (!found) throw new ConcordError("NOT_FOUND", `${what} '${id}' not found`, { id, what });
@@ -110,7 +125,7 @@ export function validateReportBlocks(blocks) {
 }
 
 export function pdirOf(slug) {
-  return projectDir(slug, projectsDir());
+  return projectDir(safeId(slug, "project"), projectsDir());
 }
 
 // ----------------------------------------------------------------- fs bits
@@ -215,7 +230,7 @@ export async function unitsById(project, ids, { corpusId } = {}) {
 // --------------------------------------------------------------- gold sets
 
 export function goldsetFile(slug, goldsetId) {
-  return path.join(pdirOf(slug), "gold", `${goldsetId}.json`);
+  return path.join(pdirOf(slug), "gold", `${safeId(goldsetId, "goldset")}.json`);
 }
 
 export async function readGoldset(slug, goldsetId) {
@@ -355,7 +370,7 @@ export async function withDirectorSpend(project, fn) {
 // ----------------------------------------------------------------- outputs
 
 export function runOutputsFile(slug, runId) {
-  return path.join(pdirOf(slug), "runs", runId, "outputs.ndjson");
+  return path.join(pdirOf(slug), "runs", safeId(runId, "run"), "outputs.ndjson");
 }
 
 export function finalJurorOf(instrument) {
