@@ -110,13 +110,31 @@ function armDrift(project, instrument, runId) {
   })().catch(() => { /* best-effort: a missing goldset never blocks a run */ });
 }
 
-function startExecution(slug, runId, { escalate } = {}) {
-  const st = {
-    control: null, // null | "pause" | "abort" — read by the engine's shouldStop hook
-    subs: new Set(),
-    last: null,
-    terminal: null,
-  };
+// Synchronously claim the live-registry slot for a run, with NO await between
+// the read and the write — this closes the double-launch TOCTOU (two resume/
+// start POSTs both passing an early live.get check across launchRun's awaits,
+// the second overwriting the first and its executeRun then throwing
+// RUN_ACTIVE). Returns the claimed slot, or null if the run is already live.
+// The slot starts as a placeholder; startExecution adopts it and attaches the
+// real promise. If validation later fails, releaseLiveSlot frees it.
+function claimLiveSlot(runId) {
+  const current = live.get(runId);
+  if (current && !current.terminal) return null;
+  const st = { control: null, subs: new Set(), last: null, terminal: null, promise: null };
+  live.set(runId, st);
+  return st;
+}
+
+// Release a claimed slot ONLY if it is still the one we placed (a later real
+// execution may have replaced it). Used when validation throws after the claim.
+function releaseLiveSlot(runId, st) {
+  if (live.get(runId) === st) live.delete(runId);
+}
+
+function startExecution(slug, runId, { escalate, slot } = {}) {
+  // Adopt a pre-claimed slot when given (claim-then-validate from launchRun);
+  // otherwise create and register one now (the direct start path).
+  const st = slot ?? { control: null, subs: new Set(), last: null, terminal: null };
   live.set(runId, st);
   st.promise = (async () => {
     let cost0 = 0;
@@ -151,15 +169,23 @@ function startExecution(slug, runId, { escalate } = {}) {
       // BEFORE that persistence (validation/config faults in setup) would
       // strand the disk record at "running" — Pause/Abort would 400 and the
       // monitor would replay failed-vs-running forever. Settle the disk.
-      try {
-        await updateProject(slug, (p) => {
-          const r = (p.runs ?? []).find((x) => x.id === runId);
-          if (r && r.status === "running") {
-            r.status = "failed";
-            r.error = outcome.error;
-          }
-        });
-      } catch { /* best-effort — the registry outcome still reports failed */ }
+      //
+      // EXCEPT RUN_ACTIVE: that means ANOTHER execution legitimately owns this
+      // run right now (a near-simultaneous double launch — TOCTOU across
+      // launchRun's awaits — where this loser's executeRun threw RUN_ACTIVE).
+      // The genuine owner is mid-run with status "running"; flipping it to
+      // "failed" here would poison a healthy run. Leave the disk to the owner.
+      if (err?.code !== "RUN_ACTIVE") {
+        try {
+          await updateProject(slug, (p) => {
+            const r = (p.runs ?? []).find((x) => x.id === runId);
+            if (r && r.status === "running") {
+              r.status = "failed";
+              r.error = outcome.error;
+            }
+          });
+        } catch { /* best-effort — the registry outcome still reports failed */ }
+      }
     }
 
     // cost roll-up: this execution's run-cost delta plus any Director
@@ -185,16 +211,31 @@ function startExecution(slug, runId, { escalate } = {}) {
 }
 
 async function launchRun(params, { resume = false } = {}) {
+  const runId = params.r ?? params.runId;
+  // Claim the registry slot SYNCHRONOUSLY, before any await, so a second
+  // overlapping launch for the same run id sees the claim and is refused here
+  // (claim-then-validate). The old early live.get check sat AFTER several
+  // awaits, leaving a window where both launches passed it and the second's
+  // executeRun threw RUN_ACTIVE — poisoning the run via the disk backstop.
+  const slot = claimLiveSlot(runId);
+  if (!slot) {
+    throw new ConcordError("VALIDATION", `run '${runId}' is already executing`, { runId });
+  }
+  try {
+    return await launchRunValidated(params, runId, slot, resume);
+  } catch (err) {
+    releaseLiveSlot(runId, slot); // a refused/failed launch must not strand the claim
+    throw err;
+  }
+}
+
+async function launchRunValidated(params, runId, slot, resume) {
   const project = await loadProject(params.p);
-  const run = findOr404(project.runs, params.r ?? params.runId, "run");
+  const run = findOr404(project.runs, runId, "run");
   const instrument = findOr404(project.instruments, run.instrumentId, "instrument");
   const construct = findOr404(project.constructs, instrument.constructId, "construct");
   if (run.status === "complete") {
     throw new ConcordError("VALIDATION", `run '${run.id}' is already complete`, { runId: run.id });
-  }
-  const current = live.get(run.id);
-  if (current && !current.terminal) {
-    throw new ConcordError("VALIDATION", `run '${run.id}' is already executing`, { runId: run.id });
   }
   // Budget re-check on resume: the START gate runs spent + estimate against
   // the project cap, but a cap lowered (or spent against) while a run sat
@@ -228,7 +269,7 @@ async function launchRun(params, { resume = false } = {}) {
       delete r.error; // a fresh launch clears ORPHANED/paused explanations
     }
   });
-  startExecution(params.p, run.id, { escalate });
+  startExecution(params.p, run.id, { escalate, slot });
   return { runId: run.id, status: "running", resumed: resume };
 }
 
@@ -348,7 +389,11 @@ export default [
         escalations: r?.escalation?.count ?? 0,
       });
 
-      if (st && !st.terminal) {
+      // st.promise is null only in the sub-tick window where launchRun has
+      // synchronously claimed the slot but not yet attached the execution
+      // promise (claim-then-validate); treat that as not-yet-live and fall
+      // through to the persisted-state path rather than dereferencing null.
+      if (st && st.promise && !st.terminal) {
         conn.send("tick", st.last ?? monitor.runState(params.r) ?? tickFromRun(run));
         const sub = {
           tick: (s) => conn.send("tick", s),

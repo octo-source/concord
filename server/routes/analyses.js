@@ -201,8 +201,16 @@ async function explorerResults(project, run, instrument, construct, rows) {
     const sets = rows.map((r) => (Array.isArray(r.label) ? r.label.map(String) : [String(r.label)]));
     out.cooccurrence = cooccurrence(sets);
   } else if (instrument.kind === "panel") {
-    // flagged (no-consensus) units: the juror labels that split co-occur
-    const lines = await readNdjson(runOutputsFile(project.slug, run.id)).catch(() => []);
+    // flagged (no-consensus) units: the juror labels that split co-occur.
+    // readNdjson already returns [] for a missing file, so a blanket catch only
+    // ever swallowed real corruption (BAD_NDJSON) or a transient I/O fault —
+    // silently dropping the co-occurrence supplement. Narrow to the benign
+    // missing-file case; let corruption/I-O faults propagate (the main
+    // assembleRows path above does not swallow either).
+    const lines = await readNdjson(runOutputsFile(project.slug, run.id)).catch((err) => {
+      if (err?.code === "NOT_FOUND" || err?.code === "ENOENT") return [];
+      throw err;
+    });
     const flagged = new Set(lines.filter((l) => l.juror === "aggregate" && l.flagged).map((l) => l.unitId));
     if (flagged.size > 0) {
       const byUnit = new Map();

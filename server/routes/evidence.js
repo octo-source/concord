@@ -45,10 +45,28 @@ export default [
 
       // outputs grouped by run
       const outputs = [];
+      const warnings = [];
       for (const run of project.runs ?? []) {
-        const lines = await readNdjson(runOutputsFile(params.p, run.id), {
-          filter: (o) => o.unitId === params.unitId,
-        }).catch(() => []);
+        let lines;
+        try {
+          lines = await readNdjson(runOutputsFile(params.p, run.id), {
+            filter: (o) => o.unitId === params.unitId,
+          });
+        } catch (err) {
+          // readNdjson already returns [] for a missing file, so this catch
+          // only ever fires on real corruption (BAD_NDJSON mid-file) or a
+          // transient I/O fault. Swallowing it silently dropped a unit's
+          // outputs from the dossier — intermittently (the "1/240 flake").
+          // NOT_FOUND/ENOENT stay benign (no run dir yet); anything else
+          // surfaces as a dossier-level warning instead of vanishing.
+          if (err?.code === "NOT_FOUND" || err?.code === "ENOENT") continue;
+          warnings.push({
+            runId: run.id,
+            code: err?.code ?? "ERROR",
+            message: `could not read outputs for run '${run.id}': ${err?.message ?? String(err)}`,
+          });
+          continue;
+        }
         if (lines.length === 0) continue;
         outputs.push({
           runId: run.id,
@@ -73,7 +91,21 @@ export default [
       // gold labels across every gold set that sampled this unit
       const goldLabels = [];
       for (const meta of project.goldsets ?? []) {
-        const gs = await readGoldset(params.p, meta.id).catch(() => null);
+        // readGoldset throws NOT_FOUND for a missing file and CORRUPT for bad
+        // JSON. Only the missing case is benign here; a corrupt gold set must
+        // not silently drop the whole set from the dossier — surface it.
+        let gs;
+        try {
+          gs = await readGoldset(params.p, meta.id);
+        } catch (err) {
+          if (err?.code === "NOT_FOUND" || err?.code === "ENOENT") continue;
+          warnings.push({
+            goldsetId: meta.id,
+            code: err?.code ?? "ERROR",
+            message: `could not read gold set '${meta.id}': ${err?.message ?? String(err)}`,
+          });
+          continue;
+        }
         if (!gs || !(gs.sample ?? []).some((s) => s.unitId === params.unitId)) continue;
         const coders = {};
         for (const c of gs.coders ?? []) {
@@ -94,6 +126,7 @@ export default [
         outputs,
         goldLabels,
         sourcePos: unit.pos ?? null,
+        ...(warnings.length > 0 ? { warnings } : {}),
       };
     },
   },

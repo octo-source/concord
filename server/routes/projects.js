@@ -1,7 +1,7 @@
 // Projects: list, create, full-graph get, and project-scoped settings (PUT).
 import { ConcordError } from "../core/errors.js";
 import { createProject } from "../core/objects.js";
-import { loadProject, saveProject, listProjects, updateProject } from "../core/store.js";
+import { loadProject, createProjectIfAbsent, listProjects, updateProject } from "../core/store.js";
 import * as ledger from "../core/ledger.js";
 import { pdirOf, requireBody, validateReportBlock, validateReportBlocks } from "./_shared.js";
 import { applyProjectSettings } from "./settings.js";
@@ -40,18 +40,11 @@ export default [
     handler: async (req) => {
       const body = req.body ?? {};
       const project = createProject({ name: body.name, privacyMode: body.privacyMode, slug: body.slug });
-      let exists = false;
-      try {
-        await loadProject(project.slug);
-        exists = true;
-      } catch (err) {
-        if (err.code !== "NOT_FOUND" && err.code !== "CORRUPT") throw err;
-        if (err.code === "CORRUPT") exists = true;
-      }
-      if (exists) {
-        throw new ConcordError("VALIDATION", `a project with slug '${project.slug}' already exists`, { slug: project.slug });
-      }
-      await saveProject(project);
+      // Atomic create: the existence check and the write share one per-slug
+      // lock inside the store, so two concurrent POSTs with the same slug can
+      // never both pass the check and clobber each other — the loser throws
+      // CONFLICT (a present-but-corrupt bundle also refuses, never overwrites).
+      await createProjectIfAbsent(project);
       await ledger.append(pdirOf(project.slug), "human", "project.created", { projectId: project.id }, {
         name: project.name,
         slug: project.slug,

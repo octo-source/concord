@@ -30,6 +30,12 @@ import { mulberry32 } from "../core/rng.js";
 const DEGENERATE_SHARE = 0.95;
 const DEGENERATE_MIN_OUTPUTS = 100;
 const DRIFT_SAMPLE = 20;
+// Ring-buffer cap on the per-run warnings array. One warning lands per
+// quarantined unit, so a 10k mass-failure used to grow this unbounded — and
+// runState() copies the whole array on every tick/SSE poll (O(n) per poll →
+// O(n²) over the run). Keep the most recent WARNINGS_CAP; older ones are
+// summarized in a single dropped-count marker so the UI can say "+N earlier".
+const WARNINGS_CAP = 200;
 
 const states = new Map(); // runId → state
 const tripwires = new Map(); // runId → drift config
@@ -41,6 +47,7 @@ function blank(total) {
     costUSD: 0,
     labelDist: {},
     warnings: [],
+    warningsDropped: 0, // count evicted by the ring-buffer cap (oldest-first)
     escalations: 0,
     outputs: 0, // every line written (per-juror + aggregate); `done` counts units
   };
@@ -115,10 +122,20 @@ export function addCost(runId, usd) {
 export function warn(runId, warning) {
   const s = stateOf(runId);
   s.warnings.push(typeof warning === "string" ? { kind: "warning", message: warning } : warning);
+  // Ring buffer: keep only the most recent WARNINGS_CAP. Evicting from the
+  // FRONT bounds both the array and runState()'s per-poll copy; the running
+  // dropped-count keeps the UI honest about how many earlier warnings exist.
+  if (s.warnings.length > WARNINGS_CAP) {
+    s.warningsDropped += s.warnings.length - WARNINGS_CAP;
+    s.warnings.splice(0, s.warnings.length - WARNINGS_CAP);
+  }
   return s;
 }
 
-// → {done, total, costUSD, labelDist, warnings, escalations} | null
+// → {done, total, costUSD, labelDist, warnings, escalations, [warningsDropped]} | null
+// warningsDropped is present only when the ring buffer has evicted at least one
+// warning (it stays absent in the common case, so consumers asserting an exact
+// warnings set are unaffected).
 export function runState(runId) {
   const s = states.get(runId);
   if (!s) return null;
@@ -129,6 +146,7 @@ export function runState(runId) {
     labelDist: { ...s.labelDist },
     warnings: s.warnings.slice(),
     escalations: s.escalations,
+    ...(s.warningsDropped > 0 ? { warningsDropped: s.warningsDropped } : {}),
   };
 }
 

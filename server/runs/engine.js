@@ -197,12 +197,21 @@ function p99Length(units) {
 }
 
 // catalog pricing for a model on an adapter (id or snapshot match); $0 fallback.
-async function pricingFor(adapter, model) {
+// On a catalog FETCH failure for a non-local (priced) provider, the $0 fallback
+// silently zeroes the whole run's metering — run.cost stays $0 and the cap
+// never trips. We keep the $0 (metering must not crash on a catalog blip) but
+// flag it via onCatalogFail so the caller can surface "cost tracking
+// unavailable" instead of a misleading $0. Genuinely-free local providers
+// (mock, ollama: capabilities().local) legitimately price at $0 and never warn.
+async function pricingFor(adapter, model, { onCatalogFail } = {}) {
   try {
     const entries = await adapter.catalog();
     const hit = entries.find((e) => e.id === model || e.snapshot === model);
     return hit?.pricing ?? { inUSDper1M: 0, outUSDper1M: 0 };
-  } catch {
+  } catch (err) {
+    let local = false;
+    try { local = adapter.capabilities?.().local === true; } catch { /* default: treat as priced */ }
+    if (!local) onCatalogFail?.(err);
     return { inUSDper1M: 0, outUSDper1M: 0 };
   }
 }
@@ -247,22 +256,46 @@ function binaryOptionsOf(construct) {
 
 // Bounded-concurrency unit loop; fn returning false stops all workers (in-
 // flight units finish, no new units start).
+//
+// A THROW from fn stops every worker too — not just the one that threw. Without
+// this, only Promise.all rejected: the caller saw the error, but the surviving
+// workers kept pulling units and dispatching PAID provider calls long after,
+// and on resume those still-running detached workers raced the new execution
+// into duplicate final lines per unit. So a throw sets the same `stopped`
+// flag a false return does, captures the FIRST error, lets the in-flight batch
+// drain (every worker settles), and rethrows the captured error with its code
+// intact — callers branch on PROVIDER_*/CONFIG_MISSING/etc. propagating. Net:
+// at most (concurrency - 1) extra units already in flight finish; none are
+// dispatched after the first throw resolves the in-flight batch.
 async function forEachUnit(units, concurrency, fn) {
   let next = 0;
   let stopped = false;
+  let firstError = null;
   const n = Math.max(1, Math.min(concurrency, units.length || 1));
   await Promise.all(
     Array.from({ length: n }, async () => {
       while (!stopped) {
         const idx = next++;
         if (idx >= units.length) return;
-        if ((await fn(units[idx])) === false) {
-          stopped = true;
+        try {
+          if ((await fn(units[idx])) === false) {
+            stopped = true;
+            return;
+          }
+        } catch (err) {
+          // Stop the WHOLE pool on the first throw and remember it. Later
+          // throws from the draining batch are dropped — the first fault is
+          // the one the caller's taxonomy classifies.
+          if (!stopped) {
+            stopped = true;
+            firstError = err;
+          }
           return;
         }
       }
     }),
   );
+  if (firstError !== null) throw firstError;
 }
 
 // ---------------------------------------------------------------- shared context
@@ -277,7 +310,13 @@ async function buildContext(project, instrument, { seedOffset = null, concurrenc
   const ctx = {
     project, instrument, construct, jurors, pdir, seedOffset,
     concurrency, m: meter(), jurorInfo: new Map(),
+    // Pricing-catalog fetch failures for priced providers, deduped by
+    // provider+model: executeRunInner flushes these to monitor.warn (after it
+    // tracks the run) so the run surfaces "cost tracking unavailable" instead
+    // of a silent $0. runEphemeral has no monitor and ignores them.
+    pricingWarnings: [],
   };
+  const pricingWarned = new Set();
   for (const j of jurors) {
     const provider = j.payload?.provider;
     if (typeof provider !== "string" || provider === "") {
@@ -290,7 +329,19 @@ async function buildContext(project, instrument, { seedOffset = null, concurrenc
       adapters.set(provider, entry);
     }
     const snapshot = j.payload.snapshot ?? j.payload.model ?? "unpinned";
-    const pricing = await pricingFor(entry.adapter, j.payload.model);
+    const pricing = await pricingFor(entry.adapter, j.payload.model, {
+      onCatalogFail: () => {
+        const dedupeKey = `${provider}|${j.payload.model}`;
+        if (pricingWarned.has(dedupeKey)) return;
+        pricingWarned.add(dedupeKey);
+        ctx.pricingWarnings.push({
+          kind: "pricing-unavailable",
+          message: `cost tracking unavailable — pricing catalog failed for ${provider}/${j.payload.model ?? "?"}; metered cost may read $0`,
+          provider,
+          model: j.payload.model ?? null,
+        });
+      },
+    });
     ctx.jurorInfo.set(j.hash, {
       payload: seedOffset === null ? j.payload : { ...j.payload, params: { ...(j.payload.params ?? {}), seed: seedOffset } },
       // Meter EVERY provider attempt at the adapter seam, not the final
@@ -531,13 +582,29 @@ function findRun(project, runId) {
   return findOrThrow(project.runs ?? [], runId, "run");
 }
 
+// The run fields the ENGINE owns and mutates during execution. persistRun
+// copies ONLY these onto the disk record, leaving route-owned fields (name,
+// pinned, capUSD, …) and identity fields (id, instrumentId, versionHash,
+// corpusId, provider, model, snapshot, unitFilter) exactly as they sit on
+// disk. labelDist/error/finishedAt/startedAt are conditionally present, so the
+// in-place copy mirrors create/delete rather than blind assignment.
+const ENGINE_OWNED_RUN_FIELDS = ["status", "checkpoint", "cost", "quarantine", "escalation", "startedAt", "finishedAt", "labelDist", "error"];
+
 // Persist mutable run fields (status/checkpoint/cost/quarantine/escalation/
-// error) into project.runs via updateProject. Outputs never touch project.json.
+// error/labelDist/startedAt/finishedAt) into project.runs via updateProject —
+// IN PLACE, field by field. A whole-object `p.runs[i] = run` write reverted any
+// concurrent route mutation of the same entry (a PUT /runs/:r rename setting
+// run.name on disk, a pin toggle, a capUSD change) on the very next checkpoint,
+// because the engine captured the run object once at executeRun entry and never
+// saw the route's later write. Outputs never touch project.json.
 async function persistRun(slug, run, dir) {
   await updateProject(slug, (p) => {
-    const i = (p.runs ?? []).findIndex((r) => r.id === run.id);
-    if (i === -1) throw new ConcordError("NOT_FOUND", `run '${run.id}' vanished from project`, { runId: run.id });
-    p.runs[i] = run;
+    const disk = (p.runs ?? []).find((r) => r.id === run.id);
+    if (!disk) throw new ConcordError("NOT_FOUND", `run '${run.id}' vanished from project`, { runId: run.id });
+    for (const k of ENGINE_OWNED_RUN_FIELDS) {
+      if (run[k] === undefined) delete disk[k];
+      else disk[k] = run[k];
+    }
   }, dir);
 }
 
@@ -612,6 +679,20 @@ async function executeRunInner(project, run, opts) {
   const pending = units.filter((u) => !isDone(u));
   let done = units.length - pending.length;
 
+  // Re-derive escalation.count from the persisted final lines, the SAME way the
+  // done-set is derived. The live counter increments at each escalation and
+  // persists only at checkpoints, so a crash between a checkpoint and the next
+  // loses increments whose final lines DID durably land — and a plain resume
+  // never recounted, so the summary undercounted. The replayed finals are the
+  // source of truth: count those flagged escalated.
+  if (!run.escalation || typeof run.escalation !== "object") run.escalation = { count: 0, directorModel: null };
+  let escalatedSoFar = 0;
+  for (const [, m] of byUnit) {
+    const fin = m.get(finalJuror);
+    if (fin?.escalated === true) escalatedSoFar += 1;
+  }
+  run.escalation.count = escalatedSoFar;
+
   // ledger + status: a resume is a fresh start event with resumed: true
   const resumed = run.status !== "pending";
   run.status = "running";
@@ -631,6 +712,9 @@ async function executeRunInner(project, run, opts) {
   // (re)track the monitor and replay already-persisted final lines so a
   // resumed run's labelDist/done/escalations are truthful from tick one.
   monitor.track(run.id, { total: units.length, costUSD: run.cost.actualUSD });
+  // Surface any pricing-catalog failure from buildContext now that the run is
+  // tracked (warning BEFORE track would be clobbered by track()'s blank state).
+  for (const w of ctx.pricingWarnings) monitor.warn(run.id, w);
   for (const [, m] of byUnit) {
     const fin = m.get(finalJuror);
     if (fin) monitor.recordOutput(run.id, fin);
@@ -731,12 +815,40 @@ async function executeRunInner(project, run, opts) {
       }
       if (escalated) run.escalation.count += 1;
       await appendNdjson(outputsFile, cleanLine(final));
+      // This unit just produced a durable verdict line. If a PRIOR session
+      // quarantined it (a transient that has since cleared on resume), drop the
+      // stale quarantine entry: otherwise the unit ends with BOTH a verdict
+      // line AND a quarantine entry, and results/exports that exclude
+      // quarantined units would vanish a verdicted unit while run.completed
+      // ledgers a phantom quarantined count.
+      quarantine.delete(unit.id);
       done += 1;
       monitor.recordOutput(run.id, final);
     }
     syncCost();
     opts.onTick?.(monitor.runState(run.id));
-    await monitor.driftTick(run.id);
+    // The drift tripwire re-judges gold via an internal runEphemeral that
+    // RETHROWS provider faults (PROVIDER_UNREACHABLE / RATE_LIMITED_EXHAUSTED).
+    // A drift check is a MONITORING side-channel on calibrated runs — a
+    // transient fault during it must never reject the worker pool (bug-1's
+    // cascade) and must never fail the run. So: a PAUSE-class fault pauses the
+    // run resumably (the same path a unit pause takes — resume re-checks
+    // drift); ANY other fault warns and the run CONTINUES (a broken drift check
+    // is not a reason to abandon the verdicts).
+    try {
+      await monitor.driftTick(run.id);
+    } catch (err) {
+      if (PAUSE_CODES.has(err?.code)) {
+        stop.reason = "paused";
+        stop.error = err;
+        return false;
+      }
+      monitor.warn(run.id, {
+        kind: "drift-failed",
+        message: `drift re-judge failed (${err?.code ?? "ERROR"}) — the run continues; the drift check is unavailable`,
+        code: err?.code ?? null,
+      });
+    }
     sinceCheckpoint += 1;
     if (sinceCheckpoint >= CHECKPOINT_EVERY) {
       sinceCheckpoint = 0;

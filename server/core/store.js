@@ -36,16 +36,21 @@ function withProjectLock(key, fn) {
 
 let tmpSeq = 0;
 
-// Windows rename fails EPERM/EBUSY/EACCES when ANOTHER program briefly holds
-// the file — Dropbox sync does exactly this to bundles living in a synced
-// folder (field report: a goldset save EPERM'd mid-coding). The lock is
-// transient; retry with backoff before giving up.
-export async function renameWithRetry(from, to, { attempts = 6, baseMs = 40 } = {}) {
+// Windows fails fs operations with EPERM/EBUSY/EACCES when ANOTHER program
+// briefly holds the file — Dropbox sync does exactly this to bundles living in
+// a synced folder (field reports: a goldset save EPERM'd mid-coding; an
+// outputs append EPERM'd mid-run). The lock is transient; retry with backoff
+// before giving up. This is the ONE backoff every fs-mutation site shares
+// (rename AND append): an unretried transient fault used to crash a whole run
+// to "failed" instead of the resumable "paused"/retry a sync lock deserves.
+const TRANSIENT_FS_CODES = new Set(["EPERM", "EBUSY", "EACCES"]);
+
+export async function retryTransient(fn, { attempts = 6, baseMs = 40 } = {}) {
   for (let i = 0; ; i++) {
     try {
-      return await rename(from, to);
+      return await fn();
     } catch (err) {
-      const transient = err?.code === "EPERM" || err?.code === "EBUSY" || err?.code === "EACCES";
+      const transient = TRANSIENT_FS_CODES.has(err?.code);
       if (!transient || i >= attempts - 1) {
         if (transient) {
           err.message += " — another program (often Dropbox sync) held the file; the action is safe to retry";
@@ -55,6 +60,10 @@ export async function renameWithRetry(from, to, { attempts = 6, baseMs = 40 } = 
       await new Promise((r) => setTimeout(r, baseMs * 2 ** i));
     }
   }
+}
+
+export function renameWithRetry(from, to, opts = {}) {
+  return retryTransient(() => rename(from, to), opts);
 }
 
 // write tmp (unique name: concurrent writers must never share one), fsync,
@@ -99,6 +108,33 @@ export async function saveProject(project, dir = projectsDir()) {
     throw new ConcordError("VALIDATION", "saveProject requires a project with a slug", {});
   }
   return withProjectLock(path.resolve(dir, project.slug), () => writeProject(project, dir));
+}
+
+// Atomic create-if-absent: the existence check and the write happen under the
+// SAME per-slug lock, so two concurrent creates of one slug can never both pass
+// a check-then-act and clobber each other (last-writer-wins). The loser throws
+// VALIDATION (preserving the create route's historical 400 contract — the bug
+// was the RACE, not the error shape). A bundle whose project.json is
+// present-but-corrupt also counts as "exists" (refuse rather than silently
+// overwrite a damaged-but-real bundle). Routes must use THIS instead of
+// loadProject-then-saveProject by hand.
+export async function createProjectIfAbsent(project, dir = projectsDir()) {
+  if (!project || typeof project.slug !== "string" || !project.slug) {
+    throw new ConcordError("VALIDATION", "createProjectIfAbsent requires a project with a slug", {});
+  }
+  const slug = project.slug;
+  return withProjectLock(path.resolve(dir, slug), async () => {
+    try {
+      await loadProject(slug, dir);
+    } catch (err) {
+      if (err?.code === "NOT_FOUND") return writeProject(project, dir); // truly absent → create
+      if (err?.code === "CORRUPT") {
+        throw new ConcordError("VALIDATION", `a project with slug '${slug}' already exists`, { slug });
+      }
+      throw err; // a real I/O fault must surface, not masquerade as a conflict
+    }
+    throw new ConcordError("VALIDATION", `a project with slug '${slug}' already exists`, { slug });
+  });
 }
 
 // Single-flight read-modify-write: lock -> load -> mutate -> save -> return.
@@ -158,37 +194,89 @@ async function truncateTornTail(fh, size) {
   return 0;
 }
 
+// Minimal fault-injection seam (tests only): when set, it is invoked (and
+// AWAITED) before each open/appendFile attempt. It may throw a synthetic
+// transient error to exercise the retry path, or return a promise to widen the
+// heal/append window (the serialization regression test uses this to make the
+// otherwise-timing-dependent truncation race observable). A synchronous void
+// injector still works — awaiting undefined/a non-promise is a no-op. Null in
+// production — zero overhead beyond a guard.
+let appendFaultInjector = null;
+export function __setAppendFaultInjector(fn) {
+  appendFaultInjector = typeof fn === "function" ? fn : null;
+}
+
+// Per-resolved-path append serialization (mirrors withProjectLock / ledger's
+// withLock). The heal (stat → last-byte → backward-scan truncate) and the
+// append are separate IO steps: two concurrent appends to a torn-tail file
+// could have writer B's heal truncate away writer A's just-appended line
+// (O_APPEND keeps whole lines from interleaving, but does NOT serialize a
+// truncate against another writer's append). On resume-after-crash, N workers
+// append to one outputs.ndjson with torn tails present — exactly the race.
+// Serializing heal+append for a given file makes the pair atomic w.r.t. other
+// appends to THAT file; different files stay fully concurrent.
+const appendLocks = new Map(); // resolved file path -> promise queue
+
+function withAppendLock(key, fn) {
+  const prev = appendLocks.get(key) || Promise.resolve();
+  const next = prev.then(fn, fn);
+  // Keep the chain from growing forever and never reject the stored tail.
+  const settled = next.then(() => undefined, () => undefined);
+  appendLocks.set(key, settled);
+  // Best-effort cleanup: once this is the tail and it has settled, drop the
+  // entry so the Map does not retain a key per file for the process lifetime.
+  settled.then(() => {
+    if (appendLocks.get(key) === settled) appendLocks.delete(key);
+  });
+  return next;
+}
+
 // Append one JSON line. If a previous append was torn (file does not end with
 // "\n"), the partial final line never durably completed — truncate it first so
 // the file is back to "complete lines only", then append. Returns {size}: the
 // file size after the write (the ledger uses it to checkpoint its tail).
+//
+// Serialized per resolved file path (withAppendLock): heal+append for a given
+// file is atomic against other appends to the same file, so a concurrent
+// co-writer's line can never be truncated away by another writer's heal.
+//
+// The whole heal+append IO is wrapped in retryTransient — the SAME backoff
+// every rename site uses — so a transient Dropbox/Windows sync lock
+// (EPERM/EBUSY/EACCES) on the open or the append is retried, not allowed to
+// escape and crash a run to "failed". Healing is re-derived from the file on
+// each attempt, so a retry stays correct.
 export async function appendNdjson(file, obj) {
   await mkdir(path.dirname(file), { recursive: true });
   const line = JSON.stringify(obj) + "\n";
-  // Heal first with a read-write handle (Windows forbids ftruncate on append-
-  // mode handles), then append with O_APPEND semantics so concurrent
-  // in-process appends interleave whole lines instead of clobbering offsets.
-  let size = 0;
-  let fh = null;
-  try {
-    fh = await open(file, "r+");
-  } catch (err) {
-    if (err.code !== "ENOENT") throw err; // missing file: appendFile creates it
-  }
-  if (fh) {
+  const bytes = Buffer.byteLength(line);
+  return withAppendLock(path.resolve(file), () => retryTransient(async () => {
+    // Heal first with a read-write handle (Windows forbids ftruncate on append-
+    // mode handles), then append with O_APPEND semantics so concurrent
+    // in-process appends interleave whole lines instead of clobbering offsets.
+    let size = 0;
+    let fh = null;
+    await appendFaultInjector?.();
     try {
-      ({ size } = await fh.stat());
-      if (size > 0) {
-        const last = Buffer.alloc(1);
-        await fh.read(last, 0, 1, size - 1);
-        if (last[0] !== 0x0a) size = await truncateTornTail(fh, size);
-      }
-    } finally {
-      await fh.close();
+      fh = await open(file, "r+");
+    } catch (err) {
+      if (err.code !== "ENOENT") throw err; // missing file: appendFile creates it
     }
-  }
-  await appendFile(file, line, "utf8");
-  return { size: size + Buffer.byteLength(line) };
+    if (fh) {
+      try {
+        ({ size } = await fh.stat());
+        if (size > 0) {
+          const last = Buffer.alloc(1);
+          await fh.read(last, 0, 1, size - 1);
+          if (last[0] !== 0x0a) size = await truncateTornTail(fh, size);
+        }
+      } finally {
+        await fh.close();
+      }
+    }
+    await appendFaultInjector?.();
+    await appendFile(file, line, "utf8");
+    return { size: size + bytes };
+  }));
 }
 
 // Streamed NDJSON reader. filter applies first, then offset/limit count

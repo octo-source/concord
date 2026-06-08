@@ -63,6 +63,12 @@ export function createProject(input = {}) {
   reqString(input.name, "name");
   const slug = input.slug ?? slugify(input.name);
   if (!/^[a-z0-9][a-z0-9-]*$/.test(slug)) fail("slug must be lowercase letters, digits, hyphens", { field: "slug", value: slug });
+  // Reserved-name guard on the FINAL slug, not just inside slugify(). slugify
+  // suffixes a reserved auto-derived slug, but an EXPLICIT input.slug of exactly
+  // "con"/"aux"/"nul"/… sailed past the regex and would mint a Windows reserved
+  // device-name directory (fs calls then misbehave). An explicit device name is
+  // a deliberate, broken choice — reject it rather than silently rewrite it.
+  if (RESERVED_SLUGS.has(slug)) fail(`slug "${slug}" is a reserved device name on Windows; choose another`, { field: "slug", value: slug });
   const privacyMode = oneOf(input.privacyMode ?? "open", PRIVACY_MODES, "privacyMode");
   const budget = {
     capUSD: input.budget?.capUSD ?? null,

@@ -443,11 +443,19 @@ test("executeRun: SCHEMA_INVALID after repairs quarantines the unit; the run con
 
 test("executeRun: legacy string quarantine entries (old run records) normalize on read — resume never breaks", async (t) => {
   const N = 6;
-  const { dir, project } = await setup(t, { units: makeUnits(N), instruments: [judgeInstrument()] });
+  const { dir, project, pdir } = await setup(t, { units: makeUnits(N), instruments: [judgeInstrument()] });
   mockAdapter(project, { accuracy: 1.0 });
   const run = await createRun(project, { instrumentId: "inst_j", corpusId: "c1" }, { dir });
   // Simulate a record written by the pre-reasons engine: bare unitId strings
-  // (with a duplicate — the old Set used to absorb those).
+  // (with a duplicate — the old Set used to absorb those). u_0003 already has a
+  // durable final line on disk, so resume sees it DONE and does not re-run it —
+  // the legacy quarantine entry stays and must normalize. (A unit that instead
+  // SUCCEEDS on resume is correctly cleared from quarantine; that path is
+  // covered by the quarantine-cleared-on-resume test below.)
+  const u3 = makeUnits(N).find((u) => u.id === "u_0003");
+  const u3File = outputsFile(pdir, run.id);
+  await mkdir(path.dirname(u3File), { recursive: true });
+  await writeFile(u3File, JSON.stringify({ unitId: u3.id, juror: run.versionHash, label: ORACLE(u3.text), rationale: "legacy" }) + "\n", "utf8");
   await updateProject(SLUG, (p) => {
     p.runs[0].status = "paused";
     p.runs[0].quarantine = ["u_0003", "u_0003"];
