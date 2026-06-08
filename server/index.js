@@ -11,6 +11,42 @@ import { ConcordError } from "./core/errors.js";
 
 const repoRoot = fileURLToPath(new URL("..", import.meta.url));
 
+// A runtime 'error' on an http.Server (EMFILE/ENFILE on accept, a half-open
+// socket faulting) is emitted on the server object; with ZERO 'error'
+// listeners attached, Node rethrows it as an uncaught exception and the whole
+// process dies — taking every background run with it. The startup promise
+// attaches `once("error", reject)` only to settle listen(); that listener is
+// gone the moment listen succeeds. attachServerErrorLogger installs a
+// PERSISTENT listener that logs and does NOT crash, so a runtime accept
+// failure degrades that one socket instead of the process. Exported for the
+// lifecycle test to exercise the handler directly.
+export function attachServerErrorLogger(server, label) {
+  server.on("error", (err) => {
+    console.error(`[concord] ${label} server error (non-fatal):`, err?.message ?? err);
+  });
+}
+
+// Last-resort process guard: a stray rejection or an exception thrown off the
+// request path (e.g. inside a timer or an event emitter with no local
+// try/catch) must be LOGGED, not silently swallowed and not left to abort the
+// process by default. We deliberately do not exit — Concord is a single
+// long-lived local process whose whole job is to keep background runs alive;
+// logging the fault and continuing is strictly better than dropping every
+// in-flight run. Installed once, idempotently (tests import this module many
+// times in one process). Kept minimal so a real programming bug still surfaces
+// loudly in the log rather than vanishing.
+let processGuardsInstalled = false;
+export function installProcessGuards() {
+  if (processGuardsInstalled) return;
+  processGuardsInstalled = true;
+  process.on("uncaughtException", (err) => {
+    console.error("[concord] uncaughtException (logged, process kept alive):", err?.stack ?? err);
+  });
+  process.on("unhandledRejection", (reason) => {
+    console.error("[concord] unhandledRejection (logged, process kept alive):", reason?.stack ?? reason);
+  });
+}
+
 // --coder <goldsetId>:<coderId> launches a blind coding profile. The route
 // gate itself lands with the goldset routes; here we only parse + export.
 export function parseServerMode(argv = process.argv.slice(2)) {
@@ -79,6 +115,7 @@ export async function startServer({
   appDir = path.join(repoRoot, "app"),
   routesDir = path.join(repoRoot, "server", "routes"),
 } = {}) {
+  installProcessGuards(); // last-resort logger; idempotent
   const router = createRouter({ appDir });
   const version = JSON.parse(await readFile(path.join(repoRoot, "package.json"), "utf8")).version;
 
@@ -110,6 +147,9 @@ export async function startServer({
     server.once("error", reject);
     server.listen(port, "127.0.0.1", resolve);
   });
+  // listen settled — swap the reject-on-error wiring for a persistent logger
+  // so a runtime accept failure never reaches the unhandled-exception path
+  attachServerErrorLogger(server, "http");
 
   // `localhost` resolves to ::1 FIRST on Windows; some HTTP clients try only
   // the first answer. Mirror the listener on IPv6 loopback (same port, same
@@ -130,6 +170,9 @@ export async function startServer({
       server6.once("error", reject);
       server6.listen(boundPort, "::1", resolve);
     });
+    // same persistence as the IPv4 listener: a runtime error on the ::1
+    // mirror must not crash the process either
+    attachServerErrorLogger(server6, "http (::1)");
   } catch {
     server6 = null; // no IPv6 loopback — IPv4 alone is fine
   }
@@ -176,6 +219,7 @@ export async function startServer({
 export async function startCoderListener(projectSlug, goldsetId, coderId, {
   appDir = path.join(repoRoot, "app"),
   host = "127.0.0.1",
+  onDead = null,
 } = {}) {
   if (!projectSlug || !goldsetId || !coderId) {
     throw new ConcordError("VALIDATION", "startCoderListener requires projectSlug, goldsetId and coderId", {});
@@ -207,6 +251,9 @@ export async function startCoderListener(projectSlug, goldsetId, coderId, {
     server.once("error", reject);
     server.listen(0, host, resolve);
   });
+  // a runtime error on the coder listener must not crash the host process
+  // (this is the SAME process that runs every background analysis)
+  attachServerErrorLogger(server, "coder listener");
   const port = server.address().port;
   const page = `/coder.html?coder=${encodeURIComponent(coderId)}`;
   // First non-internal IPv4 — the address a colleague on the same network can
@@ -219,7 +266,7 @@ export async function startCoderListener(projectSlug, goldsetId, coderId, {
       if (lan) { lanUrl = `http://${lan.address}:${port}${page}`; break; }
     }
   }
-  return {
+  const session = {
     server,
     port,
     host,
@@ -227,11 +274,29 @@ export async function startCoderListener(projectSlug, goldsetId, coderId, {
     ...(lanUrl ? { lanUrl } : {}),
     coderId,
     goldsetId,
+    dead: false, // flips true if the listener's server dies under it
     close: () => new Promise((resolve) => {
       server.close(resolve);
       server.closeAllConnections?.();
     }),
   };
+
+  // Registry hygiene: if this listener's server dies (a runtime error, or the
+  // socket closing), the session entry the coder-session route cached for it
+  // now points at a dead port. Mark the session dead and fire the eviction
+  // hook ONCE so a later coder-session POST does not hand back a stale url.
+  // The session map lives in routes/goldsets.js; it passes onDead to drop the
+  // entry. A liveness check there (skip a cached session whose .dead is set)
+  // is the matching guard for callers that read the map directly.
+  const reap = () => {
+    if (session.dead) return;
+    session.dead = true;
+    try { onDead?.(session); } catch { /* eviction must not throw back into the emitter */ }
+  };
+  server.on("error", reap);
+  server.on("close", reap);
+
+  return session;
 }
 
 const isMain = process.argv[1] && import.meta.url === pathToFileURL(path.resolve(process.argv[1])).href;

@@ -172,7 +172,17 @@ export function aggregate(outputsByJuror, panelPayload, weights) {
     unanimityOrFlag: () => 1,
     mean: () => 1,
     median: () => 1,
-    confidenceWeighted: (o) => (o.confidence ?? 0.5),
+    confidenceWeighted: (o) => {
+      const c = o.confidence ?? 0.5;
+      // parity with reliabilityWeighted: a negative weight would let a juror
+      // vote AGAINST its own label. The validated pipeline clamps confidence
+      // to [0,1] upstream, so this cannot fire there — but the asymmetry was a
+      // latent bug for any caller handing aggregate() a raw confidence.
+      if (!(c >= 0)) {
+        fail("confidence weights must be numbers >= 0", { juror: o.juror, confidence: c });
+      }
+      return c;
+    },
     reliabilityWeighted: (o) => {
       const v = w?.[o.juror];
       if (v !== undefined && (typeof v !== "number" || !(v >= 0))) {

@@ -96,7 +96,7 @@ function tryStats(sample, silverLabels, workerByUnit, construct) {
 // maxIterations, plateauDelta, capUSD})
 // → {instrument, curve, cost: {workerUSD, directorUSD}, stoppedBy?: "budget"}
 export async function silverTune(project, instrument, units, opts = {}) {
-  const { engine, stability, onIteration, n = 200, maxIterations = 5, plateauDelta = 0.01, capUSD = null } = opts;
+  const { engine, stability, onIteration, signal, n = 200, maxIterations = 5, plateauDelta = 0.01, capUSD = null } = opts;
   if (!engine || typeof engine.runEphemeral !== "function") {
     throw new ConcordError("VALIDATION", "silverTune requires an injected engine ({runEphemeral}) — production routes pass server/runs/engine.js", {});
   }
@@ -219,6 +219,11 @@ export async function silverTune(project, instrument, units, opts = {}) {
     if (prevAgreement !== null && Math.abs(agreement - prevAgreement) < plateauDelta) break;
     prevAgreement = agreement;
     if (iteration === maxIterations) break;
+
+    // tab closed mid-tune → stop before the next iteration's paid calls. Like
+    // the budget stop, the partial tune stays valid: this iteration completed,
+    // so stability + persistence below run on the version it produced.
+    if (signal?.aborted) { stoppedBy = "aborted"; break; }
 
     // budget? an iteration is (Director rewrite + worker pass) — stop BEFORE
     // paying for the next one once accumulated silver spend reaches the cap.

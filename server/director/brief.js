@@ -5,6 +5,7 @@
 // the evidence discipline exists to catch). The brief is persisted as
 // briefs/<id>.json (authoredBy: "director"), registered on project.briefs,
 // and ledgered as `brief.generated` (taxonomy addition approved in review).
+import { ConcordError } from "../core/errors.js";
 import { newId } from "../core/ids.js";
 import { updateProject, projectDir } from "../core/store.js";
 import * as ledger from "../core/ledger.js";
@@ -103,18 +104,30 @@ function filterRefs(refs, validIds, counter) {
 // call settles (resolve or reject), so a failed brief leaves no orphan.
 const BRIEF_TICK_MS = 2000;
 
-// generateBrief(project, corpusId, {onParagraph, onStage}) → brief artifact.
-// onParagraph(paragraph, index) fires per validated paragraph, in order, for
-// SSE relay. onStage(event, data) reports honest progress — only stages the
-// server knows to be true, never a fabricated percentage:
+// generateBrief(project, corpusId, {onParagraph, onStage, signal}) → brief
+// artifact. onParagraph(paragraph, index) fires per validated paragraph, in
+// order, for SSE relay. onStage(event, data) reports honest progress — only
+// stages the server knows to be true, never a fabricated percentage:
 //   sampling {sampleN, unitCount}      the stratified sample is drawn
 //   prompt-composed {chars}            the prompt is built
 //   director-called {provider, model}  the one long call starts
 //   tick {elapsed}                     every ~2s while that call is in flight
 //   validating {sampleN}               refs checked against the shown sample
-export async function generateBrief(project, corpusId, { onParagraph, onStage } = {}) {
+//
+// signal (optional AbortSignal): a cooperative stop wired to client
+// disconnect. The brief is ONE long Director call, so the meaningful place to
+// honor it is BEFORE that call — a tab closed during sampling/prompt
+// composition must not go on to spend the Director call. (The in-flight call
+// itself cannot be cancelled without an abortable callDirector; that is the
+// known limit of the cooperative approach and is documented in the route.)
+export async function generateBrief(project, corpusId, { onParagraph, onStage, signal } = {}) {
   const stage = (event, data) => { onStage?.(event, data); };
+  const aborted = () => Boolean(signal?.aborted);
+  const stopIfAborted = () => {
+    if (aborted()) throw new ConcordError("ABORTED", "brief generation aborted — the client disconnected", {});
+  };
   const { meta, units } = await readCorpusUnits(project, corpusId);
+  stopIfAborted();
   const target = briefSampleTarget(units.length);
   const { sample, strataColumn, strata } = stratifiedSample(units, corpusId, target);
   const validIds = new Set(sample.map((u) => u.id));
@@ -145,6 +158,10 @@ export async function generateBrief(project, corpusId, { onParagraph, onStage } 
     : user;
   stage("prompt-composed", { chars: system.length + scopedUser.length });
 
+  // cooperative abort: the client disconnected before the one paid Director
+  // call — stop here rather than spend it (anything already persisted is
+  // nothing yet; the brief is written only after the call returns).
+  stopIfAborted();
   stage("director-called", { provider: project?.director?.provider ?? null, model: project?.director?.model ?? null });
   const calledAt = Date.now();
   const ticker = onStage

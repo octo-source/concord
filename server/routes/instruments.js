@@ -262,10 +262,17 @@ export default [
       const remaining = cap === null ? null : round6(Math.max(0, cap - spent));
 
       const conn = sse(res);
+      // Stop spending when the tab closes mid-tune: silverTune checks the
+      // signal between iterations, so a disconnect ends the loop before the
+      // next iteration's worker+Director calls (the in-flight iteration still
+      // finishes — the cooperative limit, not a hard kill).
+      const ac = new AbortController();
+      conn.onClose(() => ac.abort());
       try {
         const result = await silverTune(project, instrument, units, {
           engine: engineMod,          // server/runs/engine.js — the real module
           stability: stabilityMod,    // server/instruments/stability.js — the real module
+          signal: ac.signal,
           ...(body.n !== undefined ? { n: body.n } : {}),
           ...(remaining !== null ? { capUSD: remaining } : {}),
           onIteration: (it) => conn.send("iteration", it),

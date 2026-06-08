@@ -10,9 +10,9 @@
 // construct, corpus metadata, the run's {id, status, cost, escalation,
 // quarantine, pinned, model, snapshot}, the goldset's {id, design, n,
 // piSummary, coderIds, humanAgreement, uncodableUnits, excluded} and the
-// instrument's {versionHash, frozen, certificate, stability}. Changing ANY of
-// those between exports yields a different stateHash, so the chain closes
-// over what was claimed.
+// instrument's {versionHash, frozen, certificate, stability, silver}.
+// Changing ANY of those between exports yields a different stateHash, so the
+// chain closes over what was claimed.
 //
 // generatePreview() renders the same prose WITHOUT appending to the ledger:
 // citations resolve against existing events only (the latest export-of-record
@@ -215,6 +215,10 @@ async function compose(project, analysisId, { projectDir } = {}, mode) {
     instrument: instrument ? {
       versionHash: instrument.versionHash ?? null, frozen: instrument.frozen ?? false,
       certificate: instrument.certificate ?? null, stability: instrument.stability ?? null,
+      // the prose prints instrument.silver.iterations.at(-1).agreement (§5);
+      // commit to silver too so a post-hoc edit of the silver curve cannot
+      // change the reported number without changing the stateHash
+      silver: instrument.silver ?? null,
     } : null,
   }));
 

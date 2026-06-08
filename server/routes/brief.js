@@ -41,15 +41,28 @@ export default [
 
       // all 4xx-able validation is done: from here on we stream
       const conn = sse(res);
+      // Abort the work when the tab closes mid-stream: generateBrief checks
+      // the signal between stages and stops before the one paid Director call,
+      // so a disconnect during sampling/prompt composition spends nothing. The
+      // in-flight Director call itself is not cancellable (callDirector takes
+      // no signal), so a disconnect AFTER the call starts still finishes that
+      // one call — the cooperative limit, not a hard kill.
+      const ac = new AbortController();
+      conn.onClose(() => ac.abort());
       try {
         const brief = await withDirectorSpend(project, () =>
           generateBrief(project, corpusId, {
+            signal: ac.signal,
             onStage: (event, data) => conn.send(event, data),
             onParagraph: (para) => conn.send("para", { md: para.md, refs: para.refs }),
           }));
         conn.send("done", { briefId: brief.id, paragraphs: brief.paragraphs.length, themes: brief.themes.length, issues: brief.issues });
       } catch (err) {
-        conn.send("error", { code: err?.code ?? "INTERNAL", message: err?.message ?? String(err) });
+        // an abort is the expected outcome of a disconnect, not a server fault:
+        // the connection is already closed, so conn.send is a no-op — just stop
+        if (err?.code !== "ABORTED") {
+          conn.send("error", { code: err?.code ?? "INTERNAL", message: err?.message ?? String(err) });
+        }
       } finally {
         conn.close();
       }

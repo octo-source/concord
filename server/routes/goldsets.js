@@ -33,7 +33,7 @@ import {
 } from "./_shared.js";
 import { finalJurorOfRun } from "../runs/engine.js";
 import { bootstrapCI } from "../stats/boot.js";
-import { krippendorffAlpha } from "../stats/agreement.js";
+import { krippendorffAlpha, cohenKappa } from "../stats/agreement.js";
 
 // ------------------------------------------------------------ persistence
 
@@ -825,13 +825,31 @@ export default [
               perInstrument.push({ instrumentId: inst.id, name: inst.name, kind: inst.kind, level: inst.level, error: { code: "NO_OUTPUTS", message: "no comparable outputs" } });
               continue;
             }
+            const agreement = agreementReport(rows, construct, { goldCoder: "gold", pairCoders: ["gold", "machine"] });
+            // Percentile bootstrap CI for the headline κ over THIS instrument's
+            // machine-vs-gold rows — the forest plot's whisker. Reuses boot.js
+            // bootstrapCI exactly as the human α row does (it resamples gold
+            // units, keeping both the gold and machine label per sampled unit);
+            // the statistic matches what the Test pane headlines: linear-
+            // weighted κ for ordinal constructs, plain Cohen's κ otherwise.
+            // Additive and best-effort: a degenerate row set (too few units, a
+            // single category, too many degenerate replicates) simply carries
+            // no interval — agreement.kappa stands alone.
+            if (typeof agreement.kappa === "number") {
+              try {
+                agreement.ci = bootstrapCI(rows, (resampled) => (construct?.type === "ordinal" && order
+                  ? cohenKappa(resampled, { weighted: "linear", order })
+                  : cohenKappa(resampled)),
+                { seed: parseInt(sha256(`bootci|${params.g}|${inst.id}`).slice(0, 8), 16) });
+              } catch { /* no interval — never block the report */ }
+            }
             perInstrument.push({
               instrumentId: inst.id,
               name: inst.name,
               kind: inst.kind,
               level: inst.level,
               versionHash: inst.versionHash,
-              agreement: agreementReport(rows, construct, { goldCoder: "gold", pairCoders: ["gold", "machine"] }),
+              agreement,
             });
           } catch (err) {
             perInstrument.push({
@@ -927,7 +945,9 @@ export default [
       const body = requireBody(req, ["coderId"]);
       const key = `${params.p}|${params.g}|${body.coderId}`;
       const existing = sessions.get(key);
-      if (existing) {
+      // reuse a LIVE session only — a listener that died (its server errored
+      // or closed) leaves a stale url on a dead port, so skip it and restart
+      if (existing && !existing.dead) {
         return {
           url: existing.url, port: existing.port, coderId: body.coderId, existing: true,
           ...(existing.lanUrl ? { lanUrl: existing.lanUrl } : {}),
@@ -939,6 +959,7 @@ export default [
       // reports lanUrl (the page on the machine's first external IPv4).
       const session = await startCoderListener(params.p, params.g, body.coderId, {
         host: body.share === true ? "0.0.0.0" : "127.0.0.1",
+        onDead: () => sessions.delete(key), // reap on listener error/close
       });
       sessions.set(key, session);
       return {
