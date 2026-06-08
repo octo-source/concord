@@ -153,6 +153,7 @@
             "kappa": 0.79,
             "alpha": 0.78,
             "ac1": 0.81,
+            "ci": { "lo": 0.63, "hi": 0.92, "method": "bootstrap-percentile" },
             "perClass": [
               { "label": "pay", "precision": 1.0, "recall": 1.0, "f1": 1.0, "support": 4 },
               { "label": "management", "precision": 0.67, "recall": 0.67, "f1": 0.67, "support": 3 },
@@ -185,6 +186,7 @@
             "kappa": 0.72,
             "alpha": 0.71,
             "ac1": 0.75,
+            "ci": { "lo": 0.54, "hi": 0.87, "method": "bootstrap-percentile" },
             "perClass": [
               { "label": "pay", "precision": 0.8, "recall": 1.0, "f1": 0.89, "support": 4 },
               { "label": "management", "precision": 0.67, "recall": 0.67, "f1": 0.67, "support": 3 },

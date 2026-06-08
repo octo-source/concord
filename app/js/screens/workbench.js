@@ -546,6 +546,47 @@ function correctedCellsBlock(canvas, analysis) {
         el("span", { class: "chip chip--ghost" }, s.group), " ", s.reason))));
 }
 
+/* The coefficient forest — corrected estimate (solid ◉, 95% CI from ±1.96·se)
+   beside the naive plug-in (hatched), the zero line as the reference. Reuses
+   bar.js paired mode, the Correction Reveal primitive: the corrected bar runs
+   from zero to its estimate with a CI whisker, the naive bar hatched beneath,
+   Δ annotated per row. No new server math — est/se already ride r.coef/r.naive.
+   The intercept is dropped from the PLOT when there are other terms (its
+   magnitude would crush the slopes' visual range); the table keeps every term.
+   Returns null when there is nothing to draw. */
+const INTERCEPT_NAMES = new Set(["(intercept)", "intercept", "const", "_cons", "constant"]);
+function coefficientForest(analysis) {
+  const r = analysis.results ?? {};
+  const coef = (r.coef ?? []).filter((c) => typeof c.est === "number" && Number.isFinite(c.est));
+  if (coef.length === 0) return null;
+  const naiveByName = new Map((r.naive ?? []).map((c) => [c.name, c]));
+
+  // drop the intercept from the plot only when slopes exist beside it
+  const hasSlopes = coef.some((c) => !INTERCEPT_NAMES.has(String(c.name).toLowerCase()));
+  const plotted = hasSlopes ? coef.filter((c) => !INTERCEPT_NAMES.has(String(c.name).toLowerCase())) : coef;
+  if (plotted.length === 0) return null;
+
+  const rows = plotted.map((c) => {
+    const se = typeof c.se === "number" && Number.isFinite(c.se) ? c.se : null;
+    const naive = naiveByName.get(c.name);
+    return {
+      label: c.name,
+      corrected: { value: c.est, ...(se !== null && se > 0 ? { ci: [c.est - 1.96 * se, c.est + 1.96 * se] } : {}) },
+      naive: { value: typeof naive?.est === "number" ? naive.est : undefined },
+      level: "corrected",
+    };
+  });
+
+  const host = el("div", { class: "wb-coefforest" });
+  bar.render(host, rows, {
+    paired: true,
+    domain: null, // auto — spans the estimates and their CIs, so the zero line lands naturally
+    format: (v) => fmt(v, 3),
+    caption: `Coefficient forest — corrected ◉ with 95% CI (est ± 1.96·se) solid; the naive plug-in hatched beside it; the vertical line is zero${hasSlopes && plotted.length < coef.length ? "; the intercept is in the table below" : ""}. Corrected via DSL; naive = plug-in.`,
+  });
+  return host;
+}
+
 /* -- model: {family, outcome, estimator?, coef, naive?, n, nGold?} — DSL
    fits' coefficient rows carry {name, est, se, z, p, note?} (z/p null with
    an explanatory note when se = 0); plain fits carry {name, est, se}. -- */
@@ -559,6 +600,7 @@ function modelResult(canvas, analysis) {
       r.outcome ? el("span", { class: "faint" }, ` · outcome: ${r.outcome}`) : null,
       r.n ? el("span", { class: "data faint" }, ` · n = ${fmtCount(r.n)}${r.nGold !== undefined ? `, gold = ${fmtCount(r.nGold)}` : ""}`) : null,
       r.converged === false ? el("span", { class: "chip chip--signal" }, "did not converge") : null),
+    coefficientForest(analysis),
     table.render({
       caption: "Coefficients",
       columns: [
@@ -714,11 +756,17 @@ async function addToReport(params, analysis) {
   // The report canvas is a PERSISTED project artifact (project.report.blocks).
   // Append through the server so the block survives a reload and reaches the
   // server-side HTML export — the canonical block schema is {kind, ref?,
-  // content?} (server validateReportBlock / reporting/report.js), so a model
-  // fit becomes a table block and everything else a chart, both keyed by the
+  // content?} (server validateReportBlock / reporting/report.js), keyed by the
   // analysis id under `ref`.
+  //
+  // A model fit with plottable coefficients exports as a CHART block — the
+  // server renders its coefficient forest as publication-grade SVG (report.js
+  // rowsFrom maps coef → bars with CI from est±1.96·se). Models without numeric
+  // coefficients fall back to a table; everything else is already a chart.
+  const modelPlottable = analysis.kind === "model"
+    && (analysis.results?.coef ?? []).some((c) => typeof c.est === "number" && Number.isFinite(c.est));
   const block = {
-    kind: analysis.kind === "model" ? "table" : "chart",
+    kind: analysis.kind === "model" && !modelPlottable ? "table" : "chart",
     ref: analysis.id,
     title: analysis.name ?? `${analysis.kind} · ${analysis.id}`,
     level: analysis.level,

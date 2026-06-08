@@ -13,6 +13,10 @@ import { generate as generateMethods, generatePreview as previewMethods, loadAna
 
 const KINDS = new Set(["chart", "table", "quote", "text", "methods-excerpt"]);
 
+// Coefficient terms dropped from the model coefficient PLOT (kept in the
+// table): the intercept's magnitude would crush the slopes' visual range.
+const INTERCEPT_NAMES = new Set(["(intercept)", "intercept", "const", "_cons", "constant"]);
+
 function fail(message, details = {}) {
   throw new ConcordError("VALIDATION", message, details);
 }
@@ -84,6 +88,33 @@ function rowsFrom(analysis, content) {
     };
   }
   const r = analysis?.results ?? {};
+  // A model fit carries coef/naive (est/se per term), not cells: render the
+  // coefficient forest — point = corrected est, CI = est ± 1.96·se, naive
+  // hatched beside it. The intercept is dropped from the PLOT when slopes exist
+  // (its magnitude crushes the slopes' range; the table block keeps every
+  // term). Mirrors the workbench coefficient forest so screen and export agree.
+  const coef = Array.isArray(r.coef) ? r.coef.filter((c) => typeof c.est === "number" && Number.isFinite(c.est)) : [];
+  if (coef.length > 0) {
+    const isIntercept = (name) => INTERCEPT_NAMES.has(String(name).toLowerCase());
+    const hasSlopes = coef.some((c) => !isIntercept(c.name));
+    const plotted = hasSlopes ? coef.filter((c) => !isIntercept(c.name)) : coef;
+    const naiveByName = new Map((r.naive ?? []).map((c) => [c.name, c]));
+    return {
+      title: `Coefficients${r.outcome ? ` — ${r.outcome}` : ""}`,
+      level: analysis.level ?? "exploratory",
+      rows: plotted.map((c) => {
+        const se = typeof c.se === "number" && Number.isFinite(c.se) && c.se > 0 ? c.se : null;
+        const naive = naiveByName.get(c.name);
+        return {
+          key: String(c.name), label: String(c.name), value: c.est,
+          ciLo: se !== null ? c.est - 1.96 * se : undefined,
+          ciHi: se !== null ? c.est + 1.96 * se : undefined,
+          naive: typeof naive?.est === "number" ? naive.est : undefined,
+        };
+      }),
+      diff: null,
+    };
+  }
   const cells = Array.isArray(r.cells) ? r.cells : [];
   if (cells.length === 0) {
     throw new ConcordError("VALIDATION", "block has no renderable cells", { analysisId: analysis?.id });
@@ -168,7 +199,143 @@ function svgChart({ rows, level, idx }) {
   return p.join("");
 }
 
+// ------------------------------------------------------- confusion matrix SVG
+//
+// Publication-grade confusion matrix, mirroring the client confusion.js
+// geometry: a square grid, counts tinting in the machine blue (sequential,
+// capped so ink stays legible), the agreement diagonal set off with an inset
+// ring, and every cell a drill-through door (data-evidence keyed
+// "<keyPrefix><r>,<c>"). Pure string builder — no library. Returns "" for an
+// empty matrix.
+function confusionSvg({ labels = [], matrix = [], rowAxis = "Gold", colAxis = "Machine", keyPrefix = "" }) {
+  const k = matrix.length;
+  if (k === 0) return "";
+  const max = Math.max(1, ...matrix.flat().map((v) => Number(v) || 0));
+  const cell = 46;
+  const labelW = 96;
+  const labelTop = 30;
+  const axisPad = 18;
+  const gridW = k * cell;
+  const W = labelW + gridW + axisPad;
+  const H = labelTop + gridW + labelW;
+  const x0 = labelW;
+  const y0 = labelTop;
+  const p = [];
+  p.push(`<svg viewBox="0 0 ${W} ${H}" width="${W}" height="${H}" role="img" aria-label="${esc(`Confusion matrix: ${rowAxis} rows by ${colAxis} columns`)}">`);
+
+  // axis captions
+  p.push(`<text x="${x0 + gridW / 2}" y="14" text-anchor="middle" class="conf-axis">${esc(colAxis)} →</text>`);
+  p.push(`<text x="12" y="${y0 + gridW / 2}" text-anchor="middle" class="conf-axis" transform="rotate(-90 12 ${y0 + gridW / 2})">${esc(rowAxis)} ↓</text>`);
+
+  // column labels (top) + row labels (left)
+  for (let c = 0; c < k; c++) {
+    p.push(`<text x="${x0 + c * cell + cell / 2}" y="${y0 - 6}" text-anchor="middle" class="conf-collabel">${esc(String(labels[c] ?? c))}</text>`);
+  }
+  for (let r = 0; r < k; r++) {
+    p.push(`<text x="${x0 - 8}" y="${y0 + r * cell + cell / 2}" text-anchor="end" dominant-baseline="middle" class="conf-rowlabel">${esc(String(labels[r] ?? r))}</text>`);
+  }
+
+  // cells
+  for (let r = 0; r < k; r++) {
+    for (let c = 0; c < k; c++) {
+      const count = Number(matrix[r][c]) || 0;
+      const t = count / max;
+      const cx = x0 + c * cell;
+      const cy = y0 + r * cell;
+      const diag = r === c;
+      // tint opacity capped at 0.62 so the ink count stays legible
+      const fillOpacity = (t * 0.62).toFixed(3);
+      const textFill = t > 0.62 ? "#FAF7F2" : "#1A1815";
+      p.push(`<g data-evidence="${esc(`${keyPrefix}${r},${c}`)}" class="conf-cell">`);
+      p.push(`<rect x="${cx}" y="${cy}" width="${cell}" height="${cell}" fill="#2B4C7E" fill-opacity="${fillOpacity}" stroke="#E4DCCB" stroke-width="1"></rect>`);
+      if (diag) {
+        // inset ring marking the agreement diagonal
+        p.push(`<rect x="${cx + 2.5}" y="${cy + 2.5}" width="${cell - 5}" height="${cell - 5}" fill="none" stroke="#1F6F6B" stroke-width="1.4"></rect>`);
+      }
+      p.push(`<text x="${cx + cell / 2}" y="${cy + cell / 2}" text-anchor="middle" dominant-baseline="central" class="conf-count" fill="${textFill}">${count}</text>`);
+      p.push("</g>");
+    }
+  }
+  p.push("</svg>");
+  return p.join("");
+}
+
+// Register a confusion block's inline evidence ({"r,c": ids} or ids[][]) into
+// the shared drill-down map under the block's key prefix, resolving unit text +
+// the machine judgment exactly like evidenceFor does for analysis cells.
+async function confusionEvidence(content, keyPrefix, projectDir, unitsMap, outputsCache, evidence) {
+  const ev = content?.confusion?.evidence;
+  if (!ev) return;
+  const runId = content?.runId ?? content?.confusion?.runId;
+  const byUnit = runId ? await loadOutputsByUnit(projectDir, runId, outputsCache) : new Map();
+  const pairs = Array.isArray(ev)
+    ? ev.flatMap((row, r) => (row ?? []).map((ids, c) => [`${r},${c}`, ids]))
+    : Object.entries(ev);
+  for (const [rc, ids] of pairs) {
+    const key = `${keyPrefix}${rc}`;
+    if (evidence[key] || !Array.isArray(ids) || ids.length === 0) continue;
+    evidence[key] = ids.slice(0, 8).map((uid) => {
+      const u = unitsMap.get(uid);
+      const o = byUnit.get(uid);
+      return {
+        unitId: uid,
+        text: u?.text ?? "",
+        label: o?.label ?? null,
+        confidence: o?.confidence ?? null,
+        rationale: o?.rationale ?? null,
+      };
+    });
+  }
+}
+
+// A confusion-matrix chart block: inline content.confusion {labels, matrix,
+// rowAxis?, colAxis?, evidence?}, or an analysis whose results carry a
+// confusion matrix + labels (the calibration Test pane's per-instrument heat).
+function confusionBlock(payload, idx, exploratoryFlag) {
+  const { title, level, labels, matrix, rowAxis, colAxis } = payload;
+  if (level === "exploratory") exploratoryFlag.any = true;
+  const mark = LEVEL_MARKS[level] ?? "◌";
+  const total = matrix.flat().reduce((s, v) => s + (Number(v) || 0), 0);
+  const parts = [];
+  parts.push(`<section class="block block-chart block-confusion" data-level="${esc(level)}">`);
+  parts.push(`<h3 class="block-title">${esc(title)} <span class="mark" title="${esc(LEVEL_NAMES[level] ?? level)}">${mark}</span></h3>`);
+  parts.push(confusionSvg({ labels, matrix, rowAxis, colAxis, keyPrefix: `conf:${idx}:` }));
+  parts.push(`<p class="annot">n = ${total} · the teal ring marks the agreement diagonal.</p>`);
+  parts.push(`<p class="hint">Click a cell to open its units</p>`);
+  parts.push("</section>");
+  return parts.join("\n");
+}
+
+// Resolve a chart block into a confusion payload when one is present (inline
+// content.confusion, or an analysis results.confusion + results.labels);
+// returns null when the block is an ordinary bar/coefficient chart.
+function confusionPayloadOf(analysis, content) {
+  if (content?.confusion?.matrix && Array.isArray(content.confusion.matrix)) {
+    const cf = content.confusion;
+    return {
+      title: content.title ?? "Confusion matrix",
+      level: content.level ?? analysis?.level ?? "exploratory",
+      labels: cf.labels ?? [], matrix: cf.matrix,
+      rowAxis: cf.rowAxis ?? "Gold", colAxis: cf.colAxis ?? "Machine",
+    };
+  }
+  const r = analysis?.results ?? {};
+  if (Array.isArray(r.confusion) && r.confusion.length > 0) {
+    return {
+      title: content?.title ?? `${r.outcome ? `${r.outcome} — ` : ""}confusion vs gold`,
+      level: analysis.level ?? "exploratory",
+      labels: r.labels ?? [], matrix: r.confusion,
+      rowAxis: "Gold", colAxis: "Machine",
+    };
+  }
+  return null;
+}
+
 function chartBlock(analysis, content, idx, exploratoryFlag) {
+  // a confusion matrix (calibration evidence) renders as its own heat-grid SVG
+  const conf = confusionPayloadOf(analysis, content);
+  if (conf) return confusionBlock(conf, idx, exploratoryFlag);
+
   const { title, level, rows, diff } = rowsFrom(analysis, content);
   if (level === "exploratory") exploratoryFlag.any = true;
   const mark = LEVEL_MARKS[level] ?? "◌";
@@ -310,6 +477,10 @@ main{max-width:780px;margin:0 auto;padding:1rem 1.5rem 6rem}
 .bar-label{font-size:13px;fill:#1A1815}
 .bar-value{font-size:13px;fill:#1A1815;font-family:"IBM Plex Mono",Consolas,monospace}
 .bar-naive{font-size:11px;fill:#2B4C7E;font-family:"IBM Plex Mono",Consolas,monospace}
+.conf-axis{font-size:10px;fill:#6F6759;font-family:"IBM Plex Mono",Consolas,monospace;letter-spacing:.04em;text-transform:uppercase}
+.conf-collabel,.conf-rowlabel{font-size:11px;fill:#1A1815;font-family:"IBM Plex Sans","Segoe UI",sans-serif}
+.conf-count{font-size:12px;font-family:"IBM Plex Mono",Consolas,monospace;font-variant-numeric:tabular-nums}
+.conf-cell{cursor:pointer}
 .annot{font-size:.85rem;color:var(--ink)}
 .hint{font-size:.72rem;color:var(--muted);font-family:"IBM Plex Mono",Consolas,monospace}
 [data-evidence]{cursor:pointer}
@@ -449,6 +620,11 @@ export async function render(project, layout, { projectDir } = {}) {
     // chart | table
     const analysis = b.ref !== undefined ? await loadAnalysis(project, projectDir, b.ref) : null;
     if (analysis) await evidenceFor(analysis, projectDir, unitsMap, outputsCache, evidence);
+    // an inline confusion block carries its own per-cell evidence — register it
+    // under the block's key prefix so the same drill-through opens its units
+    if (b.kind === "chart" && b.content?.confusion?.evidence) {
+      await confusionEvidence(b.content, `conf:${i}:`, projectDir, unitsMap, outputsCache, evidence);
+    }
     blocksHtml.push(b.kind === "chart"
       ? chartBlock(analysis, b.content, i, exploratoryFlag)
       : tableBlock(analysis, b.content, exploratoryFlag));

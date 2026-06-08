@@ -15,6 +15,7 @@ import api from "../api.js";
 import * as toast from "../components/toast.js";
 import { cite } from "../components/cite.js";
 import * as confusion from "../components/confusion.js";
+import * as forest from "../components/charts/forest.js";
 import * as quotecard from "../components/quotecard.js";
 import * as ladderC from "../components/ladder.js";
 import * as renameable from "../components/renameable.js";
@@ -834,9 +835,23 @@ function testPane(host, params, goldset, construct) {
                 caption: `${inst.name} vs gold — adjudicated, or ≥2 coders unanimous (n = ${a.n})`,
               })
             : null,
+          // calibration evidence → the report: the confusion matrix exports as
+          // publication-grade SVG (server reporting/report.js confusion block)
+          a.confusion
+            ? el("button", {
+                class: "btn btn--quiet btn--sm testcol__addreport", type: "button",
+                onclick: (e) => addConfusionToReport(params, inst, a, e.target),
+              }, "Add to report →")
+            : null,
         );
         cols.append(col);
       }
+
+      /* -- the forest: every instrument's κ vs gold with its 95% CI, on one
+         axis, against the human ceiling and the Landis–Koch bands. This is the
+         freeze/model-choice decision surface — read it before the columns. -- */
+      forestSection(wrap, report, { kappaLabel });
+
       wrap.append(section("Instruments against gold", cols,
         el("p", { class: "screen__hint faint" },
           "AC1 rides beside κ and α because it stays stable under prevalence paradoxes — skewed label shares that crater κ", cite("gwet2014"), "."),
@@ -850,6 +865,94 @@ function testPane(host, params, goldset, construct) {
         body: String(err?.message ?? "Code the sample first — agreement computes the moment two coders overlap."),
       }));
     });
+}
+
+/* Add an instrument's confusion-vs-gold matrix to the report canvas as a chart
+   block with INLINE content (labels + matrix + axes), so the server renders it
+   as publication-grade SVG with the print CSS and (when present) evidence
+   drill-through. The agreement confusion carries no per-cell unit ids, so the
+   matrix exports without doors — the grid itself is the calibration evidence. */
+async function addConfusionToReport(params, inst, agreement, btn) {
+  btn.disabled = true;
+  const block = {
+    kind: "chart",
+    title: `${inst.name} vs gold — confusion (n = ${agreement.n ?? "—"})`,
+    level: inst.level ?? "exploratory",
+    content: {
+      title: `${inst.name} vs gold — confusion (n = ${agreement.n ?? "—"})`,
+      level: inst.level ?? "exploratory",
+      confusion: {
+        labels: agreement.labels ?? [],
+        matrix: agreement.confusion ?? [],
+        rowAxis: "Gold",
+        colAxis: "Machine",
+      },
+    },
+  };
+  try {
+    const updated = await api.report.addBlock(params.slug, block);
+    toast.success("Confusion matrix added to the report.", {
+      detail: `${updated.blocks} block${updated.blocks === 1 ? "" : "s"} now — arrange and export under Reports`,
+      data: true,
+    });
+    btn.textContent = "Added ✓";
+  } catch (err) {
+    btn.disabled = false;
+    toast.error("Could not add to the report.", { detail: String(err.message ?? err) });
+  }
+}
+
+/* The forest plot — the freeze/model-choice surface. One row per instrument:
+   the point is its κ against gold (linear-weighted κw for ordinal — whatever
+   the columns headline), the whisker its 95% bootstrap-percentile CI over the
+   machine-vs-gold rows. The human-agreement κ rides as a gold reference row
+   with a dashed guide line (its own α CI is a different statistic, so it shows
+   as a ceiling point, not a whisker). The Landis–Koch bands sit behind. */
+function forestSection(wrap, report, { kappaLabel }) {
+  const h = report.humanAgreement ?? {};
+  const instr = (report.perInstrument ?? []).filter((i) => !i.error && typeof i.agreement?.kappa === "number");
+  // nothing to compare → no forest (the columns still carry the per-instrument
+  // numbers and any error notes)
+  if (instr.length === 0) return;
+
+  const rows = [];
+  // the human ceiling first — a reference row, gold, no whisker (its CI is on
+  // α, not κ; conflating the two would mislead)
+  if (typeof h.kappa === "number") {
+    rows.push({
+      label: "Humans (ceiling)",
+      value: h.kappa,
+      kind: "human",
+      reference: true,
+      level: "corrected",
+    });
+  }
+  let anyCi = false;
+  for (const inst of instr) {
+    const a = inst.agreement;
+    const ci = a.ci && typeof a.ci.lo === "number" && typeof a.ci.hi === "number" ? [a.ci.lo, a.ci.hi] : undefined;
+    if (ci) anyCi = true;
+    rows.push({
+      label: inst.name,
+      value: a.kappa,
+      ci,
+      level: inst.level,
+      kind: "machine",
+    });
+  }
+
+  const host = el("div", {});
+  forest.render(host, rows, {
+    stat: "κ",
+    domain: [0, 1],
+    format: (v) => fmtStat(v),
+    caption: `${kappaLabel} against gold per instrument — point is the coefficient, whisker the 95% CI`
+      + (anyCi ? " (bootstrap percentile over the machine-vs-gold rows" : " (")
+      + (report.goldLabeled !== undefined ? `, n = ${fmtCount(report.goldLabeled)} gold units)` : ")")
+      + `. Bands: Landis & Koch — .61 substantial, .81 almost perfect (context, never a gate). The gold ◆ is the human-agreement ceiling.`,
+  });
+
+  wrap.append(section("Forest — every instrument against gold", host));
 }
 
 /**
