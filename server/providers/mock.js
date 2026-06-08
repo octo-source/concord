@@ -137,9 +137,18 @@ export class MockAdapter extends Adapter {
 
     if ("label" in props) {
       const allowed = props.label.enum ?? null;
+      // Continuous constructs (score0to100, Likert) type the label numeric with
+      // NO enum. Without this, the oracle-less fallback emitted a STRING snippet
+      // and the disagreement branch a `not-…` string — both off-schema, so a
+      // keyless run of a continuous construct quarantined 100% of its units.
+      // genValue is the mock's own in-range numeric generator.
+      const labelType = Array.isArray(props.label.type) ? props.label.type[0] : props.label.type;
+      const numericLabel = !allowed && (labelType === "number" || labelType === "integer");
       let correct = this.oracle ? this.oracle(unitText, schema) : undefined;
       if (correct === undefined || correct === null) {
-        correct = allowed ? allowed[Math.floor(rand() * allowed.length)] : snippetOf(unitText, rand).split(/\s+/)[0];
+        if (allowed) correct = allowed[Math.floor(rand() * allowed.length)];
+        else if (numericLabel) correct = genValue(props.label, unitText, rand);
+        else correct = snippetOf(unitText, rand).split(/\s+/)[0];
       }
       agreed = rand() < this.accuracy;
       if (agreed) {
@@ -150,6 +159,9 @@ export class MockAdapter extends Adapter {
         // forced rather than emitting an off-enum label.
         const others = allowed.filter((v) => v !== correct);
         out.label = others.length > 0 ? others[Math.floor(rand() * others.length)] : correct;
+      } else if (numericLabel) {
+        // A different in-range number expresses disagreement while staying valid.
+        out.label = genValue(props.label, unitText, rand);
       } else {
         out.label = `not-${correct}`;
       }

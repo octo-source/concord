@@ -10,6 +10,8 @@ const familyOf = (modelId) => String(modelId).split("/")[0].split("-")[0];
 // OpenRouter pricing is USD per token (string); catalog wants USD per 1M.
 const perMillion = (v) => (v == null ? 0 : Math.round(Number(v) * 1e6 * 1e4) / 1e4);
 
+const CATALOG_TTL_MS = 60 * 60 * 1000; // 1h, matches openai.js/anthropic.js + routes/catalog.js
+
 export class OpenRouterAdapter extends OpenAIAdapter {
   constructor(cfg = {}) {
     super({ name: "openrouter", apiKey: cfg.apiKey, baseUrl: cfg.baseUrl ?? "https://openrouter.ai/api" });
@@ -37,9 +39,31 @@ export class OpenRouterAdapter extends OpenAIAdapter {
     return res;
   }
 
-  async catalog() {
-    const raw = await httpJSON("GET", `${this.baseUrl}/v1/models`, { headers: this.headers() });
-    return (raw.data ?? []).map((m) => {
+  // Live GET /v1/models with real per-token pricing, cached in-adapter for 1h
+  // and degrading a fetch failure to the last-known (or empty) catalog rather
+  // than throwing — matching the openai.js/anthropic.js cache+fallback shape.
+  //
+  // Both behaviors are load-bearing for engine.js pricingFor (read-only): it
+  // calls catalog() once PER JUROR at run start and returns $0 for the WHOLE
+  // run on any throw. Without the cache, a panel re-fetches the full long-tail
+  // list per juror (sequential, 120s timeout each), so a blackholed endpoint
+  // stalls the run's start for minutes; without the fallback, one transient
+  // 5xx zeroes all metering and silently disables the budget cap. `force` (set
+  // by the catalog route on ?refresh=1) bypasses the cache.
+  async catalog({ force = false } = {}) {
+    if (!force && this._catalogCache && Date.now() - this._catalogCache.at < CATALOG_TTL_MS) {
+      return this._catalogCache.data.map((m) => ({ ...m, pricing: { ...m.pricing } }));
+    }
+    let raw;
+    try {
+      raw = await httpJSON("GET", `${this.baseUrl}/v1/models`, { headers: this.headers() });
+    } catch {
+      // Serve the last-known catalog if we have one (no re-zeroing mid-run);
+      // otherwise an empty list — a usable, $0-priced catalog beats a throw
+      // that makes engine.pricingFor zero the entire run.
+      return this._catalogCache ? this._catalogCache.data.map((m) => ({ ...m, pricing: { ...m.pricing } })) : [];
+    }
+    const data = (raw?.data ?? []).map((m) => {
       // Per-model capability flags from supported_parameters (present on every
       // live entry, 2026-06; absent → conservative flags, never a throw).
       // OpenRouter SILENTLY ignores response_format on models that lack it —
@@ -58,5 +82,7 @@ export class OpenRouterAdapter extends OpenAIAdapter {
         params,
       };
     });
+    this._catalogCache = { at: Date.now(), data };
+    return data.map((m) => ({ ...m, pricing: { ...m.pricing } }));
   }
 }

@@ -1,6 +1,7 @@
 // Ollama (or any compatible local endpoint). Local: free, keyless, and the
 // only network adapter allowed under privacy mode "strict".
-import { Adapter, httpJSON, malformedResponse } from "./base.js";
+import { ConcordError } from "../core/errors.js";
+import { Adapter, httpJSON, malformedResponse, validateSchema } from "./base.js";
 
 const DEFAULT_BASE_URL = "http://localhost:11434";
 
@@ -33,6 +34,21 @@ export class OllamaAdapter extends Adapter {
     let json;
     if (req.schema && text !== undefined) {
       try { json = JSON.parse(text); } catch { /* completeWithRepair handles it */ }
+    }
+    // Truncation fast-fail (mirrors openai.js finish_reason==="length" and the
+    // anthropic max_tokens guard): num_predict exhausted mid-generation reports
+    // done_reason "length". If the schema'd output didn't come back valid, the
+    // repair loop would re-prompt at the SAME num_predict and quarantine as
+    // SCHEMA_INVALID; TRUNCATED instead lets withTruncationRetry double the
+    // budget. A complete, schema-valid emission passes through even at "length"
+    // (the budget was simply generous).
+    if (req.schema && raw.done_reason === "length"
+      && (json === undefined || validateSchema(json, req.schema).length > 0)) {
+      throw new ConcordError(
+        "TRUNCATED",
+        `ollama: structured output truncated at the token limit; raise maxTokens (currently ${req.maxTokens ?? "default"}) and retry`,
+        { provider: "ollama", maxTokens: req.maxTokens ?? null, advice: "raise maxTokens" },
+      );
     }
     return {
       text,

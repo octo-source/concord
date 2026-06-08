@@ -222,10 +222,18 @@ export class Pool {
           // Unreachable keeps its identity (callers branch on the code and
           // details.kind); HTTP exhaustion keeps the historical shape.
           if (cls === "unreachable") throw err;
+          // Carry the last inner attempt's accounting onto the replacement:
+          // completeWithRepair/withTruncationRetry stamp attemptsUsage (spend
+          // from returned-but-failed attempts) onto the thrown error, and
+          // retryAfterMs rides the same details. Dropping them here lost a
+          // metering consumer behind a Pool the abandoned unit's spend.
+          const details = { attempts: attempt, lastStatus: err?.details?.status, lastMessage: err?.message };
+          if (err?.details?.attemptsUsage != null) details.attemptsUsage = err.details.attemptsUsage;
+          if (err?.details?.retryAfterMs != null) details.retryAfterMs = err.details.retryAfterMs;
           throw new ConcordError(
             "RATE_LIMITED_EXHAUSTED",
             `gave up after ${attempt} attempts (last: HTTP ${err?.details?.status})`,
-            { attempts: attempt, lastStatus: err?.details?.status, lastMessage: err?.message },
+            details,
           );
         }
       }

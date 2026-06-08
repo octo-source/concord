@@ -316,6 +316,48 @@ describe("Pool retry policy and slot hygiene", () => {
     }
   });
 
+  it("RATE_LIMITED_EXHAUSTED carries attemptsUsage (and retryAfterMs) from the last inner attempt", async () => {
+    // completeWithRepair/withTruncationRetry stamp the returned-but-failed
+    // attempts' spend onto err.details.attemptsUsage. When the Pool exhausts
+    // its budget it REPLACES that error with RATE_LIMITED_EXHAUSTED; the
+    // replacement used to drop attemptsUsage, so a metering consumer behind a
+    // Pool lost the quarantined/abandoned-unit spend entirely.
+    const pool = new Pool({ concurrency: 1, baseDelayMs: 1, maxAttempts: 3 });
+    let n = 0;
+    await assert.rejects(
+      pool.run(async () => {
+        n++;
+        throw new ConcordError("PROVIDER_HTTP", "rate limited", {
+          status: 429,
+          retryAfterMs: 12_000,
+          attemptsUsage: { inputTokens: 100 * n, outputTokens: 20 * n, attempts: n },
+        });
+      }),
+      (err) => {
+        assert.equal(err.code, "RATE_LIMITED_EXHAUSTED");
+        assert.equal(err.details.attempts, 3, "exhaustion shape preserved");
+        assert.ok(err.details.attemptsUsage, "attemptsUsage must survive the exhaustion replacement");
+        // last inner attempt was n=3 → {300, 60, 3}
+        assert.deepEqual(err.details.attemptsUsage, { inputTokens: 300, outputTokens: 60, attempts: 3 });
+        assert.equal(err.details.retryAfterMs, 12_000, "retryAfterMs from the last attempt is carried too");
+        return true;
+      },
+    );
+    assert.equal(n, 3);
+  });
+
+  it("RATE_LIMITED_EXHAUSTED without an inner attemptsUsage leaves the field absent (no fabricated spend)", async () => {
+    const pool = new Pool({ concurrency: 1, baseDelayMs: 1, maxAttempts: 2 });
+    await assert.rejects(
+      pool.run(async () => { throw new ConcordError("PROVIDER_HTTP", "rate limited", { status: 429 }); }),
+      (err) => {
+        assert.equal(err.code, "RATE_LIMITED_EXHAUSTED");
+        assert.equal("attemptsUsage" in err.details, false, "no inner usage → no fabricated attemptsUsage");
+        return true;
+      },
+    );
+  });
+
   it("slot-leak regression: full capacity remains after N>concurrency throwing fns", async () => {
     const pool = new Pool({ concurrency: 2, baseDelayMs: 1 });
     const burst = await Promise.allSettled(
@@ -388,6 +430,75 @@ describe("AnthropicAdapter", () => {
         assert.equal(res.text, "hello there");
         assert.equal(res.json, undefined);
         assert.equal(res.finishReason, "end_turn");
+      },
+    );
+  });
+
+  it("fast-fails TRUNCATED when stop_reason=max_tokens and the tool_use block is absent on a schema request", async () => {
+    // A response that hit max_tokens before the forced tool call landed: the
+    // emit tool block never started, so json would be undefined and the repair
+    // loop would burn its budget then quarantine as SCHEMA_INVALID — masking a
+    // truncation the doubled-budget retry was built to fix.
+    await withServer(
+      () => ({
+        body: {
+          id: "msg_t", type: "message", role: "assistant", model: "claude-sonnet-4-6",
+          stop_reason: "max_tokens", stop_sequence: null,
+          usage: { input_tokens: 120, output_tokens: 64 },
+          content: [{ type: "text", text: "Let me think about this" }], // thinking/preamble, no tool_use
+        },
+      }),
+      async (srv) => {
+        const adapter = new AnthropicAdapter({ apiKey: "k", baseUrl: srv.url });
+        await assert.rejects(
+          completeWithRepair(adapter, { model: "m", messages: [{ role: "user", content: "x" }], schema: judgeSchema, temperature: 0, maxTokens: 64 }),
+          (err) => err.code === "TRUNCATED" && /maxTokens/.test(err.message),
+        );
+        assert.equal(srv.calls.length, 1, "truncation must not trigger repair re-prompts");
+      },
+    );
+  });
+
+  it("a partial tool_use block at max_tokens (unparseable input) is TRUNCATED, not SCHEMA_INVALID", async () => {
+    // stop_reason max_tokens WITH a tool_use block whose input is incomplete:
+    // Anthropic still ships the partial block, so `tool` is found but its input
+    // fails the schema. This must surface as TRUNCATED so the budget doubles.
+    await withServer(
+      () => ({
+        body: {
+          id: "msg_tp", type: "message", role: "assistant", model: "claude-sonnet-4-6",
+          stop_reason: "max_tokens", stop_sequence: null,
+          usage: { input_tokens: 120, output_tokens: 64 },
+          content: [{ type: "tool_use", id: "toolu_p", name: "emit", input: { rationale: "the pay is" } }], // missing label+confidence
+        },
+      }),
+      async (srv) => {
+        const adapter = new AnthropicAdapter({ apiKey: "k", baseUrl: srv.url });
+        await assert.rejects(
+          completeWithRepair(adapter, { model: "m", messages: [{ role: "user", content: "x" }], schema: judgeSchema, temperature: 0, maxTokens: 64 }),
+          (err) => err.code === "TRUNCATED",
+        );
+        assert.equal(srv.calls.length, 1, "truncation must not trigger repair re-prompts");
+      },
+    );
+  });
+
+  it("max_tokens with a COMPLETE, schema-valid tool block is not TRUNCATED (the limit was generous)", async () => {
+    // stop_reason can be max_tokens even when the emitted JSON is already valid;
+    // a valid tool block must pass through, never spuriously truncate.
+    await withServer(
+      () => ({
+        body: {
+          id: "msg_ok", type: "message", role: "assistant", model: "claude-sonnet-4-6",
+          stop_reason: "max_tokens", stop_sequence: null,
+          usage: { input_tokens: 120, output_tokens: 64 },
+          content: [{ type: "tool_use", id: "toolu_ok", name: "emit", input: { rationale: "r", label: "pay", confidence: 0.8 } }],
+        },
+      }),
+      async (srv) => {
+        const adapter = new AnthropicAdapter({ apiKey: "k", baseUrl: srv.url });
+        const res = await adapter.complete({ model: "m", messages: [{ role: "user", content: "x" }], schema: judgeSchema, temperature: 0, maxTokens: 64 });
+        assert.deepEqual(res.json, { rationale: "r", label: "pay", confidence: 0.8 });
       },
     );
   });
@@ -1056,6 +1167,60 @@ describe("OpenRouterAdapter", () => {
       },
     );
   });
+
+  // A transient OpenRouter /v1/models failure at run start used to zero ALL run
+  // metering (pricingFor in engine.js returns $0 on a catalog throw → the cap
+  // goes silently inert), and with no in-adapter cache the full long-tail list
+  // was re-fetched once per juror (sequential, 120s timeout each → a blackholed
+  // endpoint stalls a panel run's start for minutes). The adapter now caches
+  // for 1h and degrades a fetch failure to a usable catalog instead of throwing.
+  it("caches the live fetch for 1h; force re-fetches", async () => {
+    await withServer(
+      () => ({ body: { data: [{ id: "openai/gpt-5.2", name: "GPT-5.2", context_length: 400000, pricing: { prompt: "0.00000125", completion: "0.00001" }, supported_parameters: ["response_format"] }] } }),
+      async (srv) => {
+        const adapter = new OpenRouterAdapter({ apiKey: "k", baseUrl: srv.url });
+        const a = await adapter.catalog();
+        const b = await adapter.catalog();
+        assert.equal(srv.calls.length, 1, "second call within the TTL serves the in-adapter cache");
+        // cached reads are independent copies (a pricing mutation must not leak)
+        assert.deepEqual(a[0].pricing, b[0].pricing);
+        a[0].pricing.inUSDper1M = 999;
+        assert.equal(b[0].pricing.inUSDper1M, 1.25, "cache must hand out fresh pricing objects");
+        await adapter.catalog({ force: true });
+        assert.equal(srv.calls.length, 2, "force bypasses the cache");
+      },
+    );
+  });
+
+  it("a fetch failure returns a catalog instead of throwing (metering must not silently zero a whole run)", async () => {
+    await withServer(
+      () => ({ status: 503, body: "<html>down</html>" }),
+      async (srv) => {
+        const adapter = new OpenRouterAdapter({ apiKey: "k", baseUrl: srv.url });
+        const cat = await adapter.catalog(); // must NOT throw — engine.pricingFor depends on this
+        assert.ok(Array.isArray(cat), "fetch failure must degrade to an array, not propagate");
+      },
+    );
+  });
+
+  it("a fetch failure after a successful fetch serves the last-known catalog (no re-zeroing mid-run)", async () => {
+    let fail = false;
+    await withServer(
+      () => (fail
+        ? { status: 503, body: "<html>down</html>" }
+        : { body: { data: [{ id: "openai/gpt-5.2", name: "GPT-5.2", context_length: 400000, pricing: { prompt: "0.00000125", completion: "0.00001" }, supported_parameters: ["response_format"] }] } }),
+      async (srv) => {
+        const adapter = new OpenRouterAdapter({ apiKey: "k", baseUrl: srv.url });
+        const warm = await adapter.catalog();
+        assert.equal(warm[0].pricing.inUSDper1M, 1.25);
+        fail = true;
+        // force past the TTL cache so the fetch is actually attempted and fails
+        const cat = await adapter.catalog({ force: true });
+        assert.ok(Array.isArray(cat));
+        assert.equal(cat[0]?.pricing.inUSDper1M, 1.25, "last-known pricing survives a later fetch failure");
+      },
+    );
+  });
 });
 
 // ------------------------------------------------- PROVIDER_HTTP error detail
@@ -1208,6 +1373,58 @@ describe("OllamaAdapter", () => {
         const caps = adapter.capabilities();
         assert.equal(caps.local, true);
         assert.equal(caps.family, "ollama");
+      },
+    );
+  });
+
+  it("fast-fails TRUNCATED when done_reason=length and the JSON is incomplete on a schema request", async () => {
+    // num_predict exhausted mid-JSON: done_reason "length", content cut off, so
+    // JSON.parse fails. Without truncation detection the repair loop re-prompts
+    // at the SAME num_predict and quarantines as SCHEMA_INVALID, starving the
+    // doubled-budget retry built for exactly this.
+    await withServer(
+      () => ({
+        body: {
+          model: "llama3.2:3b", message: { role: "assistant", content: '{"rationale":"the pay is ' },
+          done: true, done_reason: "length", prompt_eval_count: 50, eval_count: 128,
+        },
+      }),
+      async (srv) => {
+        const adapter = new OllamaAdapter({ baseUrl: srv.url });
+        await assert.rejects(
+          completeWithRepair(adapter, { model: "m", messages: [{ role: "user", content: "x" }], schema: judgeSchema, temperature: 0, maxTokens: 128 }),
+          (err) => err.code === "TRUNCATED" && /maxTokens/.test(err.message),
+        );
+        assert.equal(srv.calls.length, 1, "truncation must not trigger repair re-prompts");
+      },
+    );
+  });
+
+  it("done_reason=length with a COMPLETE, schema-valid JSON is not TRUNCATED (the limit was generous)", async () => {
+    await withServer(
+      () => ({
+        body: {
+          model: "llama3.2:3b", message: { role: "assistant", content: '{"rationale":"r","label":"pay","confidence":0.6}' },
+          done: true, done_reason: "length", prompt_eval_count: 50, eval_count: 30,
+        },
+      }),
+      async (srv) => {
+        const adapter = new OllamaAdapter({ baseUrl: srv.url });
+        const res = await adapter.complete({ model: "m", messages: [{ role: "user", content: "x" }], schema: judgeSchema, temperature: 0, maxTokens: 128 });
+        assert.deepEqual(res.json, { rationale: "r", label: "pay", confidence: 0.6 });
+        assert.equal(res.finishReason, "length");
+      },
+    );
+  });
+
+  it("done_reason=length WITHOUT a schema is not an error (plain text may be capped on purpose)", async () => {
+    await withServer(
+      () => ({ body: { message: { role: "assistant", content: "partial tex" }, done_reason: "length" } }),
+      async (srv) => {
+        const adapter = new OllamaAdapter({ baseUrl: srv.url });
+        const res = await adapter.complete({ model: "m", messages: [{ role: "user", content: "x" }], temperature: 0, maxTokens: 16 });
+        assert.equal(res.text, "partial tex");
+        assert.equal(res.finishReason, "length");
       },
     );
   });
@@ -1717,6 +1934,66 @@ describe("MockAdapter", () => {
     const cat = await mock.catalog();
     assert.deepEqual(cat[0].pricing, { inUSDper1M: 0, outUSDper1M: 0 });
     assert.equal(cat[0].family, "mock");
+  });
+
+  it("continuous (numeric) label with no oracle emits a valid number, not a string (no 100% quarantine)", async () => {
+    // A continuous construct: label is a bounded number, no enum. Keyless
+    // demo/CI runs it with no oracle. The mock used to fall back to a STRING
+    // snippet for any oracle-less label, so every attempt failed schema
+    // validation → 100% of units quarantined. It must emit a number in range.
+    const continuousSchema = {
+      type: "object",
+      additionalProperties: false,
+      required: ["rationale", "label", "confidence"],
+      properties: {
+        rationale: { type: "string" },
+        label: { type: "number", minimum: 0, maximum: 100 }, // score0to100, no enum, no oracle
+        confidence: { type: "number", minimum: 0, maximum: 1 },
+      },
+    };
+    const mock = new MockAdapter(); // no oracle set
+    const units = plantedUnits(50);
+    const out = await Promise.all(units.map((u) => mock.complete({
+      model: "mock-1",
+      messages: [{ role: "user", content: `Score it.\n<unit>${u.text}</unit>` }],
+      schema: continuousSchema, temperature: 0, maxTokens: 120,
+    })));
+    const invalid = out.filter((r) => validateSchema(r.json, continuousSchema).length > 0).length;
+    assert.equal(invalid, 0, `${invalid}/50 continuous-label emissions failed schema validation`);
+    for (const r of out) {
+      assert.equal(typeof r.json.label, "number");
+      assert.ok(r.json.label >= 0 && r.json.label <= 100, `label ${r.json.label} out of [0,100]`);
+    }
+  });
+
+  it("an integer-typed label with no oracle also emits a valid number", async () => {
+    const intSchema = {
+      type: "object",
+      additionalProperties: false,
+      required: ["label"],
+      properties: { label: { type: "integer", minimum: 1, maximum: 5 } }, // Likert, no enum
+    };
+    const mock = new MockAdapter();
+    const res = await mock.complete({
+      model: "mock-1", messages: [{ role: "user", content: "<unit>some text</unit>" }],
+      schema: intSchema, temperature: 0, maxTokens: 64,
+    });
+    assert.deepEqual(validateSchema(res.json, intSchema), []);
+    assert.ok(Number.isInteger(res.json.label));
+  });
+
+  it("an oracle supplying a numeric label is still honored (agreement path)", async () => {
+    const continuousSchema = {
+      type: "object", additionalProperties: false, required: ["label"],
+      properties: { label: { type: "number", minimum: 0, maximum: 100 } },
+    };
+    const mock = new MockAdapter().setOracle(() => 42).setAccuracy(1.0);
+    const res = await mock.complete({
+      model: "mock-1", messages: [{ role: "user", content: "<unit>x</unit>" }],
+      schema: continuousSchema, temperature: 0, maxTokens: 64,
+    });
+    assert.equal(res.json.label, 42, "a numeric oracle value must pass through on agreement");
+    assert.deepEqual(validateSchema(res.json, continuousSchema), []);
   });
 
   it("fills arbitrary schema shapes", async () => {

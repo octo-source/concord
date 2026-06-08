@@ -1,7 +1,7 @@
 // Anthropic Messages API adapter. Structured output via forced tool use:
 // the schema becomes the lone "emit" tool and tool_choice pins it.
 import { ConcordError } from "../core/errors.js";
-import { Adapter, httpJSON, malformedResponse, mergeCatalogPricing } from "./base.js";
+import { Adapter, httpJSON, malformedResponse, mergeCatalogPricing, validateSchema } from "./base.js";
 
 const API_VERSION = "2023-06-01";
 const CATALOG_TTL_MS = 60 * 60 * 1000; // 1h, matches routes/catalog.js
@@ -50,6 +50,23 @@ export class AnthropicAdapter extends Adapter {
     const blocks = raw.content;
     const tool = blocks.find((b) => b.type === "tool_use");
     const text = blocks.filter((b) => b.type === "text").map((b) => b.text).join("");
+    // Truncation fast-fail (mirrors openai.js finish_reason==="length"): a
+    // structured call that hit max_tokens before the forced tool_use block
+    // landed — or that shipped only a PARTIAL block whose input fails the
+    // schema — is a token-budget overflow, not a fixable schema error. Throwing
+    // SCHEMA_INVALID here (via the repair loop) would mask it; TRUNCATED lets
+    // withTruncationRetry double the budget and retry. A complete, schema-valid
+    // tool block passes through even when stop_reason is max_tokens (the limit
+    // was simply generous). Reasoning-class Claude bills thinking against
+    // max_tokens, so this fires far more than the plain max-length case.
+    if (req.schema && raw.stop_reason === "max_tokens"
+      && (!tool || validateSchema(tool.input, req.schema).length > 0)) {
+      throw new ConcordError(
+        "TRUNCATED",
+        `anthropic: structured output truncated at the token limit; raise maxTokens (currently ${req.maxTokens ?? "default"}) and retry`,
+        { provider: "anthropic", maxTokens: req.maxTokens ?? null, advice: "raise maxTokens" },
+      );
+    }
     return {
       text: text || undefined,
       json: tool ? tool.input : undefined,
