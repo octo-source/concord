@@ -27,14 +27,14 @@ export function render(mount, params) {
   }, ({ project, data }) => {
     mount.append(screenHead({
       overline: `Run · ${params.rid}`,
-      title: "Where the jurors split.",
+      title: "Units the panel disagreed on.",
       lede: "Units the panel could not agree on, ranked by how evenly the votes split. For each one: send it to the human gold queue, or treat it as a codebook defect and tighten the construct.",
     }));
 
     if (!data?.byEntropy?.length) {
       mount.append(emptyState({
-        title: "The panel agreed.",
-        body: data?.note ?? "No units cleared the entropy threshold. Either the corpus is easy or the jurors are too alike — check the family chips on the panel.",
+        title: "No disagreements found.",
+        body: data?.note ?? "No units cleared the entropy threshold. This can happen when the corpus is unambiguous or the jurors are too similar. Check the family chips on the panel.",
       }));
       return;
     }
@@ -48,7 +48,7 @@ export function render(mount, params) {
       cols: jurors,
       values: matrix,
     }, {
-      caption: "Pairwise raw agreement between jurors — low cells mark the odd one out",
+      caption: "Pairwise raw agreement between jurors. Low cells indicate a juror that agrees least with the others.",
       format: (v) => fmtStat(v),
     });
     mount.append(section("Juror × juror agreement", matrixCell));

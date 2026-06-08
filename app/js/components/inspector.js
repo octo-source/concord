@@ -379,6 +379,6 @@ function loadingView() {
 
 function errorView(err) {
   return el("div", { class: "dossier__error" },
-    el("p", {}, "The dossier could not be assembled."),
+    el("p", {}, "The evidence could not be loaded."),
     el("p", { class: "faint data" }, String(err?.message ?? err)));
 }

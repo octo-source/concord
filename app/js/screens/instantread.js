@@ -58,7 +58,7 @@ export function render(mount, params) {
     const hasEvidence = Boolean(read.langUnits);
     mount.append(screenHead({
       overline: "Instant read",
-      title: "What the corpus looks like before anyone reads it.",
+      title: "An overview of the corpus computed locally, before any model reads it.",
       lede: "Local counts only — lengths, languages, distinctive terms, metadata."
         + (hasEvidence ? " Click any bar to read its units." : "")
         + " The Brief below reads a stratified sample and cites the units behind every claim.",
@@ -147,7 +147,7 @@ export function render(mount, params) {
         )),
     );
     grid.append(wrapCell("Top distinctive terms", termList,
-      el("p", { class: "faint screen__hint" }, "Frequency damped by document frequency, stopwords removed. Counted, not judged.")));
+      el("p", { class: "faint screen__hint" }, "Frequency damped by document frequency, stopwords removed. These are raw counts, not an interpretation.")));
 
     /* -- sentiment sketch: {lexicon, positive, negative, neutral, meanValence};
        evidence via sentimentUnits -- */
@@ -307,7 +307,7 @@ function changeTextColumn(params, project, currentCol) {
           c.preview ? el("span", { class: "choice__preview data" }, c.preview) : null)));
     }
     listHost.append(el("p", { class: "screen__hint faint" },
-      "Columns ranked by mean text length over the first units — longer usually means “this is the open-ended answer”."));
+      "Columns ranked by mean text length over the first units — longer columns are usually the open-ended answer text."));
   })();
 }
 

@@ -403,7 +403,7 @@ function planSpecLine(spec) {
 function planSheet(project, res, question) {
   const plan = res?.plan ?? {};
   const planId = res?.planId;
-  const s = openSheet({ title: "The plan, before the spend", overline: "Question → artifacts", wide: true });
+  const s = openSheet({ title: "Review the plan before spending", overline: "From your question, the Director drafts constructs and instruments", wide: true });
 
   const analysis = plan.analysis ?? {};
   const specLine = planSpecLine(analysis.spec);
@@ -556,14 +556,14 @@ function initInspector() {
   inspector.initEvidenceDelegation(async (unitId) => {
     const project = store.get("project");
     if (!project?.slug) {
-      return { unit: { id: unitId, text: "(open a project to assemble this unit's dossier)" } };
+      return { unit: { id: unitId, text: "(open a project to see this unit's evidence)" } };
     }
     return api.evidence.get(project.slug, unitId);
   });
 
   $("inspector-toggle")?.addEventListener("click", () => {
     if (inspector.isOpen()) inspector.close();
-    else inspector.open({ unit: { id: "—", text: "Click any number, bar, or cell that carries the evidence mark to read its dossier here." } }, { title: "Evidence" });
+    else inspector.open({ unit: { id: "—", text: "Click any number, bar, or cell marked with the evidence dot to read its supporting units here." } }, { title: "Evidence" });
   });
 
   document.addEventListener("keydown", (e) => {

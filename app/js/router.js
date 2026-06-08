@@ -139,30 +139,29 @@ export function start({ root }) {
 function welcomeView() {
   return el("div", { class: "empty-state welcome" },
     el("p", { class: "empty-state__mark", aria: { hidden: "true" } }, "◌ ◑ ● ◉"),
-    el("h2", { class: "empty-state__title" }, "The reading room is open."),
+    el("h2", { class: "empty-state__title" }, "Concord measures qualitative text."),
     el("p", { class: "empty-state__body" },
-      "Bring a corpus — survey open-ends, interviews, reviews — and Concord will ",
-      "set it in type you can question. Drop a file anywhere, or start with the demo corpus."),
+      "Import a corpus — survey open-ends, interviews, reviews — and Concord codes it into ",
+      "numbers you can trace back to the text. Drop a file anywhere, or open the demo corpus."),
     el("p", { class: "empty-state__hint" },
-      "Every number you will see here carries its evidence mark, ",
-      "and every mark opens onto the quotes beneath it."),
+      "Every number shows its evidence level (◌ ◑ ● ◉); click any number to see the units behind it."),
   );
 }
 
 function notFoundView(path) {
   return el("div", { class: "empty-state" },
     el("p", { class: "empty-state__mark", aria: { hidden: "true" } }, "◌"),
-    el("h2", { class: "empty-state__title" }, "Nothing is shelved here."),
+    el("h2", { class: "empty-state__title" }, "Page not found."),
     el("p", { class: "empty-state__body" },
-      "No screen answers to ", el("code", {}, `#/${path}`), ". ",
-      el("a", { href: "#/" }, "Return to the reading room"), "."),
+      "No screen matches ", el("code", {}, `#/${path}`), ". ",
+      el("a", { href: "#/" }, "Return to the start"), "."),
   );
 }
 
 function errorView(err) {
   return el("div", { class: "empty-state" },
     el("p", { class: "empty-state__mark empty-state__mark--signal", aria: { hidden: "true" } }, "◌"),
-    el("h2", { class: "empty-state__title" }, "This page failed to compose."),
+    el("h2", { class: "empty-state__title" }, "This page failed to load."),
     el("p", { class: "empty-state__body" }, String(err?.message ?? err)),
   );
 }

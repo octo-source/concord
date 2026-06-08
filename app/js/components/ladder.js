@@ -10,7 +10,7 @@ export const LEVELS = {
   exploratory: {
     mark: "◌",
     name: "Exploratory",
-    tip: "Compiles and runs. Nothing has been checked against people yet — read it as a sketch, and let it travel with its watermark.",
+    tip: "Compiles and runs. Not yet checked against human labels. Treat results as a draft; exported results keep an exploratory watermark.",
     next: "stabilized",
   },
   stabilized: {
@@ -28,7 +28,7 @@ export const LEVELS = {
   corrected: {
     mark: "◉",
     name: "Corrected",
-    tip: "Computed with design-based correction (DSL/PPI) against the gold sample. Machine error cannot bias this number — only widen its interval.",
+    tip: "Computed with design-based correction (DSL/PPI) against the gold sample. Machine error cannot bias this number; it can only widen its confidence interval.",
     next: null,
   },
 };

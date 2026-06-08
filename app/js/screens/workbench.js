@@ -91,7 +91,7 @@ export function render(mount, params, query = {}) {
     mount.append(screenHead({
       overline: "Workbench",
       title: "Analyze what the runs measured.",
-      lede: "Pick an analysis kind on the left, choose variables, and run it over a measured corpus. Where a complete human gold sample with recorded π exists, estimates arrive bias-corrected (◉) with the naive number hatched beside them. Every analysis reads the labeled outputs of one run.",
+      lede: "Pick an analysis kind on the left, choose variables, and run it over a measured corpus. When a complete human gold sample with recorded π exists, estimates are bias-corrected (◉) and the naive number is shown hatched beside them. Every analysis reads the labeled outputs of one run.",
     }));
 
     const split = el("div", { class: "split split--workbench" });
@@ -134,8 +134,8 @@ export function render(mount, params, query = {}) {
     } else if (!params.id) {
       canvas.append(emptyState({
         title: "No analysis selected.",
-        body: "Pick a kind on the left, choose variables, and run. Results land here; every number stays clickable down to its units.",
-        hint: "Where a gold sample with π exists, estimates arrive corrected (◉) with the naive number beside them.",
+        body: "Pick a kind on the left, choose variables, and run. Results appear here. Every number is clickable down to the units behind it.",
+        hint: "where a gold sample with π exists, estimates are corrected (◉) and the naive number is shown beside them.",
       }));
     } else {
       canvas.append(emptyState({ title: "Analysis not found.", body: "It may not have been computed yet." }));
@@ -494,7 +494,7 @@ function crosstabResult(canvas, analysis) {
 
   if (!(level === "corrected" && r.cells?.length)) {
     canvas.append(el("p", { class: "annotation annotation--still" },
-      "These cells are ", el("strong", {}, "uncorrected"), " (", ladderC.mark(level), " ", level, "). A gold sample with stored π would let design-based supervised learning (DSL", cite("egami2023"), ") remove machine-error bias — the watermark travels into every export until then."));
+      "These cells are ", el("strong", {}, "uncorrected"), " (", ladderC.mark(level), " ", level, "). A gold sample with stored π would let design-based supervised learning (DSL", cite("egami2023"), ") remove machine-error bias — the uncorrected level mark stays on these numbers in every export until a gold sample with π is provided."));
   }
 }
 
@@ -540,7 +540,7 @@ function correctedCellsBlock(canvas, analysis) {
       el("span", { class: "chip chip--ghost" }, "◉"),
       " Corrected for machine-labeling error using the gold sample — design-based supervised learning (DSL", cite("egami2023"),
       "), of the prediction-powered-inference family", cite("angelopoulos2023"),
-      ". Machine accuracy buys precision, never validity."),
+      ". Higher machine accuracy improves precision (narrower CIs) but does not remove bias; validity comes from the gold sample."),
     ...(r.skippedGroups ?? []).map((s) =>
       el("p", { class: "annotation annotation--still faint" },
         el("span", { class: "chip chip--ghost" }, s.group), " ", s.reason))));
@@ -648,7 +648,7 @@ function triangulationResult(canvas, params, analysis) {
   if (numericPairs.length >= 3) {
     const cell = el("div", {});
     scatter.render(cell, numericPairs.map((p) => ({ x: p.a, y: p.b, label: p.unitId, id: p.unitId })), {
-      caption: `Per-unit scores — points on the diagonal are units the instruments score alike; points off it are disagreements. κ = ${fmtStat(r.kappa)}`,
+      caption: `Per-unit scores — points on the diagonal are units the two instruments scored equally; points off it are units they scored differently. κ = ${fmtStat(r.kappa)}`,
       xLabel: a?.name ?? "instrument A",
       yLabel: b?.name ?? "instrument B",
       format: (v) => fmtStat(v),
@@ -660,7 +660,7 @@ function triangulationResult(canvas, params, analysis) {
   const divergentN = r.divergentN ?? divergent.length; // the TRUE count (the list is capped server-side)
   const browser = el("div", { class: "divbrowser" });
   if (!divergent.length) {
-    browser.append(el("p", { class: "faint" }, "No divergent units — the instruments read alike here."));
+    browser.append(el("p", { class: "faint" }, "No divergent units. The two instruments assigned the same labels for every jointly labeled unit."));
   } else if (divergentN > 25) {
     browser.append(el("p", { class: "screen__hint faint" },
       `Showing the first 25 of ${fmtCount(divergentN)} divergent units.`));
@@ -707,7 +707,7 @@ function subgroupResult(canvas, analysis) {
 
   canvas.append(section("Subgroup reliability audit",
     el("p", { class: "screen__hint" },
-      `Machine-vs-gold agreement and error rate by ${r.by ?? "group"} — a validity tool and bias check.`,
+      `Machine-vs-gold agreement and error rate by ${r.by ?? "group"} — used to check validity and detect group bias.`,
       r.overall
         ? el("span", { class: "data" },
             ` Overall: ${fmtStat(r.overall.percentAgreement)} agreement`,

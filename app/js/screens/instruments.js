@@ -40,9 +40,9 @@ export const title = "Instruments";
 
 const AGG_RULES = {
   majority: "The label most jurors chose wins. Ties flag for escalation.",
-  mean: "Numeric labels average; the panel reads as one smoother judge.",
-  median: "The middle numeric label — robust to one juror's wild read.",
-  unanimityOrFlag: "Agreement or nothing: any split flags the unit for review.",
+  mean: "Numeric labels are averaged into a single panel score.",
+  median: "The middle numeric label — one outlier juror does not move it.",
+  unanimityOrFlag: "Requires unanimous agreement; any split flags the unit for review.",
   confidenceWeighted: "Votes weighted by each juror's self-reported confidence.",
   reliabilityWeighted: "Votes weighted by each juror's measured agreement with silver or gold.",
 };
@@ -412,7 +412,7 @@ function instrumentEditor(main, params, instRaw, constructs, catalog, project = 
 
   if (inst.frozen) {
     main.append(el("p", { class: "screen__hint annotation annotation--still" },
-      "This instrument is frozen at ● — its certificate is the contract. Any edit forks a new ◌ version with this one as parent."));
+      "This instrument is frozen at ● — its calibration certificate is fixed and cannot change. Any edit forks a new ◌ version with this one as parent."));
   }
 
   /* -- kind-specific editor -- */
@@ -733,13 +733,13 @@ function judgeEditor(main, params, inst, catalog, construct, touch) {
   }, payload.promptTemplate ?? "");
   const rawReveal = el("details", { class: "rawreveal" },
     el("summary", { class: "rawreveal__summary" }, "Edit raw template"),
-    el("p", { class: "screen__hint faint" }, "The compiled view is the contract; this is the escape hatch. Slots ", el("code", {}, "{{definition}} {{criteria}} {{examples}}"), " fill from the construct, ", el("code", {}, "{{unit}}"), " from each unit, at call time."),
+    el("p", { class: "screen__hint faint" }, "The compiled view is what runs; edit the raw template here only if you need to. Slots ", el("code", {}, "{{definition}} {{criteria}} {{examples}}"), " fill from the construct, ", el("code", {}, "{{unit}}"), " from each unit, at call time."),
     rawArea);
 
   main.append(section("Compiled prompt",
     el("p", { class: "screen__hint faint" },
       "Compiled from ", el("strong", {}, construct?.name ?? inst.constructId),
-      " — slots highlight where the codebook pours in."),
+      " — highlighted slots show where the construct's text is inserted."),
     promptView,
     rawReveal));
 

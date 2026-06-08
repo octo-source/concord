@@ -25,7 +25,7 @@ export function render(mount) {
       screenHead({
         overline: "Concord",
         title: "Projects",
-        lede: "Each project is a portable folder: corpus, codebook, instruments, gold, ledger. Copy the folder, copy the study.",
+        lede: "Each project is a portable folder containing its corpus, codebook, instruments, gold, and ledger. Copy the folder to copy the whole study.",
         actions: [
           el("button", { class: "btn btn--primary", type: "button", onclick: () => newProjectSheet() }, "New project"),
         ],
@@ -50,9 +50,9 @@ export function render(mount) {
     mount.append(grid);
 
     mount.append(el("p", { class: "screen__footnote faint" },
-      "Every number in every project carries its evidence mark — ",
+      "Every number in every project shows its evidence mark — ",
       el("span", { class: "data" }, "◌ ◑ ● ◉"),
-      " — and every mark opens onto the quotes beneath it."));
+      " — and clicking a mark shows the quotes behind that number."));
   }, "Opening the shelf…");
 }
 

@@ -63,7 +63,7 @@ export function errorView(err, { retry } = {}) {
   const isUnreachable = err?.code === "UNREACHABLE";
   return el("div", { class: "empty-state" },
     el("p", { class: "empty-state__mark empty-state__mark--signal", aria: { hidden: "true" } }, "◌"),
-    el("h2", { class: "empty-state__title" }, isUnreachable ? "The server is not answering." : "This page failed to compose."),
+    el("h2", { class: "empty-state__title" }, isUnreachable ? "The server is not answering." : "This page failed to load."),
     el("p", { class: "empty-state__body" }, String(err?.message ?? err)),
     isUnreachable
       ? el("p", { class: "empty-state__hint" }, "Start Concord with start.bat — or review the screens with fixtures: ",

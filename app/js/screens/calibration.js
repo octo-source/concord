@@ -129,7 +129,7 @@ export function render(mount, params, query) {
           }
         },
       }),
-      lede: "Draw a sample, code it blind by hand, then compare: human–human agreement first, every instrument against gold — units that are adjudicated, or that two or more coders labeled unanimously — after. This is what turns ◌ numbers into ● numbers.",
+      lede: "Draw a sample and have coders label it blind. Concord reports human–human agreement first, then each instrument's agreement with the gold standard: units that were adjudicated, or that two or more coders labeled the same. An instrument that agrees with gold here can be frozen at the calibrated (●) level.",
       actions: [coderLauncherBtn(params, goldset)],
     }));
 
@@ -854,7 +854,7 @@ function testPane(host, params, goldset, construct) {
 
       wrap.append(section("Instruments against gold", cols,
         el("p", { class: "screen__hint faint" },
-          "AC1 rides beside κ and α because it stays stable under prevalence paradoxes — skewed label shares that crater κ", cite("gwet2014"), "."),
+          "AC1 is shown alongside κ and α because it stays stable under prevalence paradoxes — skewed label shares that sharply lower κ", cite("gwet2014"), "."),
         report.goldLabeled !== undefined
           ? el("p", { class: "faint screen__hint data" }, `${fmtCount(report.goldLabeled)} gold units (adjudicated, or ≥2 coders unanimous with no can't-code mark) backed this comparison`)
           : null));

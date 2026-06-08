@@ -535,7 +535,7 @@ function guardDirector(kind) {
   if (activeDirector.busy()) {
     if (activeDirector.sheetOpen()) activeDirector.focus();
     else toast.info("The Director is still working on the last request.", {
-      detail: "proposals open the moment the call returns — no need to click again",
+      detail: "the proposals appear automatically when the Director finishes; you do not need to click again",
     });
     return true;
   }
@@ -565,7 +565,7 @@ function draftWithDirector(params) {
       stopBusy?.();
       if (inFlight) {
         toast.info("Hidden — the draft keeps running.", {
-          detail: "the proposals sheet opens the moment the Director answers; no need to click again",
+          detail: "the proposals sheet appears automatically when the Director finishes; you do not need to click again",
         });
       } else if (activeDirector?.kind === "draft") activeDirector = null;
     },
@@ -671,7 +671,7 @@ function inductiveMode(params) {
       stopBusy?.();
       if (inFlight) {
         toast.info("Hidden — the inductive pass keeps running.", {
-          detail: "the proposals sheet opens the moment the Director answers; no need to click again",
+          detail: "the proposals sheet appears automatically when the Director finishes; you do not need to click again",
         });
       } else if (activeDirector?.kind === "inductive") activeDirector = null;
     },

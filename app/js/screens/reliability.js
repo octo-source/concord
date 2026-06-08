@@ -118,7 +118,7 @@ export function render(mount, params, query = {}) {
     mount.append(screenHead({
       overline: "Reliability",
       title: `Who agrees about “${constructName}”.`,
-      lede: "Every way this construct has been read, and how much the readers agree. Humans first: human–human agreement is the ceiling any machine is measured against.",
+      lede: "Every way this construct has been read, and how much the readers agree. Human–human agreement is the upper bound that machine agreement is measured against.",
     }));
 
     /* -- context: whose agreement story this is, over which corpus -- */
@@ -169,8 +169,8 @@ export function render(mount, params, query = {}) {
     if (!sources.length) {
       mount.append(emptyState({
         title: "Nothing has read this construct yet.",
-        body: "Agreement needs at least two readers. Start with the human anchor — a gold sample you code by hand — then compile instruments and run them; every pair lands here.",
-        hint: `Code a gold sample (${LEVEL_PRICE}) to anchor everything here.`,
+        body: "Agreement needs at least two readers. Start with a gold sample you code by hand, then compile instruments and run them. Every pair appears here.",
+        hint: `Code a gold sample (${LEVEL_PRICE}) — it is the human standard every instrument is compared against.`,
         actions: [
           createGoldBtn(params, project, corpusId, "Code a gold sample"),
           el("a", { class: "btn", href: compileHref(params, params.cid) }, "Compile an instrument…"),
@@ -206,11 +206,11 @@ export function render(mount, params, query = {}) {
       }
     } else {
       /* ---- no gold yet: the one move that anchors everything ---- */
-      mount.append(section("No human anchor yet",
+      mount.append(section("No human gold standard yet",
         el("div", { class: "nudge" },
           el("span", { class: "nudge__mark", aria: { hidden: "true" } }, "◑ → ●"),
           el("p", { class: "nudge__line" },
-            `Code a gold sample (${LEVEL_PRICE}) to anchor everything here — without it, instruments can only agree with each other, never be right.`),
+            `Code a gold sample (${LEVEL_PRICE}) to set the human standard — without it, instruments can only agree with each other, never be validated as correct.`),
           createGoldBtn(params, project, corpusId, "Create the gold set →", "btn btn--primary nudge__go"))));
     }
 
@@ -249,7 +249,7 @@ export function render(mount, params, query = {}) {
         el("p", { class: "screen__hint" },
           `Showing ${statLine}`,
           cite(alphaHeadline ? "krippendorff2004" : "cohen1960"),
-          ". Raw agreement and n ride in each cell's subline."),
+          ". Raw agreement and n appear in each cell's subline."),
         ...retestLines,
         altHint,
         replacesLine,
@@ -353,7 +353,7 @@ function buildMatrix({ params, sources, pairOf, stat, statOf, panel, goldsetForC
     table,
     el("figcaption", { class: "relmatrix__caption faint" },
       el("span", { class: "overline" }, "sources × sources"),
-      ` ${stat} per pair · the gold row wears gold · — means fewer than 10 jointly read units — statistics withheld`));
+      ` ${stat} per pair · the gold row is highlighted in gold · — means fewer than 10 jointly read units — statistics withheld`));
 }
 
 /* ================= pair detail panel ================================================== */
@@ -381,7 +381,7 @@ function paintPair(panel, params, { a, b, pair, stat, value, goldsetForConstruct
     benchmarkBand(value, null, { stat, legend: false }),
     runLinks.length || goldLink
       ? frag(...runLinks, goldLink,
-          el("p", { class: "relpanel__note faint" }, "Per-unit labels live behind those doors; this panel carries the pair's statistics."))
+          el("p", { class: "relpanel__note faint" }, "Per-unit labels are on the linked disagreement pages; this panel shows the pair's statistics."))
       : el("p", { class: "relpanel__note faint" },
           "Pair statistics only — neither side has a corpus run, so there is no per-unit disagreement view to open. Calibration passes keep per-unit labels server-side."),
   );

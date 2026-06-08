@@ -87,7 +87,7 @@ function dropTarget(mount, params, teardown = []) {
     emptyState({
       mark: "⇣",
       title: "Drop a file anywhere.",
-      body: "CSV, XLSX, DOCX, PDF, plain text, VTT/SRT transcripts, or transcript JSON. Concord proposes the column mapping; you stay the editor.",
+      body: "CSV, XLSX, DOCX, PDF, plain text, VTT/SRT transcripts, or transcript JSON. Concord proposes the column mapping; you can edit it before confirming.",
       hint: "Files parse locally. Nothing leaves this machine at import.",
       actions: [
         el("label", { class: "btn btn--primary", for: "import-file" }, "Choose a file…"),

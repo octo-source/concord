@@ -403,7 +403,7 @@ async function renderReport(params, project) {
 <h1>${escapeHtml(project.name)}</h1>
 <p class="note">rendered ${new Date().toISOString()} · Concord</p>
 ${parts.join("\n")}
-${exploratory ? `<p class="watermark">EXPLORATORY ◌ — contains uncalibrated numbers; the watermark travels with them.</p>` : ""}
+${exploratory ? `<p class="watermark">EXPLORATORY ◌ — contains uncalibrated numbers; this watermark stays attached wherever these numbers are used.</p>` : ""}
 </body></html>`;
 
   downloadText(`${params.slug}-report.html`, html, "text/html");

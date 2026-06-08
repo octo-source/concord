@@ -79,7 +79,7 @@ function startStream(column, params, query, project) {
   const corpusId = query.corpus ?? project?.corpora?.[0]?.id;
   column.append(briefHead({
     title: "Corpus Brief",
-    byline: "Drafting now — paragraphs arrive as the Director reads.",
+    byline: "Drafting now — paragraphs appear as the Director reads the sample.",
     sampleN: null,
     date: new Date().toISOString(),
   }));
@@ -225,7 +225,7 @@ async function renderStored(column, params, project) {
       el("div", { class: "ctacard ctacard--inline" },
         el("div", { class: "ctacard__text" },
           el("h3", { class: "ctacard__title" }, "Explore these themes"),
-          el("p", { class: "ctacard__line" }, "Accept themes as constructs, compile instruments, and preflight a run — every step states its price before it spends.")),
+          el("p", { class: "ctacard__line" }, "Accept themes as constructs, compile instruments, and preflight a run. Each step shows its price before it spends.")),
         el("button", {
           class: "btn btn--primary", type: "button",
           onclick: () => router.navigate(`p/${params.slug}/constructs`),
@@ -235,7 +235,7 @@ async function renderStored(column, params, project) {
 
   /* -- red flags: [{kind, detail, refs}] -- */
   if (brief.redFlags?.length) {
-    column.append(section("Red flags, honestly stated",
+    column.append(section("Red flags",
       el("ul", { class: "flaglist", role: "list" },
         ...brief.redFlags.map((f) =>
           el("li", { class: "flag" },
@@ -248,7 +248,7 @@ async function renderStored(column, params, project) {
 
   /* -- suggested questions feed the Question Bar -- */
   if (brief.suggestedQuestions?.length) {
-    column.append(section("Questions worth asking",
+    column.append(section("Suggested questions",
       el("ul", { class: "qsuggest", role: "list" },
         ...brief.suggestedQuestions.map((q) => el("li", { class: "qsuggest__item" }, "“", q, "”"))),
       el("p", { class: "faint screen__hint" }, "Type one into the Question Bar (", el("kbd", {}, "/"), ") — it compiles to a visible plan before anything spends.")));

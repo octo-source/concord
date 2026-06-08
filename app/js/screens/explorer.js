@@ -52,7 +52,7 @@ export function render(mount, params) {
     mount.append(screenHead({
       overline: `Explorer · ${params.runId}`,
       title: "What the run found.",
-      lede: "Label counts, metadata splits, and co-occurrence from this run. Click any bar to read the units behind it; the numbers stay exploratory (◌) until the instrument is calibrated against human gold.",
+      lede: "Label counts, metadata splits, and co-occurrence from this run. Click any bar to read the units behind it; the numbers stay exploratory (◌) until the instrument is calibrated against human-coded gold.",
       actions: [
         el("button", {
           class: "btn", type: "button",
@@ -119,7 +119,7 @@ export function render(mount, params) {
         xtWrap.append(cell);
       }
       if (xtWrap.children.length) {
-        mount.append(section("Worth probing — the strongest metadata splits", xtWrap));
+        mount.append(section("Strongest metadata splits", xtWrap));
       }
     }
 

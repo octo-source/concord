@@ -12,7 +12,7 @@ export const DEFAULT_SECTIONS = [
   { id: "constructs", title: "Constructs", emptyHint: "What do you want to measure?" },
   { id: "instruments", title: "Instruments", emptyHint: "Compiled from constructs." },
   { id: "runs", title: "Runs", emptyHint: "Nothing has been measured yet." },
-  { id: "analyses", title: "Analyses", emptyHint: "Crosstabs, models, triangulation — corrected where gold exists." },
+  { id: "analyses", title: "Analyses", emptyHint: "Crosstabs, models, and triangulation. Corrected where gold labels exist." },
 ];
 
 /**
