@@ -6,8 +6,12 @@ READ THIS FIRST when resuming. Companion docs: `docs/plans/2026-06-05-concord-v1
 
 ## State
 
-- ~65 commits, **777/778 tests green** (`npm test`; 1 intentional skip: reporting artifact dump). Route suite
+- ~88 commits, **854/855 tests green** (`npm test`; 1 intentional skip: reporting artifact dump). Route suite
   lives at `tests/unit/routes.test.js`; feature/audit tests at `tests/server/*.test.js`.
+- DISTRIBUTED: private GitHub repo github.com/emollick/concord (gh CLI; config/ + projects/ gitignored and
+  history-verified clean; .gitattributes forces LF so Windows clones don't corrupt CSV fixtures; Mac/Linux
+  run = npm install + npm start). Fresh-clone install is the distribution gate (clone → npm install → suite →
+  boot probe).
 - Server: run DETACHED — `Start-Process cmd "/c node server\index.js > server-boot.log 2>&1" -WorkingDirectory <repo> -WindowStyle Hidden`. Kill prior port owners first (`Get-NetTCPConnection -LocalPort 7341`). Listens on 127.0.0.1 AND ::1. start.bat = the user's entry. NEVER serve via the preview tool (its servers get reaped → zombies).
 - After every server change: restart detached + tell Ethan to FULL-reload (Ctrl+F5).
 - His projects on disk: `test-2` (favorite_books_people.csv; ordinal construct "Book Enthusiasm Level"; gold set `gs_mq1y81ut0j0zz658oe` in adjudication; one complete gemini run), `new-survey` (Gender for Tech.xlsx, reunitized to abouttxt). OpenRouter key in config/keys.json (he will rotate it).
@@ -38,6 +42,23 @@ VAULT_CONFLICT rather than reminting tokens; counts = what THIS pass found/repla
 masking already covered the promoted column); `pii` rides reunitize response + derived entry +
 `corpus.unitized` payload, `pii.pseudonymized` ledgered on masked reunitize; reunitize toast reuses import's
 `piiSummary` line. Tests: `tests/server/pii-reunitize.test.js`, meta cases in pii-import + ingest suites.
+
+**Shipped 2026-06-08 (code-correctness review + visualizations):** a 6-reviewer read-only bug hunt
+(security/traversal, engine-room ×2 incl. an empirical pass, stats, routes/listener, UI) + a viz survey.
+**Verdicts: stats provably correct** (every estimator re-derived; PPI++ overlap variance + logit refit
+machine-checked), **isolation/CSV-injection/prototype-pollution safe by attack.** Fixed: a CONFIRMED path
+traversal that leaked config/keys.json (`safeId` at the path-builder seam — analyses/briefs/import/exports
++ slug; tests/server/path-traversal.test.js); the engine root-cause (forEachUnit kept billing after a
+worker threw + could dup resume lines → stop-on-throw); driftTick crash path; appendNdjson per-file
+serialization + EPERM retry (Dropbox); quarantine-clear-on-resume; persistRun in-place; double-launch
+poison; evidence "1/240 flake" was a swallowed read error; Anthropic/Ollama TRUNCATED classification;
+OpenRouter catalog cache (zeroed-metering); process-crash guard (persistent listener 'error' + process
+guards); Brief/silver-tune abort-on-disconnect; UI long-session leaks (asyncMount route-token guard,
+instruments destroy, sheets-close-on-nav, drag-drop double-fire, brief race). VIZ: forest plot
+instruments-vs-gold w/ per-instrument bootstrap CI (`perInstrument[].agreement.ci`; components/charts/
+forest.js), coefficient forest for corrected regressions, confusion-matrix SVG in the HTML report.
+Deferred: reliability-matrix-as-report-SVG; per-class P/R/F1 grouped bar (chip task_168b8eed); ledger
+double-lock on the append path (harmless); mid-execution project-budget recheck.
 
 **Shipped 2026-06-06 (alt judges + accuracy-audit campaign):** stability checks accept ≤4 alternate models
 (same compiled prompt, same sample, once each) → Reliability `alt:<inst>:<provider>/<model>` rows incl.
