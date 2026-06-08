@@ -36,26 +36,40 @@ const ROLES = ["text", "categorical", "numeric", "date", "id", "ignore"];
 export function render(mount, params) {
   ensureProject(params.slug).catch(() => { /* a missing project still allows the drop affordance */ });
 
+  // The confirm step runs a faux-progress setInterval; a navigation mid-confirm
+  // would leak it (finish() only fires on success). Disposers registered here
+  // are run by the router before the next route.
+  const teardown = [];
+
   const pending = store.get("ui.pendingImport");
   if (pending) {
     store.set("ui.pendingImport", null);
-    beginUpload(mount, params, pending);
-    return;
+    beginUpload(mount, params, pending, teardown);
+  } else {
+    clear(mount).append(
+      screenHead({ overline: "Import", title: "Bring a corpus." }),
+      dropTarget(mount, params, teardown),
+    );
   }
 
-  clear(mount).append(
-    screenHead({ overline: "Import", title: "Bring a corpus." }),
-    dropTarget(mount, params),
-  );
+  return {
+    el: mount,
+    destroy() {
+      while (teardown.length) {
+        const dispose = teardown.pop();
+        try { dispose(); } catch (err) { console.error("import teardown threw", err); }
+      }
+    },
+  };
 }
 
-function dropTarget(mount, params) {
+function dropTarget(mount, params, teardown = []) {
   const input = el("input", {
     type: "file", class: "sr-only", id: "import-file",
     accept: ".csv,.tsv,.xlsx,.docx,.pdf,.txt,.vtt,.srt,.json",
     onchange: (e) => {
       const file = e.target.files?.[0];
-      if (file) beginUpload(mount, params, file);
+      if (file) beginUpload(mount, params, file, teardown);
     },
   });
 
@@ -67,7 +81,7 @@ function dropTarget(mount, params) {
       e.preventDefault();
       zone.classList.remove("dropzone--over");
       const file = e.dataTransfer?.files?.[0];
-      if (file) beginUpload(mount, params, file);
+      if (file) beginUpload(mount, params, file, teardown);
     },
   },
     emptyState({
@@ -84,14 +98,14 @@ function dropTarget(mount, params) {
   return zone;
 }
 
-async function beginUpload(mount, params, file) {
+async function beginUpload(mount, params, file, teardown = []) {
   clear(mount).append(
     screenHead({ overline: "Import", title: file.name ?? "Parsing…" }),
     loadingView(`Parsing ${file.name ?? "file"} locally…`),
   );
   try {
     const proposal = await api.imports.upload(params.slug, file);
-    renderSheet(mount, params, proposal, file);
+    renderSheet(mount, params, proposal, file, teardown);
   } catch (err) {
     clear(mount).append(
       screenHead({ overline: "Import", title: "The file did not parse." }),
@@ -100,7 +114,7 @@ async function beginUpload(mount, params, file) {
   }
 }
 
-function renderSheet(mount, params, proposal, file) {
+function renderSheet(mount, params, proposal, file, teardown = []) {
   clear(mount);
   // live: column roles ride under mapping.columns (null for column-less docs)
   const columns = (proposal.mapping?.columns ?? []).map((c) => ({ ...c }));
@@ -275,6 +289,14 @@ function renderSheet(mount, params, proposal, file) {
       confirmBtn.disabled = true;
       const progress = progressRule("Unitizing…");
       bar.replaceChildren(progress.el);
+      // the progress interval is cleared on success (finish), on failure
+      // (catch), and on navigation mid-confirm (teardown) — never left running
+      const stopProgress = () => progress.finish();
+      teardown.push(stopProgress);
+      const settled = () => {
+        const i = teardown.indexOf(stopProgress);
+        if (i >= 0) teardown.splice(i, 1);
+      };
       // read BEFORE the refresh below — was this an additional corpus?
       const hadCorpora = (store.get("project")?.corpora?.length ?? 0) > 0;
       try {
@@ -290,6 +312,7 @@ function renderSheet(mount, params, proposal, file) {
           pii: piiMode,
         });
         progress.finish();
+        settled();
         const junkCounts = result.junkQueue?.counts ?? {};
         const junkTotal = Object.values(junkCounts).reduce((s, n) => s + n, 0);
         const piiLine = piiSummary(result.pii);
@@ -303,6 +326,8 @@ function renderSheet(mount, params, proposal, file) {
         await refreshProject(params.slug).catch(() => {});
         router.navigate(`p/${params.slug}/corpus/${result.corpusId}/instant`);
       } catch (err) {
+        progress.finish();
+        settled();
         confirmBtn.disabled = false;
         bar.replaceChildren(confirmBtn);
         toast.error("Import failed.", { detail: String(err.message ?? err) });

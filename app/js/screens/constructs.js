@@ -15,6 +15,7 @@
 import { el, clear } from "../dom.js";
 import api from "../api.js";
 import * as router from "../router.js";
+import { bus } from "../bus.js";
 import { store } from "../state.js";
 import * as toast from "../components/toast.js";
 import * as glyph from "../components/glyph.js";
@@ -520,6 +521,14 @@ function newConstruct(params) {
 // flight refocuses the open sheet (or says the call is still running if the
 // sheet was closed) instead of stacking a second sheet / second spend.
 let activeDirector = null; // {kind, busy(), sheetOpen(), focus(), close()}
+
+// activeDirector is module-scoped, so a sheet left open when the user
+// navigates away would otherwise wedge: returning and clicking "Draft with
+// Director" refocuses the orphaned (now-removed) sheet. The sheet itself
+// closes on route change (openSheet subscribes), but that fires onClose ~350ms
+// later; clear the handle synchronously here so a fast return-and-click starts
+// fresh. An in-flight call still settles through its own then/catch.
+bus.on("route:changed", () => { activeDirector = null; });
 
 function guardDirector(kind) {
   if (!activeDirector) return false;

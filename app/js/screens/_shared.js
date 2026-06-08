@@ -5,6 +5,8 @@
 
 import { el, clear, frag } from "../dom.js";
 import { store } from "../state.js";
+import { bus } from "../bus.js";
+import * as router from "../router.js";
 import api from "../api.js";
 import * as ladder from "../components/ladder.js";
 import * as glyph from "../components/glyph.js";
@@ -74,14 +76,25 @@ export function errorView(err, { retry } = {}) {
 /**
  * asyncMount(mount, loader, renderFn, loadingLine) — standard screen rhythm:
  * loading rule → data → compose; errors land as the designed error state.
+ *
+ * mount is the persistent #workspace node, so a route change DURING loader()
+ * must not let the late paint clobber the screen that replaced this one. We
+ * capture the router's current route-state object on entry (the router mints a
+ * fresh one on every resolve, same path or not) and bail before clear/renderFn
+ * — and before the error state — once it no longer matches. The router already
+ * cleared #workspace for the new screen; painting here would cover it.
  */
 export async function asyncMount(mount, loader, renderFn, loadingLine) {
+  const token = router.current();
+  const stale = () => router.current() !== token;
   clear(mount).append(loadingView(loadingLine));
   try {
     const data = await loader();
+    if (stale()) return;
     clear(mount);
     await renderFn(data);
   } catch (err) {
+    if (stale()) return;
     console.error(err);
     clear(mount).append(errorView(err, { retry: () => asyncMount(mount, loader, renderFn, loadingLine) }));
   }
@@ -179,6 +192,7 @@ export function openSheet({ title, overline, wide = false, onClose } = {}) {
   function close() {
     if (closed) return;
     closed = true;
+    offRoute();
     root.classList.add("sheet--leaving");
     root.removeEventListener("keydown", onKey);
     const remove = () => {
@@ -189,6 +203,12 @@ export function openSheet({ title, overline, wide = false, onClose } = {}) {
     panel.addEventListener("transitionend", remove, { once: true });
     setTimeout(remove, 350);
   }
+
+  // The router only clears #workspace; a sheet mounts on document.body and
+  // would otherwise survive navigation (its focus trap covering the next
+  // screen). Close on route change — even a locked, in-flight sheet, since the
+  // screen it belonged to is gone — and drop the subscription in close().
+  const offRoute = bus.on("route:changed", () => close());
 
   root.addEventListener("keydown", onKey);
   document.body.append(root);

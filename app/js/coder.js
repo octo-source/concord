@@ -126,7 +126,16 @@ function controlsFor(construct) {
     onsubmit: (e) => {
       e.preventDefault();
       const v = input.value.trim();
-      if (v !== "") submit({ label: scale ? Number(v) : v });
+      if (v === "") return;
+      if (scale) {
+        // a non-numeric entry on a scale construct would Number() to NaN and
+        // serialize to null — submit a number only when it really is one
+        const num = Number(v);
+        if (!Number.isFinite(num)) { input.focus(); return; }
+        submit({ label: num });
+      } else {
+        submit({ label: v });
+      }
     },
   }, input, el("button", { class: "btn btn--primary", type: "submit" }, "Submit label"), cantCodeBtn());
 }

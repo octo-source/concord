@@ -320,8 +320,14 @@ function initGlobalDrop() {
     const project = store.get("project");
     store.set("ui.pendingImport", file);
     if (project?.slug) {
+      // A hash CHANGE already fires hashchange → the router renders Import and
+      // consumes pendingImport. Only force a synthetic re-render when the hash
+      // does NOT change (already on the Import screen) — otherwise Import
+      // renders twice and the second pass, with pendingImport already taken,
+      // paints the bare empty state and the dropped file looks lost.
+      const before = location.hash;
       routerMod.navigate(`p/${project.slug}/import`);
-      window.dispatchEvent(new HashChangeEvent("hashchange"));
+      if (location.hash === before) window.dispatchEvent(new HashChangeEvent("hashchange"));
     } else {
       toast.info(`“${file.name}” is ready to import.`, { detail: "open or create a project — the file follows you to its Import screen" });
       routerMod.navigate("");
@@ -528,8 +534,12 @@ function deliveryView(s, project, plan, approved) {
           class: "btn btn--primary", type: "button",
           onclick: () => {
             s.close();
+            // navigate fires hashchange when the hash changes (it does here);
+            // only nudge a re-render when it would not, so the preflight does
+            // not resolve twice
+            const before = location.hash;
             routerMod.navigate(`p/${slug}/runs?preflight=${firstInstrument}`);
-            window.dispatchEvent(new HashChangeEvent("hashchange"));
+            if (location.hash === before) window.dispatchEvent(new HashChangeEvent("hashchange"));
           },
         }, "Preflight the first run →")
       : null,

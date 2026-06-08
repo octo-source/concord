@@ -67,7 +67,11 @@ function makePreviewScope(project) {
     corpusId: corpora.at(-1)?.id ?? null,
     corpus() { return corpora.find((c) => c.id === this.corpusId) ?? null; },
     set(id) { this.corpusId = id; for (const fn of listeners) fn(); },
-    onChange(fn) { listeners.add(fn); },
+    // returns an unsubscribe — stabilityPanel registers a fresh listener every
+    // time it rebuilds (each "Stability check" click), and the dictionary
+    // preview registers one for its lifetime; without removal these pile up on
+    // the long-lived scope. Callers drop their listener on rebuild/teardown.
+    onChange(fn) { listeners.add(fn); return () => listeners.delete(fn); },
   };
 }
 
@@ -166,6 +170,12 @@ export function failurePanel(quarantine, total) {
 }
 
 export function render(mount, params, query = {}) {
+  // Disposers collected as the editor and its actions mount (asyncMount fills
+  // this in the background); the router runs destroy() before the next route.
+  // Without it the silver-tune SSE stream and the dictionary preview timer
+  // outlive navigation — iteration logs and refreshProject keep firing on a
+  // screen the user already left.
+  const disposers = [];
   asyncMount(mount, async () => {
     const project = await ensureProject(params.slug);
     const [instruments, constructs, catalogRes] = await Promise.all([
@@ -271,13 +281,23 @@ export function render(mount, params, query = {}) {
           }));
       return;
     }
-    instrumentEditor(main, params, selected, constructs, catalog, project);
+    instrumentEditor(main, params, selected, constructs, catalog, project, disposers);
   }, "Opening the instrument bench…");
+
+  return {
+    el: mount,
+    destroy() {
+      while (disposers.length) {
+        const dispose = disposers.pop();
+        try { dispose(); } catch (err) { console.error("instrument editor disposer threw", err); }
+      }
+    },
+  };
 }
 
 /* ================= editor ========================================================= */
 
-function instrumentEditor(main, params, instRaw, constructs, catalog, project = null) {
+function instrumentEditor(main, params, instRaw, constructs, catalog, project = null, disposers = []) {
   const inst = JSON.parse(JSON.stringify(instRaw));
   const construct = constructs.find((c) => c.id === inst.constructId);
   const previewScope = makePreviewScope(project);
@@ -396,7 +416,7 @@ function instrumentEditor(main, params, instRaw, constructs, catalog, project = 
   }
 
   /* -- kind-specific editor -- */
-  if (inst.kind === "dictionary") dictionaryEditor(main, params, inst, touch, () => dirty, previewScope);
+  if (inst.kind === "dictionary") dictionaryEditor(main, params, inst, touch, () => dirty, previewScope, disposers);
   else if (inst.kind === "judge") judgeEditor(main, params, inst, catalog, construct, touch);
   else if (inst.kind === "panel") panelEditor(main, params, inst, catalog, touch);
 
@@ -416,6 +436,7 @@ function instrumentEditor(main, params, instRaw, constructs, catalog, project = 
     previewScope,
     construct,
     catalog,
+    disposers,
   });
   main.append(section("Actions", actions.el));
   paintStrip();
@@ -504,7 +525,7 @@ async function openGoldFlow(e, params, inst, project, previewScope = null) {
 
 /* ================= dictionary ====================================================== */
 
-function dictionaryEditor(main, params, inst, touch, isDirty = () => false, previewScope = null) {
+function dictionaryEditor(main, params, inst, touch, isDirty = () => false, previewScope = null, disposers = []) {
   const payload = inst.payload ?? (inst.payload = { categories: [], negation: { enabled: false, window: 3 }, scoring: "percentOfWords" });
   const ro = inst.frozen;
 
@@ -599,7 +620,10 @@ function dictionaryEditor(main, params, inst, touch, isDirty = () => false, prev
     clearTimeout(previewTimer);
     previewTimer = setTimeout(runPreview, 350);
   }
-  previewScope?.onChange(schedulePreview); // the scope bar's corpus selection re-aims this preview too
+  // the scope bar's corpus selection re-aims this preview too; both the timer
+  // and this subscription must be released when the screen tears down
+  const offScope = previewScope?.onChange(schedulePreview);
+  disposers.push(() => { clearTimeout(previewTimer); offScope?.(); });
   async function runPreview() {
     // Saved instruments preview server-side — POST instruments/:i/preview →
     // {outputs, cost, quarantine, missing}; dictionary outputs carry hit
@@ -1003,10 +1027,19 @@ async function postStability(slug, instId, body) {
   throw new ApiError("HTTP_" + res.status, `POST stability → ${res.status}`, { status: res.status });
 }
 
-function actionRow(main, params, inst, { onPreviewed, previewScope = null, construct = null, catalog = {} } = {}) {
+function actionRow(main, params, inst, { onPreviewed, previewScope = null, construct = null, catalog = {}, disposers = [] } = {}) {
   const out = el("div", { class: "actionout" });
   const row = el("div", { class: "actionrow" });
   const reliabilityHref = `#/p/${params.slug}/reliability/${encodeURIComponent(inst.constructId)}`;
+  // the in-flight silver-tune stream's {close}; closed on navigation so its
+  // iteration cards / refreshProject stop firing on a screen we have left
+  let silverHandle = null;
+  disposers.push(() => { silverHandle?.close?.(); silverHandle = null; });
+  // the stability panel re-registers a previewScope listener every rebuild
+  // (each "Stability check" click); hold the latest unsubscribe so the prior
+  // one is dropped on rebuild and the last on teardown — no dead listeners.
+  let offStabilityScope = null;
+  disposers.push(() => { offStabilityScope?.(); offStabilityScope = null; });
 
   const compile = el("button", {
     class: "btn", type: "button",
@@ -1036,7 +1069,10 @@ function actionRow(main, params, inst, { onPreviewed, previewScope = null, const
       out.append(list);
       const pts = [];
       let chart = null;
-      api.instruments.silverTune(params.slug, inst.id, { corpusId: previewScope?.corpusId ?? undefined }, {
+      // close any prior stream before starting a new one — a second click must
+      // not leave the first iterating; the disposer closes whatever is live
+      silverHandle?.close?.();
+      silverHandle = api.instruments.silverTune(params.slug, inst.id, { corpusId: previewScope?.corpusId ?? undefined }, {
         // it.agreement is PERCENT agreement vs silver; the real κ/α ride the
         // same iteration point (it.kappa / it.alpha, null when degenerate)
         onIteration(it) {
@@ -1061,6 +1097,7 @@ function actionRow(main, params, inst, { onPreviewed, previewScope = null, const
         onDone(final) {
           // live done payload: {instrumentId, level, versionHash, stability,
           // curve, cost, stoppedBy?}
+          silverHandle = null;
           stop();
           const lastPt = final?.curve?.at?.(-1) ?? null;
           const last = lastPt?.agreement ?? pts[pts.length - 1]?.y;
@@ -1073,6 +1110,7 @@ function actionRow(main, params, inst, { onPreviewed, previewScope = null, const
           refreshProject(params.slug).catch(() => {});
         },
         onError(err) {
+          silverHandle = null;
           stop();
           out.append(el("p", { class: "faint" }, "Tuning stream failed: ", String(err.message ?? err)));
         },
@@ -1092,6 +1130,10 @@ function actionRow(main, params, inst, { onPreviewed, previewScope = null, const
   }, "Stability check");
 
   function stabilityPanel() {
+    // each click rebuilds this panel; drop the previous rebuild's scope
+    // listener before registering a new one so they do not accumulate
+    offStabilityScope?.();
+    offStabilityScope = null;
     // alternate judges are judge-only (the route 400s otherwise: a dictionary
     // has no model to swap; a panel's jurors are several models already)
     const isJudge = inst.kind === "judge";
@@ -1133,11 +1175,11 @@ function actionRow(main, params, inst, { onPreviewed, previewScope = null, const
       }
       callLine.textContent = `Up to ${effectiveN()} × (${k} + ${altModels.length}) judge calls (cached reruns are free; retries can add calls).`;
     };
-    previewScope?.onChange(() => {
+    offStabilityScope = previewScope?.onChange(() => {
       if (!corpusLine.isConnected) return;
       paintCorpus();
       paintCalls();
-    });
+    }) ?? null;
 
     const kInput = el("input", {
       class: "input input--num", type: "number", min: 2, max: 10, step: 1, value: k,

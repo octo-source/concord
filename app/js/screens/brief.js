@@ -28,19 +28,27 @@ export function render(mount, params, query) {
   const column = el("article", { class: "brief" });
   mount.append(el("div", { class: "brief__back" }, backLink(`p/${params.slug}`, "Project")), column);
 
+  // destroy() can run before ensureProject() resolves (navigate away during
+  // the project load). The stream is still null then, so closing it is a
+  // no-op; without this flag the late .then would open a leaked SSE + 1s
+  // interval on a screen that is already gone.
+  let cancelled = false;
+
   ensureProject(params.slug)
     .then((project) => {
+      if (cancelled) return;
       if (params.bid === "new") {
         startStream(column, params, query, project);
       } else {
         renderStored(column, params, project);
       }
     })
-    .catch((err) => clear(column).append(errorView(err)));
+    .catch((err) => { if (!cancelled) clear(column).append(errorView(err)); });
 
   return {
     el: mount,
     destroy() {
+      cancelled = true;
       stream?.close?.();
       stream = null;
       clearInterval(composeTimer);
