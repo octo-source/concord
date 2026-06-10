@@ -101,4 +101,4 @@ Honest list, with where each deviation is documented (design doc §2, `docs/plan
 
 ## License
 
-Private project — not yet licensed for distribution. (Bundled lexicon licenses: VADER MIT, Concord starter lexicons CC0 — see `server/lexicons/LICENSES.md`.)
+MIT License
