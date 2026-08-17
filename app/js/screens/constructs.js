@@ -1004,8 +1004,27 @@ function repaintConstructs() {
   window.dispatchEvent(new HashChangeEvent("hashchange"));
 }
 
+// Corpus picker option label for Director calls that send unit TEXT to a
+// model: the standard scopechip.optionLabel plus an explicit PII-mode flag,
+// since "unmasked" vs "pseudonymized" is exactly the choice this picker
+// exists to make visible (an unmasked corpus cannot be deleted once created).
+function corpusPickerLabel(corpus, project) {
+  const base = scopechip.optionLabel(corpus, project);
+  const mode = corpus?.pii?.mode;
+  if (mode === "pseudonymize") return `${base} · masked`;
+  return `${base} · unmasked`;
+}
+
 function draftWithDirector(params) {
   if (guardDirector("draft")) return;
+  const corpora = store.get("project")?.corpora ?? [];
+  if (!corpora.length) {
+    toast.info("Import a corpus first.", {
+      detail: "the Director reads a sample of units to draft worked examples",
+    });
+    router.navigate(`p/${params.slug}/import`);
+    return;
+  }
   let inFlight = false;
   let sheetOpen = true;
   let stopBusy = null;
@@ -1032,26 +1051,43 @@ function draftWithDirector(params) {
     placeholder:
       "One concept per line (name: optional hint):\nburnout: exhaustion the respondent attributes to their own workload\nmanager support: blame or praise aimed at the direct manager\nOr type one research question alone on a single line, e.g. Which exits were preventable?",
   });
-  // the draft reads the project's FIRST corpus (no picker exists) — name it
-  // so a multi-corpus project knows which one feeds the worked examples
-  const draftCorpus = (store.get("project")?.corpora ?? [])[0] ?? null;
+  // An unmasked corpus sends raw text to the model — never default this
+  // silently when more than one corpus exists (same reasoning as the corpus
+  // picker below): the researcher must see and choose, not discover later.
+  let draftCorpusId = corpora.at(-1)?.id ?? null; // most recently created — same default as runs/previews
+  const corpusSel = el(
+    "select",
+    { class: "input", "aria-label": "Corpus to sample for worked examples" },
+    ...corpora.map((c) =>
+      el(
+        "option",
+        { value: c.id, selected: c.id === draftCorpusId },
+        corpusPickerLabel(c, store.get("project")),
+      ),
+    ),
+  );
+  corpusSel.addEventListener("change", () => {
+    draftCorpusId = corpusSel.value;
+  });
   s.body.append(
     el(
       "p",
       {},
       "Write the concepts ",
       el("strong", {}, "you"),
-      " want to measure. The Director reads a sample of up to 60 units from ",
-      draftCorpus
-        ? el("span", { class: "data" }, scopechip.displayName(draftCorpus))
-        : "the project corpus",
-      " and returns a full draft construct for each — definition, include/exclude criteria, worked examples. One Director call, usually 30–60 seconds; nothing is saved until you accept a proposal.",
+      " want to measure. The Director reads a sample of up to 60 units and returns a full draft construct for each — definition, include/exclude criteria, worked examples. One Director call, usually 30–60 seconds; nothing is saved until you accept a proposal.",
     ),
     el(
       "label",
       { class: "field" },
       el("span", { class: "field__label overline" }, "Concepts"),
       input,
+    ),
+    el(
+      "label",
+      { class: "field" },
+      el("span", { class: "field__label overline" }, "Corpus to sample"),
+      corpusSel,
     ),
     el(
       "p",
@@ -1086,7 +1122,10 @@ function draftWithDirector(params) {
           hint: "reading a 60-unit sample — one Director call, ~30–60 s on flash-class models",
         });
         try {
-          const res = await api.constructs.draft(params.slug, { input: text });
+          const res = await api.constructs.draft(params.slug, {
+            input: text,
+            corpusId: draftCorpusId,
+          });
           inFlight = false;
           stopBusy?.();
           activeDirector = null;
@@ -1145,6 +1184,14 @@ function importCodebook(params) {
 
 function inductiveMode(params) {
   if (guardDirector("inductive")) return;
+  const corpora = store.get("project")?.corpora ?? [];
+  if (!corpora.length) {
+    toast.info("Import a corpus first.", {
+      detail: "the inductive pass reads a sample of units to propose themes",
+    });
+    router.navigate(`p/${params.slug}/import`);
+    return;
+  }
   let inFlight = false;
   let sheetOpen = true;
   let stopBusy = null;
@@ -1164,18 +1211,35 @@ function inductiveMode(params) {
     },
   });
 
-  // the pass reads the project's FIRST corpus (no picker exists) — name it
-  // so a multi-corpus project knows which one is being themed
-  const inductiveCorpus = (store.get("project")?.corpora ?? [])[0] ?? null;
+  // Sends unit text to the model — never silently pick a corpus when more
+  // than one exists (an unmasked corpus alongside a pseudonymized one is a
+  // real PII hazard if the choice isn't visible to the researcher).
+  let inductiveCorpusId = corpora.at(-1)?.id ?? null; // most recently created — same default as runs/previews
+  const corpusSel = el(
+    "select",
+    { class: "input", "aria-label": "Corpus to read for the inductive pass" },
+    ...corpora.map((c) =>
+      el(
+        "option",
+        { value: c.id, selected: c.id === inductiveCorpusId },
+        corpusPickerLabel(c, store.get("project")),
+      ),
+    ),
+  );
+  corpusSel.addEventListener("change", () => {
+    inductiveCorpusId = corpusSel.value;
+  });
   s.body.append(
     el(
       "p",
       {},
-      "The Director reads up to 200 units from ",
-      inductiveCorpus
-        ? el("span", { class: "data" }, scopechip.displayName(inductiveCorpus))
-        : "the project corpus",
-      " with no codebook and proposes a taxonomy of candidate themes. One Director call, usually 30–90 seconds; you review every proposal before anything is saved.",
+      "The Director reads up to 200 units with no codebook and proposes a taxonomy of candidate themes. One Director call, usually 30–90 seconds; you review every proposal before anything is saved.",
+    ),
+    el(
+      "label",
+      { class: "field" },
+      el("span", { class: "field__label overline" }, "Corpus to read"),
+      corpusSel,
     ),
     el(
       "p",
@@ -1205,7 +1269,10 @@ function inductiveMode(params) {
           hint: "reading a 200-unit sample — one Director call, ~30–90 s on flash-class models",
         });
         try {
-          const taxonomy = await api.constructs.inductive(params.slug, { n: 200 });
+          const taxonomy = await api.constructs.inductive(params.slug, {
+            corpusId: inductiveCorpusId,
+            n: 200,
+          });
           inFlight = false;
           stopBusy?.();
           activeDirector = null;
