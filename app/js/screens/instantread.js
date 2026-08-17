@@ -275,7 +275,7 @@ function changeTextColumn(params, project, currentCol) {
   paintFoot();
 
   (async () => {
-    let candidates = [];
+    let candidates;
     try {
       const page = await api.corpora.units(params.slug, params.cid, { limit: 12 });
       candidates = rankTextyColumns(page?.units ?? []);

@@ -2,7 +2,7 @@
 // sha256(unitText | instrument versionHash | model snapshot), so reruns and
 // resumed runs hit the cache instead of the provider. Stored as JSON files
 // under <projectDir>/cache/<first2>/<rest> (git-style fan-out).
-import { mkdir, readFile, writeFile, rename, rm } from "node:fs/promises";
+import { mkdir, readFile, writeFile, rm } from "node:fs/promises";
 import { renameWithRetry } from "./store.js";
 import path from "node:path";
 import { sha256 } from "./ids.js";

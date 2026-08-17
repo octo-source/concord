@@ -455,7 +455,7 @@ async function processUnit(ctx, unit, have = new Map()) {
 }
 
 function stripInternal(out) {
-  const { repairs, ...rest } = out;
+  const { repairs: _repairs, ...rest } = out;
   return rest;
 }
 
@@ -789,7 +789,7 @@ async function executeRunInner(project, run, opts) {
       });
     } else {
       const final = result.final;
-      let escalated = false;
+      let escalated;
       try {
         escalated = await maybeEscalate(ctx, unit, final, { escalate: opts.escalate, p99 });
       } catch (err) {

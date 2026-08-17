@@ -33,7 +33,7 @@ export function render({ sections = DEFAULT_SECTIONS, activeId = null, onSelect 
     const items = [...nav.querySelectorAll(".rail__item")];
     if (items.length === 0) return;
     const idx = items.indexOf(document.activeElement);
-    let next = -1;
+    let next;
     if (e.key === "ArrowDown") next = Math.min(items.length - 1, idx + 1);
     else if (e.key === "ArrowUp") next = Math.max(0, idx - 1);
     else if (e.key === "Home") next = 0;

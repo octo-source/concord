@@ -10,7 +10,6 @@
 // member) is generated last; the build is then ledgered as export.replication
 // with the manifest hash.
 import path from "node:path";
-import { readFile } from "node:fs/promises";
 import { zipSync, strToU8 } from "fflate";
 import { ConcordError } from "../core/errors.js";
 import { sha256 } from "../core/ids.js";

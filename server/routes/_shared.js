@@ -12,7 +12,7 @@
 //   - agreement reports pass the construct's declared category order into
 //     order-sensitive statistics (ordinal α / weighted κ / AC2).
 import path from "node:path";
-import { mkdir, open, rename, rm, readFile } from "node:fs/promises";
+import { mkdir, open, rm, readFile } from "node:fs/promises";
 import { ConcordError } from "../core/errors.js";
 import { renameWithRetry, loadProject, updateProject, readNdjson, projectDir, projectsDir } from "../core/store.js";
 import { directorCosts } from "../director/director.js";

@@ -11,7 +11,7 @@
 //   Director call: researchers use it to customize the Director's standing
 //   instructions; tests use it to carry MockModel [[handler:...]] markers.
 import path from "node:path";
-import { mkdir, open, rename, rm } from "node:fs/promises";
+import { mkdir, open, rm } from "node:fs/promises";
 import { ConcordError } from "../core/errors.js";
 import { getAdapter } from "../providers/registry.js";
 import { completeWithRepair, Pool, withTruncationRetry } from "../providers/base.js";

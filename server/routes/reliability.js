@@ -252,7 +252,7 @@ export default [
       return {
         constructId: construct.id,
         corpusId,
-        sources: sources.map(({ labels, ...s }) => s),
+        sources: sources.map(({ labels: _labels, ...s }) => s),
         pairs,
         notes,
         retestAvailable,

@@ -21,7 +21,7 @@ import * as ladderC from "../components/ladder.js";
 import * as renameable from "../components/renameable.js";
 import { contextLine, corpusText } from "../components/contextline.js";
 import { fmtStat, fmtCount, fmtClock } from "../format.js";
-import { screenHead, section, asyncMount, ensureProject, refreshProject, emptyState, openSheet, setFullbleed, markedValue, goldsetDisplayName } from "./_shared.js";
+import { screenHead, section, asyncMount, ensureProject, refreshProject, emptyState, openSheet, setFullbleed, goldsetDisplayName } from "./_shared.js";
 
 export const route = "p/:slug/goldsets/:gid";
 export const title = "Calibration Studio";

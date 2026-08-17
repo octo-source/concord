@@ -12,7 +12,7 @@
 // text — same counts, same vault, same [KIND_n] tokens. Non-string values
 // (numbers, nulls) pass through untouched: the regexes cannot match a bare
 // number, and masking must never change a value's type.
-import { readFile, writeFile, mkdir, rename } from "node:fs/promises";
+import { readFile, writeFile, mkdir } from "node:fs/promises";
 import { renameWithRetry } from "../core/store.js";
 import { dirname } from "node:path";
 import { ConcordError } from "../core/errors.js";
@@ -62,7 +62,7 @@ function atSentenceStart(text, idx) {
   // Walk back over whitespace; sentence start = string start, or after
   // terminal punctuation, or after an opening quote at one of those.
   let i = idx - 1;
-  while (i >= 0 && /[\s"'(\[]/.test(text[i])) i--;
+  while (i >= 0 && /[\s"'([]/.test(text[i])) i--;
   if (i < 0) return true;
   return /[.!?:;\n]/.test(text[i]);
 }

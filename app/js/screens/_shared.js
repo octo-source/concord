@@ -3,7 +3,7 @@
 // project loader that keeps the rail in step. Screens compose H1 components;
 // this module only adds the connective tissue they share.
 
-import { el, clear, frag } from "../dom.js";
+import { el, clear } from "../dom.js";
 import { store } from "../state.js";
 import { bus } from "../bus.js";
 import * as router from "../router.js";

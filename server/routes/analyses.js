@@ -235,7 +235,7 @@ async function explorerResults(project, run, instrument, construct, rows) {
 
 // ------------------------------------------------------------- kinds
 
-function computeDescriptive(rows, gold, spec, construct) {
+function computeDescriptive(rows, gold, spec, _construct) {
   const counts = {};
   const cells = {};
   for (const r of rows) {

@@ -167,4 +167,4 @@ function errorView(err) {
 }
 
 // the floor route — H2 overrides via register("", …)
-register("", (mount) => welcomeView());
+register("", () => welcomeView());

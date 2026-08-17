@@ -535,7 +535,7 @@ function patch() {
   // live SSE: iteration events {iteration, versionHash, agreement, kappa,
   // alpha, note, costUSD} then done {instrumentId, level, versionHash,
   // stability, curve, cost}
-  apiNs.instruments.silverTune = (p, id, opts = {}, handlers = {}) =>
+  apiNs.instruments.silverTune = (p, id, _opts = {}, handlers = {}) =>
     replaySse(db.instruments.silverTune.iterations.map((it) => ({ event: "iteration", data: clone(it) })), {
       gap: 900, jitter: 500,
       onStep: ({ data }) => handlers.onIteration?.(data),

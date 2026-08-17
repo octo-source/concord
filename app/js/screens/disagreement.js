@@ -24,7 +24,7 @@ export function render(mount, params) {
     const project = await ensureProject(params.slug);
     const data = await api.runs.disagreement(params.slug, params.rid);
     return { project, data };
-  }, ({ project, data }) => {
+  }, ({ data }) => {
     mount.append(screenHead({
       overline: `Run · ${params.rid}`,
       title: "Units the panel disagreed on.",
