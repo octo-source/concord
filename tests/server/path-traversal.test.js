@@ -11,6 +11,7 @@ import { mkdtemp, mkdir, rm, writeFile } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import { startServer } from "../../server/index.js";
+import { corpusUnitsFile, goldsetFile, runOutputsFile } from "../../server/routes/_shared.js";
 
 let tmpRoot, tmpProjects, tmpConfig, srv, base, slug;
 const SECRET = "sk-or-v1-PLANTED-SECRET-DO-NOT-LEAK";
@@ -102,12 +103,65 @@ test("POST import/confirm — traversal importId cannot read the key file", asyn
   }
 });
 
+test("GET goldsets/:id — traversal id cannot read the key file", async () => {
+  for (const id of ESCAPES) {
+    const { status, text } = await bodyOf(
+      await fetch(`${base}/api/projects/${slug}/goldsets/${id}`),
+    );
+    assert.ok(status === 400 || status === 404, `escape ${id} → ${status}`);
+    assert.ok(!text.includes(SECRET), `escape ${id} LEAKED the secret`);
+  }
+});
+
+test("GET instruments/:id — traversal id cannot read the key file", async () => {
+  for (const id of ESCAPES) {
+    const { status, text } = await bodyOf(
+      await fetch(`${base}/api/projects/${slug}/instruments/${id}`),
+    );
+    assert.ok(status === 400 || status === 404, `escape ${id} → ${status}`);
+    assert.ok(!text.includes(SECRET), `escape ${id} LEAKED the secret`);
+  }
+});
+
+test("GET constructs/:id — traversal id cannot read the key file", async () => {
+  for (const id of ESCAPES) {
+    const { status, text } = await bodyOf(
+      await fetch(`${base}/api/projects/${slug}/constructs/${id}`),
+    );
+    assert.ok(status === 400 || status === 404, `escape ${id} → ${status}`);
+    assert.ok(!text.includes(SECRET), `escape ${id} LEAKED the secret`);
+  }
+});
+
+test("GET corpora/:c/units — traversal corpus id cannot read the key file", async () => {
+  for (const id of ESCAPES) {
+    const { status, text } = await bodyOf(
+      await fetch(`${base}/api/projects/${slug}/corpora/${id}/units`),
+    );
+    assert.ok(status === 400 || status === 404, `escape ${id} → ${status}`);
+    assert.ok(!text.includes(SECRET), `escape ${id} LEAKED the secret`);
+  }
+});
+
 test("traversal project slug is rejected", async () => {
   const { status, text } = await bodyOf(
     await fetch(`${base}/api/projects/${encodeURIComponent("../../config")}`),
   );
   assert.ok(status === 400 || status === 404, `slug escape → ${status}`);
   assert.ok(!text.includes(SECRET), "slug escape LEAKED the secret");
+});
+
+test("path builders (corpusUnitsFile, goldsetFile, runOutputsFile) reject a traversal id even without a route's findOr404 pre-check", () => {
+  // Route handlers all check findOr404 before these builders run, so a
+  // traversal id never reaches them in practice today — but that's the
+  // ROUTE's guard, not the builder's. Calling the builders directly proves
+  // the seam itself (safeId) still refuses a bad id if some future call
+  // site skips the pre-check.
+  for (const raw of ["../../../config/keys", "..\\..\\config\\keys", "a/b"]) {
+    assert.throws(() => corpusUnitsFile(slug, raw), /VALIDATION|invalid corpus/i);
+    assert.throws(() => goldsetFile(slug, raw), /VALIDATION|invalid goldset/i);
+    assert.throws(() => runOutputsFile(slug, raw), /VALIDATION|invalid run/i);
+  }
 });
 
 test("a normal id still 404s cleanly (guard does not break valid ids)", async () => {

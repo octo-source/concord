@@ -216,7 +216,7 @@ export async function readJsonFile(file) {
 // ----------------------------------------------------------------- corpora
 
 export function corpusUnitsFile(slug, corpusId) {
-  return path.join(pdirOf(slug), "corpora", corpusId, "units.ndjson");
+  return path.join(pdirOf(slug), "corpora", safeId(corpusId, "corpus"), "units.ndjson");
 }
 
 export async function readCorpusUnits(slug, corpusId, opts = {}) {
