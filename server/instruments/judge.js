@@ -7,7 +7,9 @@
 //   binary       → the construct's two category values when exactly two
 //                  categories are declared, else ["yes", "no"]. Labels are
 //                  emitted exactly as the enum values (strings).
-//   kclass       → enum over construct.categories[].value (nominal).
+//   kclass       → enum over construct.categories[].value (nominal), each
+//                  option's meaning (anchor, else label) sent to the worker —
+//                  label-only prompting lets a category act as a catch-all.
 //   likert       → enum over construct.categories[].value (ordinal), anchored
 //                  1..k via each category's anchor (or label). Values keep
 //                  their construct type: numeric category values yield numeric
@@ -16,7 +18,9 @@
 //                  with a declared scale {min, max} carries those bounds on
 //                  the schema instead, and the prompt + JSON enforcement use
 //                  them (a 1–7 construct must never instruct "0 to 100").
-//   multilabel   → array of construct.categories[].value entries.
+//   multilabel   → array of construct.categories[].value entries, each
+//                  option's meaning (anchor, else label) sent to the worker
+//                  the same way kclass/likert are.
 //   extraction   → the model answers {rationale, spans: [...], confidence?};
 //                  judgeUnit returns label = spans (string[]), satisfying the
 //                  Label = string|number|string[] contract.
@@ -84,6 +88,15 @@ function categoryValues(construct, field) {
   return cats.map((c) => c.value);
 }
 
+// {value: anchor} for every category — the option's MEANING, not just its
+// name. anchor falls back to label, then to the bare value, so a category
+// with neither still gets an (uninformative but present) entry.
+function anchorsFor(cats) {
+  const anchors = {};
+  for (const c of cats) anchors[String(c.value)] = c.anchor ?? c.label ?? String(c.value);
+  return anchors;
+}
+
 export function outputSchemaFor(construct) {
   if (!construct || typeof construct !== "object") {
     throw new ConcordError("VALIDATION", "outputSchemaFor requires a construct", {});
@@ -96,8 +109,14 @@ export function outputSchemaFor(construct) {
           : ["yes", "no"];
       return { type: "binary", options: cats };
     }
-    case "nominal":
-      return { type: "kclass", options: categoryValues(construct, "categories").map(String) };
+    case "nominal": {
+      const cats = construct.categories ?? [];
+      return {
+        type: "kclass",
+        options: categoryValues(construct, "categories").map(String),
+        anchors: anchorsFor(cats),
+      };
+    }
     case "ordinal": {
       const cats = construct.categories ?? [];
       if (cats.length === 0) {
@@ -105,9 +124,11 @@ export function outputSchemaFor(construct) {
           constructId: construct.id,
         });
       }
-      const anchors = {};
-      for (const c of cats) anchors[String(c.value)] = c.anchor ?? c.label ?? String(c.value);
-      return { type: "likert", options: cats.map((c) => String(c.value)), anchors };
+      return {
+        type: "likert",
+        options: cats.map((c) => String(c.value)),
+        anchors: anchorsFor(cats),
+      };
     }
     case "continuous": {
       // a declared scale rides on the schema so prompt text and JSON
@@ -117,8 +138,14 @@ export function outputSchemaFor(construct) {
         ? { type: "score0to100", min: s.min, max: s.max }
         : { type: "score0to100" };
     }
-    case "multilabel":
-      return { type: "multilabel", options: categoryValues(construct, "categories").map(String) };
+    case "multilabel": {
+      const cats = construct.categories ?? [];
+      return {
+        type: "multilabel",
+        options: categoryValues(construct, "categories").map(String),
+        anchors: anchorsFor(cats),
+      };
+    }
     case "extraction":
       return { type: "extraction" };
     default:
@@ -207,8 +234,12 @@ function renderExamples(construct) {
 function renderOptions(outputSchema, construct) {
   switch (outputSchema.type) {
     case "binary":
-    case "kclass":
       return `Allowed labels: ${outputSchema.options.join(" | ")}`;
+    case "kclass":
+      return [
+        `Allowed labels: ${outputSchema.options.join(" | ")}`,
+        ...outputSchema.options.map((o) => `  ${o}: ${outputSchema.anchors?.[o] ?? o}`),
+      ].join("\n");
     case "likert":
       return [
         `Allowed labels (anchored scale): ${outputSchema.options.join(" | ")}`,
@@ -224,7 +255,10 @@ function renderOptions(outputSchema, construct) {
       return `Label is a number from ${min} to ${max}.`;
     }
     case "multilabel":
-      return `Label is an array of zero or more of: ${outputSchema.options.join(" | ")}`;
+      return [
+        `Label is an array of zero or more of: ${outputSchema.options.join(" | ")}`,
+        ...outputSchema.options.map((o) => `  ${o}: ${outputSchema.anchors?.[o] ?? o}`),
+      ].join("\n");
     case "extraction":
       return 'Answer with "spans": an array of verbatim text spans extracted from the unit (empty if none).';
     default:

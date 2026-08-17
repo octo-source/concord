@@ -134,10 +134,11 @@ test("outputSchemaFor: binary with two declared categories uses their values", (
   assert.deepEqual(outputSchemaFor(c), { type: "binary", options: ["present", "absent"] });
 });
 
-test("outputSchemaFor: nominal → kclass with category values", () => {
+test("outputSchemaFor: nominal → kclass with category values and anchors (label, since none declares its own anchor)", () => {
   assert.deepEqual(outputSchemaFor(nominalConstruct), {
     type: "kclass",
     options: ["pay", "management", "workload"],
+    anchors: { pay: "Pay", management: "Management", workload: "Workload" },
   });
 });
 
@@ -155,6 +156,7 @@ test("outputSchemaFor: continuous → score0to100; multilabel and extraction", (
   assert.deepEqual(outputSchemaFor(multilabelConstruct), {
     type: "multilabel",
     options: ["pay", "growth"],
+    anchors: { pay: "Pay", growth: "Growth" },
   });
   assert.deepEqual(outputSchemaFor(extractionConstruct), { type: "extraction" });
 });
@@ -245,6 +247,23 @@ test("assemble: likert anchors and allowed options are described to the model", 
   const sys = messages[0].content;
   assert.match(sys, /1.*explicit anger or regret/);
   assert.match(sys, /Allowed labels/);
+});
+
+test("assemble: nominal (kclass) category meanings reach the worker, not just bare keys", () => {
+  const messages = assemble(nominalConstruct, { ...judgePayload, schema: undefined }, unit);
+  const sys = messages[0].content;
+  assert.match(sys, /Allowed labels/);
+  assert.match(sys, /pay.*Pay/);
+  assert.match(sys, /management.*Management/);
+  assert.match(sys, /workload.*Workload/);
+});
+
+test("assemble: multilabel category meanings reach the worker, not just bare keys", () => {
+  const messages = assemble(multilabelConstruct, { ...judgePayload, schema: undefined }, unit);
+  const sys = messages[0].content;
+  assert.match(sys, /array of zero or more/);
+  assert.match(sys, /pay.*Pay/);
+  assert.match(sys, /growth.*Growth/);
 });
 
 test("assemble: empty promptTemplate falls back to the default template", () => {
