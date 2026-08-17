@@ -1357,7 +1357,12 @@ function proposalsSheet(params, proposals, titleLine, { note, sampleN } = {}) {
                 });
                 row.classList.add("proposal--accepted");
                 e.target.textContent = "Accepted";
-                repaintConstructs(); // the list behind the sheet updates now
+                // Do NOT repaint the list behind the sheet here: repaintConstructs()
+                // dispatches a hashchange → the router emits "route:changed" →
+                // openSheet's navigation guard closes THIS sheet, so the first accept
+                // would shut the sheet and strand every remaining proposal (you could
+                // only ever accept one). The list is refreshed once on close instead
+                // (onClose: accepted > 0 → repaintConstructs), so multi-accept works.
               } catch (err) {
                 e.target.disabled = false;
                 toast.error("Could not accept.", { detail: String(err.message ?? err) });
