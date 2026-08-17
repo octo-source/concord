@@ -80,7 +80,11 @@ export class AnthropicAdapter extends Adapter {
     const body = {
       model: req.model,
       max_tokens: req.maxTokens ?? 1024,
-      temperature: req.temperature ?? 0,
+      // `temperature` is intentionally NOT sent: current Anthropic models
+      // (Claude 4.x — Opus 4.8, Sonnet 4.6, …) deprecated it and reject ANY
+      // temperature value with HTTP 400 ("`temperature` is deprecated for this
+      // model"). Older models default fine without it, so omitting it works
+      // across the board. (req.temperature is accepted but ignored here.)
       messages: req.messages.filter((m) => m.role !== "system"),
     };
     if (system) body.system = system;

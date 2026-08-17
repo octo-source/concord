@@ -510,7 +510,10 @@ describe("AnthropicAdapter", () => {
         assert.deepEqual(call.body.messages, [
           { role: "user", content: "Label this. <unit>The pay is terrible.</unit>" },
         ]);
-        assert.equal(call.body.temperature, 0);
+        // current Claude models reject ANY temperature value with HTTP 400
+        // ("temperature is deprecated for this model") — req.temperature is
+        // accepted but intentionally never forwarded.
+        assert.ok(!("temperature" in call.body), "temperature must not be sent to Anthropic");
         assert.equal(call.body.max_tokens, 200);
         assert.equal(call.body.tools.length, 1);
         assert.equal(call.body.tools[0].name, "emit");
