@@ -14,8 +14,8 @@
   "dependencies": {
     "busboy": "^1.6.0",
     "fflate": "^0.8.2",
-    "mammoth": "^1.8.0",
-    "pdfjs-dist": "^4.10.38",
-    "xlsx": "^0.18.5"
+    "mammoth": "^1.12.1",
+    "pdfjs-dist": "^6.2.108",
+    "xlsx": "https://cdn.sheetjs.com/xlsx-0.20.3/xlsx-0.20.3.tgz"
   }
 }

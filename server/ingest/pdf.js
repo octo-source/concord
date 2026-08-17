@@ -71,15 +71,18 @@ export async function parse(filePath) {
     throw new ConcordError("FILE_READ", `cannot read ${filePath}: ${e.message}`, { filePath });
   }
   const pdfjs = await loadPdfjs();
+  // pdfjs-dist v6 removed PDFDocumentProxy#destroy(); cleanup now happens via
+  // the loading task (getDocument()'s return value), so we keep it around.
+  const loadingTask = pdfjs.getDocument({
+    data: new Uint8Array(buf),
+    useSystemFonts: true,
+    disableFontFace: true,
+    // keep pdfjs quiet about missing worker in Node
+    verbosity: 0,
+  });
   let doc;
   try {
-    doc = await pdfjs.getDocument({
-      data: new Uint8Array(buf),
-      useSystemFonts: true,
-      disableFontFace: true,
-      // keep pdfjs quiet about missing worker in Node
-      verbosity: 0,
-    }).promise;
+    doc = await loadingTask.promise;
   } catch (e) {
     throw new ConcordError("BAD_PDF", `pdfjs cannot open ${filePath}: ${e.message}`, { filePath });
   }
@@ -106,7 +109,7 @@ export async function parse(filePath) {
       }
     }
   } finally {
-    await doc.destroy().catch(() => {});
+    await loadingTask.destroy().catch(() => {});
   }
   if (paras.length === 0) issues.push({ kind: "empty", detail: "no extractable text (scanned/image-only PDF?)" });
   return { docs: [{ name: basename(filePath), paras, pages }], issues };
