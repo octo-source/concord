@@ -4,6 +4,7 @@
 import http from "node:http";
 import { readFile, readdir } from "node:fs/promises";
 import { fileURLToPath, pathToFileURL } from "node:url";
+import { randomBytes } from "node:crypto";
 import os from "node:os";
 import path from "node:path";
 import { createRouter, sendJson } from "./router.js";
@@ -262,9 +263,19 @@ export async function startCoderListener(
     );
   }
   const shared = host === "0.0.0.0";
+  // Anyone who reaches this listener's address can hit /api/coder/*  — on the
+  // shared (0.0.0.0) listener that's the whole LAN, not just this machine.
+  // The token travels only in the session URL (?t=), never guessable, and
+  // the coder page echoes it back on every call (app/js/coder.js).
+  const coderToken = randomBytes(16).toString("hex");
   const { coderRoutes } = await import("./routes/goldsets.js");
   const router = createRouter({ appDir });
-  for (const { method, pattern, handler } of coderRoutes(projectSlug, goldsetId, coderId)) {
+  for (const { method, pattern, handler } of coderRoutes(
+    projectSlug,
+    goldsetId,
+    coderId,
+    coderToken,
+  )) {
     router.addRoute(method, pattern, handler);
   }
   const server = http.createServer((req, res) => {
@@ -294,7 +305,7 @@ export async function startCoderListener(
   // (this is the SAME process that runs every background analysis)
   attachServerErrorLogger(server, "coder listener");
   const port = server.address().port;
-  const page = `/coder.html?coder=${encodeURIComponent(coderId)}`;
+  const page = `/coder.html?coder=${encodeURIComponent(coderId)}&t=${coderToken}`;
   // First non-internal IPv4 — the address a colleague on the same network can
   // actually reach. Loopback binding has no reachable LAN address, so lanUrl
   // exists only on the shared listener (and only when the machine has one).

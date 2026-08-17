@@ -53,8 +53,8 @@ after(async () => {
   await rm(tmpConfig, { recursive: true, force: true }).catch(() => {});
 });
 
-async function call(method, url, body) {
-  const init = { method, headers: {} };
+async function call(method, url, body, headers = {}) {
+  const init = { method, headers: { ...headers } };
   if (body !== undefined) {
     init.headers["content-type"] = "application/json";
     init.body = JSON.stringify(body);
@@ -112,11 +112,22 @@ function firstLanIPv4() {
   return null;
 }
 
+/** first "t=" query param on a coder-session url — the listener's token. */
+function tokenOf(url) {
+  return new URL(url).searchParams.get("t");
+}
+
 /** GET over loopback with a CHOSEN Host header (fetch refuses to forge one). */
-function rawGet(port, pathname, hostHeader) {
+function rawGet(port, pathname, hostHeader, extraHeaders = {}) {
   return new Promise((resolve, reject) => {
     const req = http.request(
-      { host: "127.0.0.1", port, path: pathname, method: "GET", headers: { host: hostHeader } },
+      {
+        host: "127.0.0.1",
+        port,
+        path: pathname,
+        method: "GET",
+        headers: { host: hostHeader, ...extraHeaders },
+      },
       (res) => {
         let body = "";
         res.on("data", (c) => {
@@ -139,6 +150,7 @@ const S = {
   gsId: null,
   units: [], // sampled unitIds in order
   listenerUrl: null, // base of pat's listener (no path)
+  token: null, // pat's listener's x-coder-token
   toClose: [], // listener handles to close in after()
 };
 
@@ -195,10 +207,12 @@ test("coder session: the URL points at /coder.html?coder=<id>; the listener serv
   const session = await ok("POST", G(`/${S.gsId}/coder-session`), { coderId: "pat" });
   assert.ok(session.url.startsWith("http://127.0.0.1:"), `localhost url (got ${session.url})`);
   assert.ok(
-    session.url.endsWith("/coder.html?coder=pat"),
+    session.url.includes("/coder.html?coder=pat&t="),
     `session url is the coding page (got ${session.url})`,
   );
   S.listenerUrl = `http://127.0.0.1:${session.port}`;
+  S.token = tokenOf(session.url);
+  assert.ok(S.token, "the session carries a coder token");
 
   const page = await call("GET", `${S.listenerUrl}/coder.html`);
   assert.equal(page.status, 200, `GET /coder.html → ${page.status}`);
@@ -222,8 +236,20 @@ test("coder session: the URL points at /coder.html?coder=<id>; the listener serv
 // b — the restricted surface: blind payload in, everything else 404
 // =========================================================================
 
+test("listener API: a missing or wrong x-coder-token is refused (403) before any gold data is touched", async () => {
+  const noToken = await call("GET", `${S.listenerUrl}/api/coder/next`);
+  assert.equal(noToken.status, 403, `no token → ${noToken.status}: ${noToken.text?.slice(0, 200)}`);
+
+  const wrongToken = await call("GET", `${S.listenerUrl}/api/coder/next`, undefined, {
+    "x-coder-token": "not-the-real-token",
+  });
+  assert.equal(wrongToken.status, 403, `wrong token → ${wrongToken.status}`);
+});
+
 test("listener API: /api/coder/next is blind for the bound coder; /api/projects/* and /api/health do not exist here", async () => {
-  const r = await call("GET", `${S.listenerUrl}/api/coder/next`);
+  const r = await call("GET", `${S.listenerUrl}/api/coder/next`, undefined, {
+    "x-coder-token": S.token,
+  });
   assert.equal(r.status, 200, r.text?.slice(0, 300));
   assert.equal(r.json?.ok, true);
   const data = r.json.data;
@@ -277,13 +303,18 @@ test("listener API: /api/coder/next is blind for the bound coder; /api/projects/
 // =========================================================================
 
 test("label through the listener: lands in the gold set under the bound coder; a body-supplied coder id is ignored", async () => {
-  const r = await call("POST", `${S.listenerUrl}/api/coder/label`, {
-    unitId: S.units[0],
-    label: "no",
-    memo: "borderline",
-    flag: true,
-    coder: "intruder", // must be ignored — the listener binds pat
-  });
+  const r = await call(
+    "POST",
+    `${S.listenerUrl}/api/coder/label`,
+    {
+      unitId: S.units[0],
+      label: "no",
+      memo: "borderline",
+      flag: true,
+      coder: "intruder", // must be ignored — the listener binds pat
+    },
+    { "x-coder-token": S.token },
+  );
   assert.equal(r.status, 200, r.text?.slice(0, 300));
   assert.equal(r.json.data.done, 1);
 
@@ -298,7 +329,9 @@ test("label through the listener: lands in the gold set under the bound coder; a
     "the body's coder id never becomes a coder",
   );
 
-  const next = await call("GET", `${S.listenerUrl}/api/coder/next`);
+  const next = await call("GET", `${S.listenerUrl}/api/coder/next`, undefined, {
+    "x-coder-token": S.token,
+  });
   assert.equal(next.json.data.progress.done, 1);
   assert.equal(next.json.data.unit.id, S.units[1], "the queue advanced past the labeled unit");
 
@@ -314,9 +347,11 @@ test("host default: the listener binds 127.0.0.1, carries no lanUrl, and refuses
   S.toClose.push(h);
   assert.equal(h.server.address().address, "127.0.0.1", "default binding is loopback");
   assert.equal(h.lanUrl, undefined, "a loopback listener has no LAN url");
-  assert.ok(h.url.endsWith("/coder.html?coder=local-only"));
+  assert.ok(h.url.includes("/coder.html?coder=local-only&t="));
 
-  const foreign = await rawGet(h.port, "/api/coder/next", "192.168.50.50");
+  const foreign = await rawGet(h.port, "/api/coder/next", "192.168.50.50", {
+    "x-coder-token": tokenOf(h.url),
+  });
   assert.equal(foreign.status, 403, "the rebinding guard stays armed on the loopback listener");
   await h.close();
   S.toClose.pop();
@@ -326,21 +361,28 @@ test("host opt-in: {host: '0.0.0.0'} binds all interfaces, answers LAN-addressed
   const h = await startCoderListener(S.slug, S.gsId, "lan-coder", { host: "0.0.0.0" });
   S.toClose.push(h);
   assert.equal(h.server.address().address, "0.0.0.0", "opt-in binds all interfaces");
+  const token = tokenOf(h.url);
 
   // a LAN client addresses the machine by its LAN ip — the shared listener
-  // must answer that Host, not 403 it
-  const foreign = await rawGet(h.port, "/api/coder/next", `192.168.50.50:${h.port}`);
+  // must answer that Host, not 403 it (given the right token)
+  const foreign = await rawGet(h.port, "/api/coder/next", `192.168.50.50:${h.port}`, {
+    "x-coder-token": token,
+  });
   assert.equal(
     foreign.status,
     200,
     `shared listener answers a LAN host (got ${foreign.status}: ${foreign.body.slice(0, 200)})`,
   );
 
+  // a LAN neighbor without the session link — right host, no token — is refused
+  const noToken = await rawGet(h.port, "/api/coder/next", `192.168.50.50:${h.port}`);
+  assert.equal(noToken.status, 403, "a LAN request without the token is refused");
+
   const lan = firstLanIPv4();
   if (lan) {
     assert.equal(
       h.lanUrl,
-      `http://${lan}:${h.port}/coder.html?coder=lan-coder`,
+      `http://${lan}:${h.port}/coder.html?coder=lan-coder&t=${token}`,
       "lanUrl is built from the first non-internal IPv4",
     );
   } else {
@@ -352,10 +394,13 @@ test("host opt-in: {host: '0.0.0.0'} binds all interfaces, answers LAN-addressed
 
 test("share through the session route: {share: true} yields a lanUrl (when the machine has an external IPv4); teardown closes it", async () => {
   const session = await ok("POST", G(`/${S.gsId}/coder-session`), { coderId: "sam", share: true });
-  assert.ok(session.url.endsWith("/coder.html?coder=sam"));
+  assert.ok(session.url.includes("/coder.html?coder=sam&t="));
   const lan = firstLanIPv4();
   if (lan) {
-    assert.equal(session.lanUrl, `http://${lan}:${session.port}/coder.html?coder=sam`);
+    assert.equal(
+      session.lanUrl,
+      `http://${lan}:${session.port}/coder.html?coder=sam&t=${tokenOf(session.url)}`,
+    );
   } else {
     assert.equal(
       session.lanUrl,

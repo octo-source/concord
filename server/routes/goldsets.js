@@ -506,18 +506,37 @@ export async function coderProgressView(slug, goldsetId, coderId) {
 
 // Restricted route table for the same-process coder listener (consumed by
 // index.js startCoderListener). The coder id is BOUND at listener start; a
-// body-supplied coder id is ignored on purpose.
-export function coderRoutes(projectSlug, goldsetId, coderId) {
+// body-supplied coder id is ignored on purpose. `token` is the listener's
+// per-session secret (index.js) — on the shared (0.0.0.0) listener, anyone on
+// the LAN can reach these routes, so every call must echo it back
+// (x-coder-token) or get refused before touching gold data.
+export function coderRoutes(projectSlug, goldsetId, coderId, token) {
+  const requireToken = (req) => {
+    if (req.headers["x-coder-token"] !== token) {
+      throw new ConcordError(
+        "CODER_TOKEN_INVALID",
+        "missing or invalid coder session token",
+        {},
+        {
+          status: 403,
+        },
+      );
+    }
+  };
   return [
     {
       method: "GET",
       pattern: "/api/coder/next",
-      handler: async () => coderNextView(projectSlug, goldsetId, coderId),
+      handler: async (req) => {
+        requireToken(req);
+        return coderNextView(projectSlug, goldsetId, coderId);
+      },
     },
     {
       method: "POST",
       pattern: "/api/coder/label",
       handler: async (req) => {
+        requireToken(req);
         const body = req.body ?? {};
         return submitCoderLabel(projectSlug, goldsetId, {
           coder: coderId, // bound, never trusted from the body
@@ -532,7 +551,10 @@ export function coderRoutes(projectSlug, goldsetId, coderId) {
     {
       method: "GET",
       pattern: "/api/coder/progress",
-      handler: async () => coderProgressView(projectSlug, goldsetId, coderId),
+      handler: async (req) => {
+        requireToken(req);
+        return coderProgressView(projectSlug, goldsetId, coderId);
+      },
     },
   ];
 }

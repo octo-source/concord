@@ -16,6 +16,10 @@ import { el, clear } from "./dom.js";
 
 const mount = document.getElementById("coder-mount");
 const coderParam = new URLSearchParams(location.search).get("coder");
+// Bound to this listener instance at startCoderListener() time; carried in
+// the page URL (?t=) and echoed back on every call so a LAN neighbor who
+// doesn't have the session link can't read units or submit labels.
+const coderToken = new URLSearchParams(location.search).get("t");
 
 const state = {
   construct: null,
@@ -29,13 +33,14 @@ const state = {
 
 async function call(method, path, body) {
   let res;
+  const headers = { "x-coder-token": coderToken ?? "" };
+  if (body !== undefined) headers["content-type"] = "application/json";
   try {
-    res = await fetch(
-      path,
-      body !== undefined
-        ? { method, headers: { "content-type": "application/json" }, body: JSON.stringify(body) }
-        : { method },
-    );
+    res = await fetch(path, {
+      method,
+      headers,
+      ...(body !== undefined ? { body: JSON.stringify(body) } : {}),
+    });
   } catch (err) {
     throw new Error(`the server did not answer (${err.message})`, { cause: err });
   }

@@ -1295,9 +1295,11 @@ test("freeze BEFORE agreement → 400 (human agreement comes first)", async () =
   assert.match(err.message, /human agreement/i);
 });
 
-// session.url is the human coding PAGE (/coder.html?coder=…) since the coder
-// screen landed; scripted clients address the API at the listener's origin.
+// session.url is the human coding PAGE (/coder.html?coder=…&t=…) since the
+// coder screen landed; scripted clients address the API at the listener's
+// origin and echo back the session's token the way app/js/coder.js does.
 const coderApi = (sess) => `http://127.0.0.1:${sess.port}`;
+const coderHeaders = (sess) => ({ "x-coder-token": new URL(sess.url).searchParams.get("t") });
 
 test("coder sessions: two blind coders label through restricted same-process listeners", async () => {
   armMock();
@@ -1308,7 +1310,7 @@ test("coder sessions: two blind coders label through restricted same-process lis
     coderId: "coder-B",
   });
   assert.ok(sessA.port > 0 && sessB.port > 0 && sessA.port !== sessB.port);
-  assert.match(sessA.url, /^http:\/\/127\.0\.0\.1:\d+\/coder\.html\?coder=coder-A$/);
+  assert.match(sessA.url, /^http:\/\/127\.0\.0\.1:\d+\/coder\.html\?coder=coder-A&t=[0-9a-f]+$/);
 
   const gsFull = await ok("GET", `/api/projects/${S.slug}/goldsets/${S.goldsetId}`);
   S.flipUnits = gsFull.sample.slice(0, 2).map((s) => s.unitId); // planted human disagreement
@@ -1332,7 +1334,7 @@ test("coder sessions: two blind coders label through restricted same-process lis
   async function codeAll(sess, coderId, otherCoder, flip) {
     let labeled = 0;
     for (;;) {
-      const res = await fetch(`${coderApi(sess)}/api/coder/next`);
+      const res = await fetch(`${coderApi(sess)}/api/coder/next`, { headers: coderHeaders(sess) });
       const raw = await res.text();
       assert.equal(res.status, 200);
       blindnessCheck(raw, otherCoder);
@@ -1345,7 +1347,7 @@ test("coder sessions: two blind coders label through restricted same-process lis
         flip && S.flipUnits.includes(data.unit.id) ? (truth === "yes" ? "no" : "yes") : truth;
       const post = await fetch(`${coderApi(sess)}/api/coder/label`, {
         method: "POST",
-        headers: { "content-type": "application/json" },
+        headers: { "content-type": "application/json", ...coderHeaders(sess) },
         body: JSON.stringify({
           unitId: data.unit.id,
           label,
@@ -1363,7 +1365,9 @@ test("coder sessions: two blind coders label through restricted same-process lis
   assert.equal(await codeAll(sessA, "coder-A", "coder-B", false), 24);
   assert.equal(await codeAll(sessB, "coder-B", "coder-A", true), 24);
 
-  const progA = await fetch(`${coderApi(sessA)}/api/coder/progress`).then((r) => r.json());
+  const progA = await fetch(`${coderApi(sessA)}/api/coder/progress`, {
+    headers: coderHeaders(sessA),
+  }).then((r) => r.json());
   assert.deepEqual([progA.data.done, progA.data.total], [24, 24]);
 
   // main-server next route is equally blind
@@ -3272,12 +3276,17 @@ test("coder listener: serves ONLY the coder surface (other API routes absent) an
 
   // post-run blindness: outputs.ndjson is full of machine labels now — the
   // coder payloads still carry none of it
-  const next = await fetch(`${coderApi(S.sessA)}/api/coder/next`);
+  const next = await fetch(`${coderApi(S.sessA)}/api/coder/next`, {
+    headers: coderHeaders(S.sessA),
+  });
   const raw = await next.text();
+  assert.equal(next.status, 200);
   for (const marker of ['"juror"', '"rationale"', '"confidence"', '"escalat', '"aggregate"']) {
     assert.ok(!raw.includes(marker), `post-run blind payload leaked ${marker}`);
   }
-  const prog = await fetch(`${coderApi(S.sessA)}/api/coder/progress`).then((x) => x.json());
+  const prog = await fetch(`${coderApi(S.sessA)}/api/coder/progress`, {
+    headers: coderHeaders(S.sessA),
+  }).then((x) => x.json());
   // 25, not 24: the human-queue test routed one more unit into the sample —
   // queued units join the blind coding queue like any sampled unit
   assert.deepEqual([prog.data.done, prog.data.total], [24, 25]);
