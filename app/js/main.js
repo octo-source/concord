@@ -156,6 +156,7 @@ function projectToSections(project) {
     {
       id: "constructs",
       title: "Constructs",
+      titleHref: `/p/${slug}/constructs`,
       emptyHint: "What do you want to measure?",
       items: (project.constructs ?? []).map((c) =>
         item(c, { href: `/p/${slug}/constructs/${c.id}` }),
@@ -164,6 +165,7 @@ function projectToSections(project) {
     {
       id: "instruments",
       title: "Instruments",
+      titleHref: `/p/${slug}/instruments`,
       emptyHint: "Compiled from constructs.",
       items: (project.instruments ?? []).map((i) =>
         item(i, { href: `/p/${slug}/instruments/${i.id}` }),
@@ -202,6 +204,7 @@ function projectToSections(project) {
     {
       id: "runs",
       title: "Runs",
+      titleHref: `/p/${slug}/runs`,
       emptyHint: "Nothing has been measured yet.",
       // "<instrument> · <corpus>" names; the title attribute carries the full text
       items: (project.runs ?? []).map((r) => {

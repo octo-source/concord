@@ -21,8 +21,11 @@ export const DEFAULT_SECTIONS = [
 
 /**
  * render({ sections, activeId, onSelect }) → <nav class="rail">
- *   sections [{ id, title, emptyHint?, items: [{ id, label, level?, count?,
- *               authoredBy?, humanTouched?, href? }] }]
+ *   sections [{ id, title, titleHref?, emptyHint?, items: [{ id, label,
+ *               level?, count?, authoredBy?, humanTouched?, href? }] }]
+ *   titleHref navigates to the section's index route on click — the only
+ *   entry point into a section before it has any items (e.g. Constructs
+ *   before any construct exists).
  *   activeId currently-open item id
  *   onSelect (item, sectionId) — called on click/Enter; if the item has an
  *            href, the rail navigates instead.
@@ -95,18 +98,28 @@ function build(nav, { sections, activeId, onSelect }) {
       if (isActive) activeItem = btn;
     }
 
+    const headingLabel = [
+      section.titleHref
+        ? el(
+            "button",
+            {
+              class: "rail__heading-link",
+              type: "button",
+              onclick: () => {
+                location.hash = section.titleHref;
+              },
+            },
+            section.title,
+          )
+        : section.title,
+      items.length ? el("span", { class: "rail__heading-count data" }, String(items.length)) : null,
+    ];
+
     nav.append(
       el(
         "section",
         { class: "rail__section", aria: { label: section.title } },
-        el(
-          "h2",
-          { class: "rail__heading overline" },
-          section.title,
-          items.length
-            ? el("span", { class: "rail__heading-count data" }, String(items.length))
-            : null,
-        ),
+        el("h2", { class: "rail__heading overline" }, ...headingLabel),
         items.length
           ? list
           : el("p", { class: "rail__empty" }, section.emptyHint ?? "Nothing here yet."),

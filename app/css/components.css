@@ -768,6 +768,9 @@ svg [data-evidence]:focus-visible {
   color: var(--ink-ghost);
   font-size: var(--fs-micro);
 }
+.rail__heading-link:hover {
+  color: var(--accent);
+}
 .rail__list {
   display: flex;
   flex-direction: column;
