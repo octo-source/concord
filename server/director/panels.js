@@ -21,7 +21,9 @@ const PROVIDER_NAMES = ["anthropic", "openai", "openrouter", "ollama", "mock"];
 // Director to reason about budget without a full preflight.
 function estPer1kUSD(pricing, templateChars = 1200, unitChars = 500, outTokens = 256) {
   const inTokens = ((templateChars + unitChars) / 3.6) * 1000;
-  const usd = (inTokens / 1e6) * (pricing.inUSDper1M ?? 0) + ((outTokens * 1000) / 1e6) * (pricing.outUSDper1M ?? 0);
+  const usd =
+    (inTokens / 1e6) * (pricing.inUSDper1M ?? 0) +
+    ((outTokens * 1000) / 1e6) * (pricing.outUSDper1M ?? 0);
   return Math.round(usd * 100) / 100;
 }
 
@@ -64,12 +66,24 @@ export async function recommendPanel(project, construct, opts = {}) {
   const { budgetUSDper1k = null } = opts;
   const candidates = await gatherCandidates(project);
   if (candidates.length === 0) {
-    throw new ConcordError("CONFIG_MISSING", "no worker models are available under this project's privacy mode — add a provider key or start a local backend", {});
+    throw new ConcordError(
+      "CONFIG_MISSING",
+      "no worker models are available under this project's privacy mode — add a provider key or start a local backend",
+      {},
+    );
   }
 
-  const { system, user } = panelPrompt({ construct, candidates, budgetUSDper1k, privacyMode: project.privacyMode });
+  const { system, user } = panelPrompt({
+    construct,
+    candidates,
+    budgetUSDper1k,
+    privacyMode: project.privacyMode,
+  });
   const res = await callDirector(project, {
-    messages: [{ role: "system", content: system }, { role: "user", content: user }],
+    messages: [
+      { role: "system", content: system },
+      { role: "user", content: user },
+    ],
     schema: PANEL_SCHEMA,
     // thinking tokens bill against max_tokens on reasoning-class Directors
     // — keep at the reasoning-tolerant floor (≥2048)
@@ -79,17 +93,27 @@ export async function recommendPanel(project, construct, opts = {}) {
 
   // ---- validation against the registry catalogs
   if (out.jurors.length < 3 || out.jurors.length > 5) {
-    throw new ConcordError("VALIDATION", `a panel needs 3–5 jurors; the Director proposed ${out.jurors.length}`, { jurors: out.jurors.length });
+    throw new ConcordError(
+      "VALIDATION",
+      `a panel needs 3–5 jurors; the Director proposed ${out.jurors.length}`,
+      { jurors: out.jurors.length },
+    );
   }
   if (!AGGREGATIONS.includes(out.aggregation)) {
-    throw new ConcordError("VALIDATION", `unknown aggregation rule "${out.aggregation}"`, { aggregation: out.aggregation });
+    throw new ConcordError("VALIDATION", `unknown aggregation rule "${out.aggregation}"`, {
+      aggregation: out.aggregation,
+    });
   }
   const byProviderModel = new Map(candidates.map((c) => [`${c.provider}/${c.id}`, c]));
   const families = [];
   const resolved = out.jurors.map((j) => {
     const cand = byProviderModel.get(`${j.provider}/${j.model}`);
     if (!cand) {
-      throw new ConcordError("VALIDATION", `proposed juror ${j.provider}/${j.model} is not in the available model catalog`, { juror: j });
+      throw new ConcordError(
+        "VALIDATION",
+        `proposed juror ${j.provider}/${j.model} is not in the available model catalog`,
+        { juror: j },
+      );
     }
     families.push(cand.family);
     return { juror: j, cand };

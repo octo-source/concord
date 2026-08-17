@@ -6,7 +6,8 @@ const CHARS_PER_TOKEN = 3.6;
 const round6 = (x) => Math.round(x * 1e6) / 1e6;
 
 const usd = (inputTokens, outputTokens, pricing = {}) =>
-  (inputTokens / 1e6) * (pricing.inUSDper1M ?? 0) + (outputTokens / 1e6) * (pricing.outUSDper1M ?? 0);
+  (inputTokens / 1e6) * (pricing.inUSDper1M ?? 0) +
+  (outputTokens / 1e6) * (pricing.outUSDper1M ?? 0);
 
 // Preflight estimate for a run: every call sends the prompt template plus one
 // unit, and may emit up to maxTokens.
@@ -19,7 +20,7 @@ export function estimateRun({
   secondsPerCall = 1.2,
   concurrency = 4,
 }) {
-  const texts = (units ?? []).map((u) => (typeof u === "string" ? u : u?.text ?? ""));
+  const texts = (units ?? []).map((u) => (typeof u === "string" ? u : (u?.text ?? "")));
   const calls = texts.length * callsPerUnit;
   const meanUnitChars = texts.length ? texts.reduce((n, t) => n + t.length, 0) / texts.length : 0;
   const inputTokens = Math.round((calls * (template.length + meanUnitChars)) / CHARS_PER_TOKEN);
@@ -55,9 +56,13 @@ export function meter() {
 export function checkBudget(spentUSD, capUSD) {
   if (capUSD == null) return;
   if (spentUSD >= capUSD) {
-    throw new ConcordError("BUDGET_EXCEEDED", `spent $${spentUSD.toFixed(4)} ≥ budget cap $${capUSD.toFixed(2)}`, {
-      spentUSD,
-      capUSD,
-    });
+    throw new ConcordError(
+      "BUDGET_EXCEEDED",
+      `spent $${spentUSD.toFixed(4)} ≥ budget cap $${capUSD.toFixed(2)}`,
+      {
+        spentUSD,
+        capUSD,
+      },
+    );
   }
 }

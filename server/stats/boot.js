@@ -148,7 +148,10 @@ export function tostEquivalence(data, { bound, level, order } = {}) {
   }
   const alphaFull = krippendorffAlpha(data, { level, order });
   const alphaLOO = coders.map((cid) =>
-    krippendorffAlpha(data.filter((r) => String(r.coder) !== cid), { level, order })
+    krippendorffAlpha(
+      data.filter((r) => String(r.coder) !== cid),
+      { level, order },
+    ),
   );
   const m = coders.length;
   const diffs = alphaLOO.map((a) => a - alphaFull);

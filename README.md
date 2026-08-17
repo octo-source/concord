@@ -18,7 +18,7 @@ Prerequisite: **Node.js 22.13 or newer** on your PATH (`node --version`).
 2. **Create a project** (any name; privacy mode "no-training" is a fine default), then **drop `demo/techcorp-exit-survey.csv`** anywhere — 2,500 synthetic exit-survey responses.
 3. Confirm the proposed mapping (the `response` column is auto-detected as text). The junk queue flags the planted non-answers, duplicates, and a 7-row bot burst.
 4. Watch the **Instant Read** (all-local: length histogram, language mix, top terms — "pay" is right there, sentiment sketch, metadata marginals).
-5. **Pick a Director**: the rail's *Project → Settings* (or the link under the Brief button) → The Director's slot → keyless demo: provider **mock** → Save.
+5. **Pick a Director**: the rail's _Project → Settings_ (or the link under the Brief button) → The Director's slot → keyless demo: provider **mock** → Save.
 6. Ask for the **Corpus Brief** and watch it stream in: candidate themes, each anchored to real quotes. Click a quote — that's the inspector.
 7. From there, the whole ladder is open: accept constructs, compile instruments, silver-tune, run the corpus, draw a gold sample, code it in the Calibration Studio, freeze a certificate, and watch the Correction Reveal put the corrected estimate beside the naive one.
 
@@ -26,7 +26,7 @@ Prerequisite: **Node.js 22.13 or newer** on your PATH (`node --version`).
 
 ## Adding real models
 
-Open **Settings** (the gear route `#/settings`, or *Project → Settings* in the rail) and paste a key for any of:
+Open **Settings** (the gear route `#/settings`, or _Project → Settings_ in the rail) and paste a key for any of:
 
 - **Anthropic** — Claude models, schemas via tool-use.
 - **OpenAI** — GPT models, native JSON-schema output.
@@ -45,36 +45,36 @@ Keys live in `config/keys.json` — gitignored, outside every project bundle, ne
 
 `demo/techcorp-exit-survey.csv` is **synthetic and fully seeded** (mulberry32, seed 7341 — `node demo/generate.js` regenerates it byte-identically). 2,500 exit-survey open-ends with metadata (dept, tenure, role, region, exit date, satisfaction 1–5) and six planted themes with built-in correlations so cross-tabs land:
 
-| theme | base rate | planted correlation |
-|---|---|---|
-| pay | 0.28 | ↑ Sales (≈0.39), ↓ satisfaction |
-| management | 0.22 | ↑ Operations |
-| workload / burnout | 0.25 | ↑ tenure < 2 years |
-| growth | 0.18 | ↑ IC role |
-| remote policy | 0.12 | ↑ NA/EMEA |
-| quit regret | 0.06 | flat, rare |
+| theme              | base rate | planted correlation             |
+| ------------------ | --------- | ------------------------------- |
+| pay                | 0.28      | ↑ Sales (≈0.39), ↓ satisfaction |
+| management         | 0.22      | ↑ Operations                    |
+| workload / burnout | 0.25      | ↑ tenure < 2 years              |
+| growth             | 0.18      | ↑ IC role                       |
+| remote policy      | 0.12      | ↑ NA/EMEA                       |
+| quit regret        | 0.06      | flat, rare                      |
 
 Quit-intent language fires mostly when satisfaction ≤ 2. Plus realistic dirt: ~2% junk ("n/a", "asdf", "."), ~1% exact duplicates, one 7-row bot burst, ~3% Spanish responses. `demo/oracle.json` records the exact per-row truth — that is what MockModel's oracle reads, and what the E2E suite checks corrected estimates against.
 
 ## Repo map
 
-| path | what lives there |
-|---|---|
-| `start.bat` | double-click launcher (installs deps on first run, opens the browser) |
-| `server/` | Node 22 ESM server — no framework, no build step |
-| `server/core/` | project bundles, hash-chained ledger, object model, cache, ids |
-| `server/ingest/` | CSV/XLSX/DOCX/PDF/VTT parsers, column mapping, unitization, junk + PII scans |
-| `server/providers/` | Anthropic / OpenAI / OpenRouter / Ollama / Mock adapters, privacy gates, cost metering |
-| `server/instruments/` | dictionary engine, LLM judge, panels, stability checks |
-| `server/director/` | the Director: brief, construct drafting, prompt compiler, silver tuning, question bar |
-| `server/runs/` | run engine (checkpoint/resume, budget caps, escalation) + live monitor |
-| `server/stats/` | agreement (κ, α, AC1), bootstrap, DSL/PPI correction, OLS/logit — pure JS, golden-number tested |
-| `server/reporting/` | methods generator (ledger-cited), replication archive, report HTML |
-| `server/lexicons/` | bundled lexicons (VADER MIT; original CC0 starters) |
-| `app/` | the browser UI — vanilla ES modules, hand-rolled SVG charts |
-| `demo/` | seeded corpus generator + committed CSV + planted-truth oracle |
-| `tests/` | unit, integration, simulation, and e2e suites (`node --test`) |
-| `docs/plans/` | the design document and implementation plan |
+| path                  | what lives there                                                                                |
+| --------------------- | ----------------------------------------------------------------------------------------------- |
+| `start.bat`           | double-click launcher (installs deps on first run, opens the browser)                           |
+| `server/`             | Node 22 ESM server — no framework, no build step                                                |
+| `server/core/`        | project bundles, hash-chained ledger, object model, cache, ids                                  |
+| `server/ingest/`      | CSV/XLSX/DOCX/PDF/VTT parsers, column mapping, unitization, junk + PII scans                    |
+| `server/providers/`   | Anthropic / OpenAI / OpenRouter / Ollama / Mock adapters, privacy gates, cost metering          |
+| `server/instruments/` | dictionary engine, LLM judge, panels, stability checks                                          |
+| `server/director/`    | the Director: brief, construct drafting, prompt compiler, silver tuning, question bar           |
+| `server/runs/`        | run engine (checkpoint/resume, budget caps, escalation) + live monitor                          |
+| `server/stats/`       | agreement (κ, α, AC1), bootstrap, DSL/PPI correction, OLS/logit — pure JS, golden-number tested |
+| `server/reporting/`   | methods generator (ledger-cited), replication archive, report HTML                              |
+| `server/lexicons/`    | bundled lexicons (VADER MIT; original CC0 starters)                                             |
+| `app/`                | the browser UI — vanilla ES modules, hand-rolled SVG charts                                     |
+| `demo/`               | seeded corpus generator + committed CSV + planted-truth oracle                                  |
+| `tests/`              | unit, integration, simulation, and e2e suites (`node --test`)                                   |
+| `docs/plans/`         | the design document and implementation plan                                                     |
 
 ## Running tests
 

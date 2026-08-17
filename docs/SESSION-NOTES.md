@@ -48,17 +48,18 @@ masking already covered the promoted column); `pii` rides reunitize response + d
 **Verdicts: stats provably correct** (every estimator re-derived; PPI++ overlap variance + logit refit
 machine-checked), **isolation/CSV-injection/prototype-pollution safe by attack.** Fixed: a CONFIRMED path
 traversal that leaked config/keys.json (`safeId` at the path-builder seam — analyses/briefs/import/exports
-+ slug; tests/server/path-traversal.test.js); the engine root-cause (forEachUnit kept billing after a
-worker threw + could dup resume lines → stop-on-throw); driftTick crash path; appendNdjson per-file
-serialization + EPERM retry (Dropbox); quarantine-clear-on-resume; persistRun in-place; double-launch
-poison; evidence "1/240 flake" was a swallowed read error; Anthropic/Ollama TRUNCATED classification;
-OpenRouter catalog cache (zeroed-metering); process-crash guard (persistent listener 'error' + process
-guards); Brief/silver-tune abort-on-disconnect; UI long-session leaks (asyncMount route-token guard,
-instruments destroy, sheets-close-on-nav, drag-drop double-fire, brief race). VIZ: forest plot
-instruments-vs-gold w/ per-instrument bootstrap CI (`perInstrument[].agreement.ci`; components/charts/
-forest.js), coefficient forest for corrected regressions, confusion-matrix SVG in the HTML report.
-Deferred: reliability-matrix-as-report-SVG; per-class P/R/F1 grouped bar (chip task_168b8eed); ledger
-double-lock on the append path (harmless); mid-execution project-budget recheck.
+
+- slug; tests/server/path-traversal.test.js); the engine root-cause (forEachUnit kept billing after a
+  worker threw + could dup resume lines → stop-on-throw); driftTick crash path; appendNdjson per-file
+  serialization + EPERM retry (Dropbox); quarantine-clear-on-resume; persistRun in-place; double-launch
+  poison; evidence "1/240 flake" was a swallowed read error; Anthropic/Ollama TRUNCATED classification;
+  OpenRouter catalog cache (zeroed-metering); process-crash guard (persistent listener 'error' + process
+  guards); Brief/silver-tune abort-on-disconnect; UI long-session leaks (asyncMount route-token guard,
+  instruments destroy, sheets-close-on-nav, drag-drop double-fire, brief race). VIZ: forest plot
+  instruments-vs-gold w/ per-instrument bootstrap CI (`perInstrument[].agreement.ci`; components/charts/
+  forest.js), coefficient forest for corrected regressions, confusion-matrix SVG in the HTML report.
+  Deferred: reliability-matrix-as-report-SVG; per-class P/R/F1 grouped bar (chip task_168b8eed); ledger
+  double-lock on the append path (harmless); mid-execution project-budget recheck.
 
 **Shipped 2026-06-06 (alt judges + accuracy-audit campaign):** stability checks accept ≤4 alternate models
 (same compiled prompt, same sample, once each) → Reliability `alt:<inst>:<provider>/<model>` rows incl.

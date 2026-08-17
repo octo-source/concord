@@ -37,8 +37,19 @@ import { createGoldSet, versionInstrument } from "../core/objects.js";
 import { updateProject, projectDir } from "../core/store.js";
 import * as ledger from "../core/ledger.js";
 import { cohenKappa, krippendorffAlpha } from "../stats/agreement.js";
-import { callDirector, directorCosts, directorPool, seededSample, writeArtifact } from "./director.js";
-import { silverLabelPrompt, confusionRewritePrompt, judgeResponseSchema, REWRITE_SCHEMA } from "./prompts.js";
+import {
+  callDirector,
+  directorCosts,
+  directorPool,
+  seededSample,
+  writeArtifact,
+} from "./director.js";
+import {
+  silverLabelPrompt,
+  confusionRewritePrompt,
+  judgeResponseSchema,
+  REWRITE_SCHEMA,
+} from "./prompts.js";
 import { enforceTemplateScaffolding } from "./compiler.js";
 
 const labelKey = (v) => JSON.stringify(v);
@@ -84,11 +95,22 @@ function tryStats(sample, silverLabels, workerByUnit, construct) {
   const order = construct.categories?.map((c) => String(c.value));
   let kappa = null;
   let alpha = null;
-  try { kappa = cohenKappa(rows); } catch { /* degenerate → null */ }
   try {
-    const level = construct.type === "ordinal" ? "ordinal" : construct.type === "continuous" ? "interval" : "nominal";
+    kappa = cohenKappa(rows);
+  } catch {
+    /* degenerate → null */
+  }
+  try {
+    const level =
+      construct.type === "ordinal"
+        ? "ordinal"
+        : construct.type === "continuous"
+          ? "interval"
+          : "nominal";
     alpha = krippendorffAlpha(rows, { level, ...(level !== "nominal" && order ? { order } : {}) });
-  } catch { /* degenerate → null */ }
+  } catch {
+    /* degenerate → null */
+  }
   return { kappa, alpha };
 }
 
@@ -96,22 +118,47 @@ function tryStats(sample, silverLabels, workerByUnit, construct) {
 // maxIterations, plateauDelta, capUSD})
 // → {instrument, curve, cost: {workerUSD, directorUSD}, stoppedBy?: "budget"}
 export async function silverTune(project, instrument, units, opts = {}) {
-  const { engine, stability, onIteration, signal, n = 200, maxIterations = 5, plateauDelta = 0.01, capUSD = null } = opts;
+  const {
+    engine,
+    stability,
+    onIteration,
+    signal,
+    n = 200,
+    maxIterations = 5,
+    plateauDelta = 0.01,
+    capUSD = null,
+  } = opts;
   if (!engine || typeof engine.runEphemeral !== "function") {
-    throw new ConcordError("VALIDATION", "silverTune requires an injected engine ({runEphemeral}) — production routes pass server/runs/engine.js", {});
+    throw new ConcordError(
+      "VALIDATION",
+      "silverTune requires an injected engine ({runEphemeral}) — production routes pass server/runs/engine.js",
+      {},
+    );
   }
   if (!stability || typeof stability.stabilityCheck !== "function") {
-    throw new ConcordError("VALIDATION", "silverTune requires an injected stability checker ({stabilityCheck}) — production routes pass server/instruments/stability.js", {});
+    throw new ConcordError(
+      "VALIDATION",
+      "silverTune requires an injected stability checker ({stabilityCheck}) — production routes pass server/instruments/stability.js",
+      {},
+    );
   }
   if (instrument.frozen) {
-    throw new ConcordError("VALIDATION", "cannot silver-tune a frozen instrument — fork a new version first", { instrumentId: instrument.id });
+    throw new ConcordError(
+      "VALIDATION",
+      "cannot silver-tune a frozen instrument — fork a new version first",
+      { instrumentId: instrument.id },
+    );
   }
   if (!Array.isArray(units) || units.length === 0) {
     throw new ConcordError("VALIDATION", "silverTune needs units to sample from", {});
   }
   const construct = (project.constructs ?? []).find((c) => c.id === instrument.constructId);
   if (!construct) {
-    throw new ConcordError("NOT_FOUND", `construct ${instrument.constructId} not found on the project`, { constructId: instrument.constructId });
+    throw new ConcordError(
+      "NOT_FOUND",
+      `construct ${instrument.constructId} not found on the project`,
+      { constructId: instrument.constructId },
+    );
   }
 
   const pdir = projectDir(project.slug);
@@ -120,25 +167,36 @@ export async function silverTune(project, instrument, units, opts = {}) {
   // ---- (1) Director silver-labels the seeded sample, one unit per call.
   // A few hundred frontier calls is the deliberate one-time cost of a
   // high-quality reference; the pool bounds provider pressure.
-  const sample = seededSample(units, Math.min(n, units.length), `silver|${project.id}|${instrument.constructId}`);
+  const sample = seededSample(
+    units,
+    Math.min(n, units.length),
+    `silver|${project.id}|${instrument.constructId}`,
+  );
   const pi = sample.length / units.length;
   const schema = judgeResponseSchema(construct);
   const pool = directorPool({ concurrency: 8 });
   const startedAt = new Date().toISOString();
   const labels = {};
   try {
-    await Promise.all(sample.map((unit) => pool.run(async () => {
-      const { system, user } = silverLabelPrompt(construct, unit);
-      const res = await callDirector(project, {
-        messages: [{ role: "system", content: system }, { role: "user", content: user }],
-        schema,
-        // reasoning-class Directors bill their thinking tokens against
-        // max_tokens — 512 starved them before any JSON landed (June 2026
-        // field failure); ≥1536 leaves room for thinking + the verdict.
-        maxTokens: 1536,
-      });
-      labels[unit.id] = res.json.label;
-    })));
+    await Promise.all(
+      sample.map((unit) =>
+        pool.run(async () => {
+          const { system, user } = silverLabelPrompt(construct, unit);
+          const res = await callDirector(project, {
+            messages: [
+              { role: "system", content: system },
+              { role: "user", content: user },
+            ],
+            schema,
+            // reasoning-class Directors bill their thinking tokens against
+            // max_tokens — 512 starved them before any JSON landed (June 2026
+            // field failure); ≥1536 leaves room for thinking + the verdict.
+            maxTokens: 1536,
+          });
+          labels[unit.id] = res.json.label;
+        }),
+      ),
+    );
   } catch (err) {
     // name the stage: a bare "raise maxTokens" pointed researchers at their
     // WORKER budgets while the Director's own labeling call was the one starving
@@ -167,12 +225,28 @@ export async function silverTune(project, instrument, units, opts = {}) {
       createdAt: startedAt,
     });
   });
-  await ledger.append(pdir, "director", "goldset.created", { goldsetId: goldset.id, constructId: construct.id }, {
-    tier: "silver", design: "srs", n: sample.length, pi,
-  });
-  await ledger.append(pdir, "director", "goldset.completed", { goldsetId: goldset.id, constructId: construct.id }, {
-    tier: "silver", coder: "director",
-  });
+  await ledger.append(
+    pdir,
+    "director",
+    "goldset.created",
+    { goldsetId: goldset.id, constructId: construct.id },
+    {
+      tier: "silver",
+      design: "srs",
+      n: sample.length,
+      pi,
+    },
+  );
+  await ledger.append(
+    pdir,
+    "director",
+    "goldset.completed",
+    { goldsetId: goldset.id, constructId: construct.id },
+    {
+      tier: "silver",
+      coder: "director",
+    },
+  );
 
   // ---- (2) Tuning loop: run worker → compare → rewrite → re-version.
   const curve = [];
@@ -185,7 +259,9 @@ export async function silverTune(project, instrument, units, opts = {}) {
   let dirMark = directorCosts(project).usd;
   const accumulatedUSD = () => round6(workerUSD + (directorCosts(project).usd - directorUSDStart));
   for (let iteration = 1; iteration <= maxIterations; iteration++) {
-    const { outputs, cost: runCost } = await engine.runEphemeral(project, instrument, sample, { seedOffset: iteration });
+    const { outputs, cost: runCost } = await engine.runEphemeral(project, instrument, sample, {
+      seedOffset: iteration,
+    });
     const iterWorkerUSD = runCost?.actualUSD ?? 0;
     workerUSD = round6(workerUSD + iterWorkerUSD);
 
@@ -203,14 +279,25 @@ export async function silverTune(project, instrument, units, opts = {}) {
       if (labelKey(w.label) === labelKey(labels[u.id])) matched++;
     }
     if (compared === 0) {
-      throw new ConcordError("VALIDATION", "worker produced no comparable outputs over the silver sample", { iteration });
+      throw new ConcordError(
+        "VALIDATION",
+        "worker produced no comparable outputs over the silver sample",
+        { iteration },
+      );
     }
     const agreement = matched / compared;
     const { kappa, alpha } = tryStats(sample, labels, workerByUnit, construct);
     // this iteration's spend: its worker pass + the Director rewrite that
     // produced its version (the meter delta since the previous curve point)
     const dirNow = directorCosts(project).usd;
-    const point = { versionHash: instrument.versionHash, agreement, kappa, alpha, note, costUSD: round6(iterWorkerUSD + (dirNow - dirMark)) };
+    const point = {
+      versionHash: instrument.versionHash,
+      agreement,
+      kappa,
+      alpha,
+      note,
+      costUSD: round6(iterWorkerUSD + (dirNow - dirMark)),
+    };
     dirMark = dirNow;
     curve.push(point);
     if (onIteration) await onIteration({ iteration, ...point });
@@ -223,7 +310,10 @@ export async function silverTune(project, instrument, units, opts = {}) {
     // tab closed mid-tune → stop before the next iteration's paid calls. Like
     // the budget stop, the partial tune stays valid: this iteration completed,
     // so stability + persistence below run on the version it produced.
-    if (signal?.aborted) { stoppedBy = "aborted"; break; }
+    if (signal?.aborted) {
+      stoppedBy = "aborted";
+      break;
+    }
 
     // budget? an iteration is (Director rewrite + worker pass) — stop BEFORE
     // paying for the next one once accumulated silver spend reaches the cap.
@@ -246,7 +336,10 @@ export async function silverTune(project, instrument, units, opts = {}) {
     let res;
     try {
       res = await callDirector(project, {
-        messages: [{ role: "system", content: system }, { role: "user", content: user }],
+        messages: [
+          { role: "system", content: system },
+          { role: "user", content: user },
+        ],
         schema: REWRITE_SCHEMA,
         // thinking tokens bill against max_tokens on reasoning-class
         // Directors — keep the rewrite at the reasoning-tolerant floor (≥2048)
@@ -256,7 +349,10 @@ export async function silverTune(project, instrument, units, opts = {}) {
       if (err instanceof Error) err.message = `Director prompt-rewrite: ${err.message}`;
       throw err;
     }
-    const newTemplate = enforceTemplateScaffolding(res.json.promptTemplate, instrument.payload.workerClass ?? "mid");
+    const newTemplate = enforceTemplateScaffolding(
+      res.json.promptTemplate,
+      instrument.payload.workerClass ?? "mid",
+    );
     versionInstrument(instrument, { ...instrument.payload, promptTemplate: newTemplate });
     note = res.json.note;
   }
@@ -267,7 +363,8 @@ export async function silverTune(project, instrument, units, opts = {}) {
   // record the check's ACTUAL n (the module caps at min(100, units.length)
   // and returns it); injected doubles without the field get the same cap
   instrument.stability = {
-    alpha: stabAlpha, k: 3,
+    alpha: stabAlpha,
+    k: 3,
     n: stabRes.n ?? Math.min(100, units.length),
     ranAt: new Date().toISOString(),
   };
@@ -281,15 +378,22 @@ export async function silverTune(project, instrument, units, opts = {}) {
     if (i === -1) p.instruments.push(instrument);
     else p.instruments[i] = instrument;
   });
-  await ledger.append(pdir, "director", "instrument.silver_tuned", {
-    instrumentId: instrument.id, goldsetId: goldset.id,
-  }, {
-    iterations: curve.length,
-    finalAgreement: curve[curve.length - 1].agreement,
-    plateaued: stoppedBy === null && curve.length < maxIterations,
-    versionHash: instrument.versionHash,
-    ...(stoppedBy ? { stoppedBy } : {}),
-  });
+  await ledger.append(
+    pdir,
+    "director",
+    "instrument.silver_tuned",
+    {
+      instrumentId: instrument.id,
+      goldsetId: goldset.id,
+    },
+    {
+      iterations: curve.length,
+      finalAgreement: curve[curve.length - 1].agreement,
+      plateaued: stoppedBy === null && curve.length < maxIterations,
+      versionHash: instrument.versionHash,
+      ...(stoppedBy ? { stoppedBy } : {}),
+    },
+  );
   // NOTE: the instrument.stability ledger event is appended by the stability
   // module itself (server/instruments/stability.js) — silverTune must NOT
   // re-append it, or one check would be double-counted by anything that

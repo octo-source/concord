@@ -36,9 +36,14 @@ export function contextLine(parts = []) {
       : part.href
         ? el("a", { class: "contextline__link", href: part.href }, part.text, " →")
         : el("span", { class: `contextline__text${part.faint ? " faint" : ""}` }, part.text);
-    segs.push(el("span", { class: "contextline__seg" },
-      part.label ? el("span", { class: "overline contextline__label" }, part.label, " ") : null,
-      body));
+    segs.push(
+      el(
+        "span",
+        { class: "contextline__seg" },
+        part.label ? el("span", { class: "overline contextline__label" }, part.label, " ") : null,
+        body,
+      ),
+    );
   }
   return el("p", { class: "contextline", role: "note", aria: { label: "Context" } }, ...segs);
 }

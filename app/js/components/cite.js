@@ -50,18 +50,28 @@ export function cite(key) {
   const def = CITATIONS[key];
   if (!def) {
     // a missing key is a defect — show it, never swallow it
-    return el("sup", { class: "cite cite--unknown", title: `unknown citation key "${key}"` }, `[${key}?]`);
+    return el(
+      "sup",
+      { class: "cite cite--unknown", title: `unknown citation key "${key}"` },
+      `[${key}?]`,
+    );
   }
-  return el("sup", { class: "cite" },
-    el("span", {
-      class: "cite__chip",
-      tabindex: "0",
-      role: "note",
-      title: def.full,
-      aria: { label: `Citation: ${def.full}` },
-    },
+  return el(
+    "sup",
+    { class: "cite" },
+    el(
+      "span",
+      {
+        class: "cite__chip",
+        tabindex: "0",
+        role: "note",
+        title: def.full,
+        aria: { label: `Citation: ${def.full}` },
+      },
       def.short,
-      el("span", { class: "cite__pop", aria: { hidden: "true" } }, def.full)));
+      el("span", { class: "cite__pop", aria: { hidden: "true" } }, def.full),
+    ),
+  );
 }
 
 /** Several keys in one breath: citeAll("cohen1960", "donner1992"). */

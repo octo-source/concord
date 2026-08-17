@@ -16,9 +16,21 @@ import { dslProportion, dslDiff, dslOLS, dslLogit } from "../stats/correction.js
 import { ols, logit } from "../stats/models.js";
 import { cohenKappa } from "../stats/agreement.js";
 import {
-  findOr404, requireBody, pdirOf, readCorpusUnits, readGoldset, goldLabelMap, piMap,
-  writeJsonAtomic, readJsonFile, labelKey, statValue, round6,
-  readNdjson, runOutputsFile, safeId,
+  findOr404,
+  requireBody,
+  pdirOf,
+  readCorpusUnits,
+  readGoldset,
+  goldLabelMap,
+  piMap,
+  writeJsonAtomic,
+  readJsonFile,
+  labelKey,
+  statValue,
+  round6,
+  readNdjson,
+  runOutputsFile,
+  safeId,
 } from "./_shared.js";
 import { finalJurorOfRun } from "../runs/engine.js";
 import path from "node:path";
@@ -31,11 +43,19 @@ const EVIDENCE_CAP = 100; // unit ids per evidence cell
 function pickRun(project, { runId, instrumentId, corpusId }) {
   if (runId) return findOr404(project.runs, runId, "run");
   const candidates = (project.runs ?? [])
-    .filter((r) => (!instrumentId || r.instrumentId === instrumentId) && (!corpusId || r.corpusId === corpusId))
+    .filter(
+      (r) =>
+        (!instrumentId || r.instrumentId === instrumentId) &&
+        (!corpusId || r.corpusId === corpusId),
+    )
     .sort((a, b) => String(b.startedAt ?? "").localeCompare(String(a.startedAt ?? "")));
   const run = candidates.find((r) => r.status === "complete") ?? candidates[0];
   if (!run) {
-    throw new ConcordError("VALIDATION", "no run found for this instrument/corpus — run the instrument first", { instrumentId, corpusId });
+    throw new ConcordError(
+      "VALIDATION",
+      "no run found for this instrument/corpus — run the instrument first",
+      { instrumentId, corpusId },
+    );
   }
   return run;
 }
@@ -46,9 +66,13 @@ function pickRun(project, { runId, instrumentId, corpusId }) {
 // otherwise leave every analysis empty ("no labeled outputs").
 async function assembleRows(project, run, instrument) {
   const fin = finalJurorOfRun(run, instrument);
-  const outputs = await readNdjson(runOutputsFile(project.slug, run.id), { filter: (o) => o.juror === fin });
+  const outputs = await readNdjson(runOutputsFile(project.slug, run.id), {
+    filter: (o) => o.juror === fin,
+  });
   const byUnit = new Map(outputs.filter((o) => o.label !== undefined).map((o) => [o.unitId, o]));
-  const units = await readCorpusUnits(project.slug, run.corpusId, { filter: (u) => byUnit.has(u.id) });
+  const units = await readCorpusUnits(project.slug, run.corpusId, {
+    filter: (u) => byUnit.has(u.id),
+  });
   return units.map((u) => ({
     unitId: u.id,
     label: byUnit.get(u.id).label,
@@ -198,7 +222,9 @@ async function explorerResults(project, run, instrument, construct, rows) {
 
   // -- co-occurrence
   if (multilabel) {
-    const sets = rows.map((r) => (Array.isArray(r.label) ? r.label.map(String) : [String(r.label)]));
+    const sets = rows.map((r) =>
+      Array.isArray(r.label) ? r.label.map(String) : [String(r.label)],
+    );
     out.cooccurrence = cooccurrence(sets);
   } else if (instrument.kind === "panel") {
     // flagged (no-consensus) units: the juror labels that split co-occur.
@@ -211,7 +237,9 @@ async function explorerResults(project, run, instrument, construct, rows) {
       if (err?.code === "NOT_FOUND" || err?.code === "ENOENT") return [];
       throw err;
     });
-    const flagged = new Set(lines.filter((l) => l.juror === "aggregate" && l.flagged).map((l) => l.unitId));
+    const flagged = new Set(
+      lines.filter((l) => l.juror === "aggregate" && l.flagged).map((l) => l.unitId),
+    );
     if (flagged.size > 0) {
       const byUnit = new Map();
       for (const l of lines) {
@@ -249,7 +277,9 @@ function computeDescriptive(rows, gold, spec, _construct) {
   // it in a "corrected" analysis, the client must never stamp the corrected ◉
   // on these shares — only results.cells holds corrected numbers.
   const distribution = Object.fromEntries(
-    Object.entries(counts).sort((a, b) => b[1] - a[1]).map(([k, c]) => [k, { n: c, share: round6(c / n), corrected: false }]),
+    Object.entries(counts)
+      .sort((a, b) => b[1] - a[1])
+      .map(([k, c]) => [k, { n: c, share: round6(c / n), corrected: false }]),
   );
   const results = { n, distribution };
   if (gold) {
@@ -261,7 +291,15 @@ function computeDescriptive(rows, gold, spec, _construct) {
       if (!hasGoldRows(units)) continue;
       const r = tryDsl(() => dslProportion(units));
       if (r.error) continue;
-      cellsOut.push({ group: label, n: counts[label], est: r.est, se: r.se, ciLo: r.ciLo, ciHi: r.ciHi, naive: r.naive });
+      cellsOut.push({
+        group: label,
+        n: counts[label],
+        est: r.est,
+        se: r.se,
+        ciLo: r.ciLo,
+        ciHi: r.ciHi,
+        naive: r.naive,
+      });
     }
     if (cellsOut.length > 0) {
       results.estimator = "dslProportion";
@@ -275,10 +313,10 @@ function computeDescriptive(rows, gold, spec, _construct) {
 
 function computeCrosstab(rows, gold, spec, construct) {
   const { rowKey, colKey } = spec;
-  if (!rowKey || !colKey) throw new ConcordError("VALIDATION", "crosstab requires spec.rowKey and spec.colKey", {});
-  const valueOf = (r, key) => (key === "label"
-    ? (Array.isArray(r.label) ? JSON.stringify(r.label) : r.label)
-    : r.meta?.[key]);
+  if (!rowKey || !colKey)
+    throw new ConcordError("VALIDATION", "crosstab requires spec.rowKey and spec.colKey", {});
+  const valueOf = (r, key) =>
+    key === "label" ? (Array.isArray(r.label) ? JSON.stringify(r.label) : r.label) : r.meta?.[key];
   const flat = rows.map((r) => ({
     unitId: r.unitId,
     [rowKey]: valueOf(r, rowKey),
@@ -295,7 +333,13 @@ function computeCrosstab(rows, gold, spec, construct) {
   }
   const cells = {};
   for (const f of flat) {
-    if (f[rowKey] === null || f[rowKey] === undefined || f[colKey] === null || f[colKey] === undefined) continue;
+    if (
+      f[rowKey] === null ||
+      f[rowKey] === undefined ||
+      f[colKey] === null ||
+      f[colKey] === undefined
+    )
+      continue;
     cellPush(cells, `${f[rowKey]}|${f[colKey]}`, f.unitId);
   }
   const results = { table, warnings };
@@ -325,7 +369,15 @@ function computeCrosstab(rows, gold, spec, construct) {
         skipped.push({ group: g, reason: r.error.message });
         continue;
       }
-      cellsOut.push({ group: g, n: groupRows.length, est: r.est, se: r.se, ciLo: r.ciLo, ciHi: r.ciHi, naive: r.naive });
+      cellsOut.push({
+        group: g,
+        n: groupRows.length,
+        est: r.est,
+        se: r.se,
+        ciLo: r.ciLo,
+        ciHi: r.ciHi,
+        naive: r.naive,
+      });
     }
     if (cellsOut.length > 0) {
       results.estimator = "dslProportion";
@@ -340,7 +392,16 @@ function computeCrosstab(rows, gold, spec, construct) {
         const ub = perGroupUnits.get(b);
         if (hasGoldRows(ua) && hasGoldRows(ub)) {
           const d = tryDsl(() => dslDiff(ua, ub));
-          if (!d.error) results.diff = { a, b, est: d.est, se: d.se, ciLo: d.ciLo, ciHi: d.ciHi, naive: d.naive };
+          if (!d.error)
+            results.diff = {
+              a,
+              b,
+              est: d.est,
+              se: d.se,
+              ciLo: d.ciLo,
+              ciHi: d.ciHi,
+              naive: d.naive,
+            };
         }
       }
     }
@@ -369,7 +430,11 @@ function computeModel(rows, gold, spec, construct) {
     usable.push(row);
   }
   if (usable.length <= xKeys.length + 1) {
-    throw new ConcordError("VALIDATION", `model needs more usable rows than coefficients (got ${usable.length})`, {});
+    throw new ConcordError(
+      "VALIDATION",
+      `model needs more usable rows than coefficients (got ${usable.length})`,
+      {},
+    );
   }
   const names = ["(Intercept)", ...xKeys];
   const renameCoef = (coef) => coef.map((c, i) => ({ ...c, name: names[i] ?? c.name }));
@@ -394,7 +459,16 @@ function computeModel(rows, gold, spec, construct) {
   const X = usable.map((u) => u.x);
   const fit = family === "linear" ? ols(y, X) : logit(y, X);
   const coef = fit.coef.map((est, i) => ({ name: names[i], est, se: fit.seHC1[i] }));
-  return { results: { family, outcome: `machine label == "${positive}"`, coef, n: usable.length, ...(fit.converged === false ? { converged: false } : {}) }, cells: {} };
+  return {
+    results: {
+      family,
+      outcome: `machine label == "${positive}"`,
+      coef,
+      n: usable.length,
+      ...(fit.converged === false ? { converged: false } : {}),
+    },
+    cells: {},
+  };
 }
 
 async function computeTriangulation(project, spec) {
@@ -435,14 +509,22 @@ async function computeTriangulation(project, spec) {
       { unitId: u, coder: "b", value: statValue(sides[1].byUnit.get(u)) },
     ]);
     kappa = cohenKappa(rows);
-  } catch { /* degenerate → null */ }
+  } catch {
+    /* degenerate → null */
+  }
   const levelRank = { exploratory: 0, stabilized: 1, calibrated: 2, corrected: 3 };
   const minLevel = sides
     .map((s) => s.instrument.level)
     .sort((a, b) => (levelRank[a] ?? 0) - (levelRank[b] ?? 0))[0];
   return {
     results: {
-      instruments: sides.map((s) => ({ instrumentId: s.instrument.id, name: s.instrument.name, kind: s.instrument.kind, level: s.instrument.level, runId: s.run.id })),
+      instruments: sides.map((s) => ({
+        instrumentId: s.instrument.id,
+        name: s.instrument.name,
+        kind: s.instrument.kind,
+        level: s.instrument.level,
+        runId: s.run.id,
+      })),
       n: shared.length,
       percentAgreement: round6(agree / shared.length),
       kappa,
@@ -496,7 +578,8 @@ function machineGoldAgreement(rowsWithGold, goldLabels) {
 
 function computeSubgroup(rows, gold, goldAgreement, spec, construct) {
   const by = spec.by;
-  if (!by) throw new ConcordError("VALIDATION", "subgroup analysis requires spec.by (a meta key)", {});
+  if (!by)
+    throw new ConcordError("VALIDATION", "subgroup analysis requires spec.by (a meta key)", {});
   const positive = positiveValueOf(spec, construct);
   const goldLabels = goldAgreement.labels;
   const groups = new Map();
@@ -538,14 +621,18 @@ function computeSubgroup(rows, gold, goldAgreement, spec, construct) {
     const entry = { group: g, n: groupRows.length, dist };
 
     // -- agreement audit over the gold units in this group
-    const a = machineGoldAgreement(groupRows.filter((r) => goldLabels.has(r.unitId)), goldLabels);
+    const a = machineGoldAgreement(
+      groupRows.filter((r) => goldLabels.has(r.unitId)),
+      goldLabels,
+    );
     entry.goldN = a.goldN;
     if (a.goldN === 0) {
       entry.percentAgreement = null;
       entry.kappa = null;
       entry.errorRate = null;
       entry.flagged = false; // unreadable, not bad — say so instead of flagging
-      entry.note = "no gold-labeled units in this group — the audit cannot read it; extend the gold sample to cover it";
+      entry.note =
+        "no gold-labeled units in this group — the audit cannot read it; extend the gold sample to cover it";
     } else {
       entry.percentAgreement = round6(a.percentAgreement);
       entry.kappa = a.kappa === null ? null : round6(a.kappa);
@@ -561,8 +648,23 @@ function computeSubgroup(rows, gold, goldAgreement, spec, construct) {
       if (hasGoldRows(units)) {
         const r = tryDsl(() => dslProportion(units));
         if (!r.error) {
-          entry.corrected = { positive, est: r.est, se: r.se, ciLo: r.ciLo, ciHi: r.ciHi, naive: r.naive };
-          cellsOut.push({ group: g, n: groupRows.length, est: r.est, se: r.se, ciLo: r.ciLo, ciHi: r.ciHi, naive: r.naive });
+          entry.corrected = {
+            positive,
+            est: r.est,
+            se: r.se,
+            ciLo: r.ciLo,
+            ciHi: r.ciHi,
+            naive: r.naive,
+          };
+          cellsOut.push({
+            group: g,
+            n: groupRows.length,
+            est: r.est,
+            se: r.se,
+            ciLo: r.ciLo,
+            ciHi: r.ciHi,
+            naive: r.naive,
+          });
         }
       }
     }
@@ -575,12 +677,14 @@ function computeSubgroup(rows, gold, goldAgreement, spec, construct) {
       positive,
       overall,
       groups: out,
-      ...(dslApplied ? {
-        estimator: "dslProportion",
-        outcome: `share of "${positive}"`,
-        groupBy: by,
-        cells: cellsOut,
-      } : {}),
+      ...(dslApplied
+        ? {
+            estimator: "dslProportion",
+            outcome: `share of "${positive}"`,
+            groupBy: by,
+            cells: cellsOut,
+          }
+        : {}),
     },
     cells,
     dslApplied,
@@ -605,9 +709,13 @@ export default [
     handler: async (req, res, params) => {
       await loadProject(params.p); // unknown project → 404 before any file read
       safeId(params.id, "analysis"); // never let a traversal id reach the path
-      const analysis = await readJsonFile(path.join(pdirOf(params.p), "analyses", `${params.id}.json`));
+      const analysis = await readJsonFile(
+        path.join(pdirOf(params.p), "analyses", `${params.id}.json`),
+      );
       if (!analysis) {
-        throw new ConcordError("NOT_FOUND", `analysis '${params.id}' not found`, { analysisId: params.id });
+        throw new ConcordError("NOT_FOUND", `analysis '${params.id}' not found`, {
+          analysisId: params.id,
+        });
       }
       return analysis;
     },
@@ -636,12 +744,21 @@ export default [
         run = pickRun(project, spec);
         spec.runId = run.id;
         spec.corpusId = spec.corpusId ?? run.corpusId;
-        instrument = findOr404(project.instruments, spec.instrumentId ?? run.instrumentId, "instrument");
+        instrument = findOr404(
+          project.instruments,
+          spec.instrumentId ?? run.instrumentId,
+          "instrument",
+        );
         spec.instrumentId = instrument.id;
-        const construct = (project.constructs ?? []).find((c) => c.id === instrument.constructId) ?? null;
+        const construct =
+          (project.constructs ?? []).find((c) => c.id === instrument.constructId) ?? null;
         const rows = await assembleRows(project, run, instrument);
         if (rows.length === 0) {
-          throw new ConcordError("VALIDATION", `run '${run.id}' has no labeled outputs to analyze`, { runId: run.id });
+          throw new ConcordError(
+            "VALIDATION",
+            `run '${run.id}' has no labeled outputs to analyze`,
+            { runId: run.id },
+          );
         }
         let gold = await goldFor(project, instrument.constructId);
         let goldDesignNote = null;
@@ -653,7 +770,8 @@ export default [
           // it never licenses correction (it still serves the agreement
           // reading in the subgroup audit, which needs no π).
           if (gold.goldset.design === "uncertainty") {
-            goldDesignNote = "Gold drawn by uncertainty ranking: π is nominal, so design-based correction does not apply.";
+            goldDesignNote =
+              "Gold drawn by uncertainty ranking: π is nominal, so design-based correction does not apply.";
             gold = null;
           }
         }
@@ -661,7 +779,10 @@ export default [
         if (kind === "descriptive") {
           computed = computeDescriptive(rows, gold, spec, construct);
           if (wantExplorer) {
-            Object.assign(computed.results, await explorerResults(project, run, instrument, construct, rows));
+            Object.assign(
+              computed.results,
+              await explorerResults(project, run, instrument, construct, rows),
+            );
           }
         } else if (kind === "crosstab") computed = computeCrosstab(rows, gold, spec, construct);
         else if (kind === "model") computed = computeModel(rows, gold, spec, construct);
@@ -684,7 +805,8 @@ export default [
         // (an uncertainty-design gold set never reaches the estimators, so
         // its analyses cap below corrected and carry the note saying why)
         if (goldDesignNote) computed.results.note = goldDesignNote;
-        const dslApplied = computed.dslApplied ?? /^dsl/.test(String(computed.results?.estimator ?? ""));
+        const dslApplied =
+          computed.dslApplied ?? /^dsl/.test(String(computed.results?.estimator ?? ""));
         level = dslApplied ? "corrected" : instrument.level;
       }
 
@@ -695,19 +817,28 @@ export default [
         level,
         evidence: { cells: computed.cells },
       });
-      await writeJsonAtomic(path.join(pdirOf(params.p), "analyses", `${analysis.id}.json`), analysis);
+      await writeJsonAtomic(
+        path.join(pdirOf(params.p), "analyses", `${analysis.id}.json`),
+        analysis,
+      );
       await updateProject(params.p, (p) => {
         p.analyses.push({ id: analysis.id, kind, level, createdAt: analysis.createdAt });
       });
-      await ledger.append(pdirOf(params.p), "human", "analysis.created", {
-        analysisId: analysis.id,
-        ...(run ? { runId: run.id } : {}),
-        ...(instrument ? { instrumentId: instrument.id } : {}),
-      }, {
-        kind,
-        level,
-        estimator: computed.results?.estimator ?? null,
-      });
+      await ledger.append(
+        pdirOf(params.p),
+        "human",
+        "analysis.created",
+        {
+          analysisId: analysis.id,
+          ...(run ? { runId: run.id } : {}),
+          ...(instrument ? { instrumentId: instrument.id } : {}),
+        },
+        {
+          kind,
+          level,
+          estimator: computed.results?.estimator ?? null,
+        },
+      );
       return analysis;
     },
   },

@@ -63,7 +63,14 @@
 // stability reruns get distinct, *individually cached* output streams.
 import path from "node:path";
 import { ConcordError } from "../core/errors.js";
-import { loadProject, updateProject, appendNdjson, readNdjson, projectsDir, projectDir } from "../core/store.js";
+import {
+  loadProject,
+  updateProject,
+  appendNdjson,
+  readNdjson,
+  projectsDir,
+  projectDir,
+} from "../core/store.js";
 import * as ledger from "../core/ledger.js";
 import * as cache from "../core/cache.js";
 import { createRun as newRunObject, instrumentVersionHash } from "../core/objects.js";
@@ -84,7 +91,11 @@ const PAUSE_CODES = new Set(["PROVIDER_UNREACHABLE", "RATE_LIMITED_EXHAUSTED"]);
 // infrastructure-class, worth pausing for. Deterministic Director faults
 // (refusal, schema, truncation) skip the second opinion instead: see the
 // escalation failure taxonomy in the header.
-const DIRECTOR_PAUSE_CODES = new Set(["PROVIDER_UNREACHABLE", "PROVIDER_HTTP", "RATE_LIMITED_EXHAUSTED"]);
+const DIRECTOR_PAUSE_CODES = new Set([
+  "PROVIDER_UNREACHABLE",
+  "PROVIDER_HTTP",
+  "RATE_LIMITED_EXHAUSTED",
+]);
 
 // Quarantine entries carry their reasons: {unitId, code, message} (message
 // trimmed to ≤200 chars). A researcher staring at an empty preview or a
@@ -98,7 +109,9 @@ const QUARANTINE_MESSAGE_MAX = 200;
 
 const trimQuarantineMessage = (message) => {
   if (typeof message !== "string" || message === "") return null;
-  return message.length > QUARANTINE_MESSAGE_MAX ? message.slice(0, QUARANTINE_MESSAGE_MAX) : message;
+  return message.length > QUARANTINE_MESSAGE_MAX
+    ? message.slice(0, QUARANTINE_MESSAGE_MAX)
+    : message;
 };
 
 const quarantineEntry = (unitId, err) => ({
@@ -110,9 +123,14 @@ const quarantineEntry = (unitId, err) => ({
 export function normalizeQuarantine(list) {
   const byUnit = new Map();
   for (const entry of Array.isArray(list) ? list : []) {
-    const e = typeof entry === "string"
-      ? { unitId: entry, code: null, message: null }
-      : { unitId: entry?.unitId, code: typeof entry?.code === "string" ? entry.code : null, message: trimQuarantineMessage(entry?.message) };
+    const e =
+      typeof entry === "string"
+        ? { unitId: entry, code: null, message: null }
+        : {
+            unitId: entry?.unitId,
+            code: typeof entry?.code === "string" ? entry.code : null,
+            message: trimQuarantineMessage(entry?.message),
+          };
     if (typeof e.unitId !== "string" || e.unitId === "" || byUnit.has(e.unitId)) continue;
     byUnit.set(e.unitId, e);
   }
@@ -127,7 +145,8 @@ const activeRuns = new Set(); // in-process double-execute guard
 
 function findOrThrow(list, id, what) {
   const found = (list ?? []).find((x) => x.id === id);
-  if (!found) throw new ConcordError("NOT_FOUND", `${what} '${id}' not found in project`, { id, what });
+  if (!found)
+    throw new ConcordError("NOT_FOUND", `${what} '${id}' not found in project`, { id, what });
   return found;
 }
 
@@ -144,14 +163,21 @@ function jurorsOf(instrument) {
   if (instrument.kind === "panel") {
     const jurors = instrument.payload?.jurors;
     if (!Array.isArray(jurors) || jurors.length === 0) {
-      throw new ConcordError("VALIDATION", "panel instrument has no jurors", { instrumentId: instrument.id });
+      throw new ConcordError("VALIDATION", "panel instrument has no jurors", {
+        instrumentId: instrument.id,
+      });
     }
     return jurors.map((j) => ({ hash: instrumentVersionHash(j), payload: j }));
   }
   if (instrument.kind === "dictionary") return [];
-  throw new ConcordError("VALIDATION", `instrument kind "${instrument.kind}" is not runnable by the engine`, {
-    kind: instrument.kind, instrumentId: instrument.id,
-  });
+  throw new ConcordError(
+    "VALIDATION",
+    `instrument kind "${instrument.kind}" is not runnable by the engine`,
+    {
+      kind: instrument.kind,
+      instrumentId: instrument.id,
+    },
+  );
 }
 
 // The juror key a RUN's final verdict lines carry. Non-panel lines are
@@ -173,7 +199,11 @@ export function parseUnitFilter(filterStr) {
   if (filterStr === undefined || filterStr === null || filterStr === "") return null;
   const m = /^meta\.([^=]+)=(.*)$/.exec(filterStr);
   if (!m) {
-    throw new ConcordError("VALIDATION", `unitFilter must look like "meta.<key>=<value>", got "${filterStr}"`, { filterStr });
+    throw new ConcordError(
+      "VALIDATION",
+      `unitFilter must look like "meta.<key>=<value>", got "${filterStr}"`,
+      { filterStr },
+    );
   }
   const [, key, value] = m;
   return (u) => String(u?.meta?.[key]) === value;
@@ -210,7 +240,11 @@ async function pricingFor(adapter, model, { onCatalogFail } = {}) {
     return hit?.pricing ?? { inUSDper1M: 0, outUSDper1M: 0 };
   } catch (err) {
     let local = false;
-    try { local = adapter.capabilities?.().local === true; } catch { /* default: treat as priced */ }
+    try {
+      local = adapter.capabilities?.().local === true;
+    } catch {
+      /* default: treat as priced */
+    }
     if (!local) onCatalogFail?.(err);
     return { inUSDper1M: 0, outUSDper1M: 0 };
   }
@@ -301,15 +335,26 @@ async function forEachUnit(units, concurrency, fn) {
 // ---------------------------------------------------------------- shared context
 
 // Build the per-execution context shared by executeRun and runEphemeral.
-async function buildContext(project, instrument, { seedOffset = null, concurrency = DEFAULT_CONCURRENCY, dir } = {}) {
+async function buildContext(
+  project,
+  instrument,
+  { seedOffset = null, concurrency = DEFAULT_CONCURRENCY, dir } = {},
+) {
   const construct = constructOf(project, instrument);
   const jurors = jurorsOf(instrument);
   const pdir = projectDir(project.slug, dir ?? projectsDir());
 
   const adapters = new Map(); // provider → {adapter, pool, ledgerEvent}
   const ctx = {
-    project, instrument, construct, jurors, pdir, seedOffset,
-    concurrency, m: meter(), jurorInfo: new Map(),
+    project,
+    instrument,
+    construct,
+    jurors,
+    pdir,
+    seedOffset,
+    concurrency,
+    m: meter(),
+    jurorInfo: new Map(),
     // Pricing-catalog fetch failures for priced providers, deduped by
     // provider+model: executeRunInner flushes these to monitor.warn (after it
     // tracks the run) so the run surfaces "cost tracking unavailable" instead
@@ -320,7 +365,9 @@ async function buildContext(project, instrument, { seedOffset = null, concurrenc
   for (const j of jurors) {
     const provider = j.payload?.provider;
     if (typeof provider !== "string" || provider === "") {
-      throw new ConcordError("VALIDATION", "judge payload missing provider", { instrumentId: instrument.id });
+      throw new ConcordError("VALIDATION", "judge payload missing provider", {
+        instrumentId: instrument.id,
+      });
     }
     let entry = adapters.get(provider);
     if (!entry) {
@@ -343,7 +390,10 @@ async function buildContext(project, instrument, { seedOffset = null, concurrenc
       },
     });
     ctx.jurorInfo.set(j.hash, {
-      payload: seedOffset === null ? j.payload : { ...j.payload, params: { ...(j.payload.params ?? {}), seed: seedOffset } },
+      payload:
+        seedOffset === null
+          ? j.payload
+          : { ...j.payload, params: { ...(j.payload.params ?? {}), seed: seedOffset } },
       // Meter EVERY provider attempt at the adapter seam, not the final
       // response at the callJuror site: schema-repair re-prompts and the
       // doubled-budget truncation retry bill real tokens, and a unit that
@@ -379,7 +429,12 @@ async function callJuror(ctx, jurorHash, unit) {
   const key = cache.key(unit.text, jurorHash, info.cacheSnapshot);
   const cached = await cache.get(ctx.pdir, key);
   if (cached) {
-    const out = { juror: jurorHash, label: cached.label, rationale: cached.rationale, cacheHit: true };
+    const out = {
+      juror: jurorHash,
+      label: cached.label,
+      rationale: cached.rationale,
+      cacheHit: true,
+    };
     if (typeof cached.confidence === "number") out.confidence = cached.confidence;
     if (cached.repairs > 0) out.repaired = true;
     out.repairs = cached.repairs ?? 0;
@@ -390,9 +445,17 @@ async function callJuror(ctx, jurorHash, unit) {
   // double-count it.
   const res = await info.pool.run(() => judgeUnit(info.adapter, ctx.construct, info.payload, unit));
   await cache.put(ctx.pdir, key, {
-    label: res.label, confidence: res.confidence, rationale: res.rationale, repairs: res.repairs,
+    label: res.label,
+    confidence: res.confidence,
+    rationale: res.rationale,
+    repairs: res.repairs,
   });
-  const out = { juror: jurorHash, label: res.label, rationale: res.rationale, repairs: res.repairs };
+  const out = {
+    juror: jurorHash,
+    label: res.label,
+    rationale: res.rationale,
+    repairs: res.repairs,
+  };
   if (typeof res.confidence === "number") out.confidence = res.confidence;
   if (res.repairs > 0) out.repaired = true;
   return out;
@@ -406,11 +469,21 @@ async function processUnit(ctx, unit, have = new Map()) {
 
   if (instrument.kind === "dictionary") {
     const scores = dictScore([unit.text], instrument.payload)[0];
-    const label = dictionaryLabel(ctx.construct.type, instrument.payload, scores, binaryOptionsOf(ctx.construct));
+    const label = dictionaryLabel(
+      ctx.construct.type,
+      instrument.payload,
+      scores,
+      binaryOptionsOf(ctx.construct),
+    );
     // the dictionary line IS the final line — the caller appends it once.
     // Persisted runs stamp the hash the run STARTED under (ctx.finalJurorHash,
     // see finalJurorOfRun); ephemeral callers keep the current hash.
-    const final = { unitId: unit.id, juror: ctx.finalJurorHash ?? instrument.versionHash, label, scores };
+    const final = {
+      unitId: unit.id,
+      juror: ctx.finalJurorHash ?? instrument.versionHash,
+      label,
+      scores,
+    };
     return { newLines: [], final, quarantined: false };
   }
 
@@ -426,7 +499,8 @@ async function processUnit(ctx, unit, have = new Map()) {
     try {
       out = await callJuror(ctx, j.hash, unit);
     } catch (err) {
-      if (QUARANTINE_CODES.has(err?.code)) return { newLines, final: null, quarantined: true, error: err };
+      if (QUARANTINE_CODES.has(err?.code))
+        return { newLines, final: null, quarantined: true, error: err };
       throw err; // pause/fail taxonomy is the caller's call
     }
     outputs.push(out);
@@ -508,7 +582,11 @@ function cleanLine(line) {
 // createRun(project, {instrumentId, corpusId, unitFilter?, capUSD?}) → run
 // Validates instrument + corpus, computes the preflight estimate, persists
 // the pending Run into project.runs via updateProject, ledgers run.preflight.
-export async function createRun(project, { instrumentId, corpusId, unitFilter, capUSD, name } = {}, { dir } = {}) {
+export async function createRun(
+  project,
+  { instrumentId, corpusId, unitFilter, capUSD, name } = {},
+  { dir } = {},
+) {
   const instrument = findOrThrow(project.instruments, instrumentId, "instrument");
   findOrThrow(project.corpora, corpusId, "corpus");
   constructOf(project, instrument); // must exist before any run is created
@@ -520,10 +598,16 @@ export async function createRun(project, { instrumentId, corpusId, unitFilter, c
   // identity fields on the run record
   let provider, model, snapshot, pinned;
   if (instrument.kind === "dictionary") {
-    provider = "local"; model = "dictionary"; snapshot = instrument.versionHash; pinned = true;
+    provider = "local";
+    model = "dictionary";
+    snapshot = instrument.versionHash;
+    pinned = true;
   } else if (instrument.kind === "judge") {
     const p = instrument.payload;
-    provider = p.provider; model = p.model; snapshot = p.snapshot ?? null; pinned = Boolean(p.snapshot);
+    provider = p.provider;
+    model = p.model;
+    snapshot = p.snapshot ?? null;
+    pinned = Boolean(p.snapshot);
   } else {
     const ps = instrument.payload.jurors;
     provider = [...new Set(ps.map((j) => j.provider))].join("+");
@@ -561,18 +645,35 @@ export async function createRun(project, { instrumentId, corpusId, unitFilter, c
     checkpoint: { done: 0, total: units.length },
     cost: { estUSD: est.estUSD, actualUSD: 0, inputTokens: 0, outputTokens: 0 },
     escalation: { count: 0, directorModel: project.director?.model ?? null },
-    provider, model, snapshot, pinned,
+    provider,
+    model,
+    snapshot,
+    pinned,
   });
   run.capUSD = capUSD ?? null;
 
-  await updateProject(project.slug, (p) => {
-    if (!Array.isArray(p.runs)) p.runs = [];
-    p.runs.push(run);
-  }, dir ?? projectsDir());
+  await updateProject(
+    project.slug,
+    (p) => {
+      if (!Array.isArray(p.runs)) p.runs = [];
+      p.runs.push(run);
+    },
+    dir ?? projectsDir(),
+  );
 
-  await ledger.append(pdir, "system", "run.preflight", { runId: run.id, instrumentId, corpusId }, {
-    units: units.length, calls: est.calls, inputTokens: est.inputTokens, outputTokens: est.outputTokens, estUSD: est.estUSD,
-  });
+  await ledger.append(
+    pdir,
+    "system",
+    "run.preflight",
+    { runId: run.id, instrumentId, corpusId },
+    {
+      units: units.length,
+      calls: est.calls,
+      inputTokens: est.inputTokens,
+      outputTokens: est.outputTokens,
+      estUSD: est.estUSD,
+    },
+  );
   return run;
 }
 
@@ -588,7 +689,17 @@ function findRun(project, runId) {
 // corpusId, provider, model, snapshot, unitFilter) exactly as they sit on
 // disk. labelDist/error/finishedAt/startedAt are conditionally present, so the
 // in-place copy mirrors create/delete rather than blind assignment.
-const ENGINE_OWNED_RUN_FIELDS = ["status", "checkpoint", "cost", "quarantine", "escalation", "startedAt", "finishedAt", "labelDist", "error"];
+const ENGINE_OWNED_RUN_FIELDS = [
+  "status",
+  "checkpoint",
+  "cost",
+  "quarantine",
+  "escalation",
+  "startedAt",
+  "finishedAt",
+  "labelDist",
+  "error",
+];
 
 // Persist mutable run fields (status/checkpoint/cost/quarantine/escalation/
 // error/labelDist/startedAt/finishedAt) into project.runs via updateProject —
@@ -598,14 +709,21 @@ const ENGINE_OWNED_RUN_FIELDS = ["status", "checkpoint", "cost", "quarantine", "
 // because the engine captured the run object once at executeRun entry and never
 // saw the route's later write. Outputs never touch project.json.
 async function persistRun(slug, run, dir) {
-  await updateProject(slug, (p) => {
-    const disk = (p.runs ?? []).find((r) => r.id === run.id);
-    if (!disk) throw new ConcordError("NOT_FOUND", `run '${run.id}' vanished from project`, { runId: run.id });
-    for (const k of ENGINE_OWNED_RUN_FIELDS) {
-      if (run[k] === undefined) delete disk[k];
-      else disk[k] = run[k];
-    }
-  }, dir);
+  await updateProject(
+    slug,
+    (p) => {
+      const disk = (p.runs ?? []).find((r) => r.id === run.id);
+      if (!disk)
+        throw new ConcordError("NOT_FOUND", `run '${run.id}' vanished from project`, {
+          runId: run.id,
+        });
+      for (const k of ENGINE_OWNED_RUN_FIELDS) {
+        if (run[k] === undefined) delete disk[k];
+        else disk[k] = run[k];
+      }
+    },
+    dir,
+  );
 }
 
 // executeRun(projectSlug, runId, {onTick?, shouldStop?, escalate?, capUSD?,
@@ -626,7 +744,9 @@ export async function executeRun(projectSlug, runId, opts = {}) {
   const run = findRun(project, runId);
   if (run.status === "complete") return run;
   if (activeRuns.has(runId)) {
-    throw new ConcordError("RUN_ACTIVE", `run '${runId}' is already executing in this process`, { runId });
+    throw new ConcordError("RUN_ACTIVE", `run '${runId}' is already executing in this process`, {
+      runId,
+    });
   }
   activeRuns.add(runId);
   try {
@@ -640,7 +760,10 @@ async function executeRunInner(project, run, opts) {
   const slug = project.slug;
   const dir = opts.dir;
   const instrument = findOrThrow(project.instruments, run.instrumentId, "instrument");
-  const ctx = await buildContext(project, instrument, { concurrency: opts.concurrency ?? DEFAULT_CONCURRENCY, dir });
+  const ctx = await buildContext(project, instrument, {
+    concurrency: opts.concurrency ?? DEFAULT_CONCURRENCY,
+    dir,
+  });
   const pdir = ctx.pdir;
   const outputsFile = path.join(pdir, "runs", run.id, "outputs.ndjson");
 
@@ -685,7 +808,8 @@ async function executeRunInner(project, run, opts) {
   // loses increments whose final lines DID durably land — and a plain resume
   // never recounted, so the summary undercounted. The replayed finals are the
   // source of truth: count those flagged escalated.
-  if (!run.escalation || typeof run.escalation !== "object") run.escalation = { count: 0, directorModel: null };
+  if (!run.escalation || typeof run.escalation !== "object")
+    run.escalation = { count: 0, directorModel: null };
   let escalatedSoFar = 0;
   for (const [, m] of byUnit) {
     const fin = m.get(finalJuror);
@@ -705,9 +829,17 @@ async function executeRunInner(project, run, opts) {
   for (const ev of ctx.privacyEvents) {
     await ledger.append(pdir, ev.actor, ev.type, ev.refs, ev.payload);
   }
-  await ledger.append(pdir, "system", "run.started", { runId: run.id, instrumentId: instrument.id, corpusId: run.corpusId }, {
-    total: units.length, resumed, pendingUnits: pending.length,
-  });
+  await ledger.append(
+    pdir,
+    "system",
+    "run.started",
+    { runId: run.id, instrumentId: instrument.id, corpusId: run.corpusId },
+    {
+      total: units.length,
+      resumed,
+      pendingUnits: pending.length,
+    },
+  );
 
   // (re)track the monitor and replay already-persisted final lines so a
   // resumed run's labelDist/done/escalations are truthful from tick one.
@@ -864,7 +996,10 @@ async function executeRunInner(project, run, opts) {
   syncLabelDist();
   if (stop.reason === "failed") {
     run.status = "failed";
-    run.error = { code: stop.error?.code ?? "UNKNOWN", message: stop.error?.message ?? String(stop.error) };
+    run.error = {
+      code: stop.error?.code ?? "UNKNOWN",
+      message: stop.error?.message ?? String(stop.error),
+    };
     await persistRun(slug, run, dir);
     monitor.clearRun(run.id); // failed runs clear their monitor state (see the complete-path note)
     throw stop.error;
@@ -885,21 +1020,46 @@ async function executeRunInner(project, run, opts) {
   if (stop.reason === "aborted") {
     run.status = "aborted";
     await persistRun(slug, run, dir);
-    await ledger.append(pdir, "system", "run.aborted", { runId: run.id }, {
-      done, total: units.length, actualUSD: run.cost.actualUSD, capUSD,
-    });
+    await ledger.append(
+      pdir,
+      "system",
+      "run.aborted",
+      { runId: run.id },
+      {
+        done,
+        total: units.length,
+        actualUSD: run.cost.actualUSD,
+        capUSD,
+      },
+    );
     return run;
   }
   run.status = "complete";
   run.finishedAt = nowISO();
   await persistRun(slug, run, dir);
-  await ledger.append(pdir, "system", "run.completed", { runId: run.id, instrumentId: instrument.id, corpusId: run.corpusId }, {
-    done, total: units.length, actualUSD: run.cost.actualUSD, quarantined: run.quarantine.length,
-  });
+  await ledger.append(
+    pdir,
+    "system",
+    "run.completed",
+    { runId: run.id, instrumentId: instrument.id, corpusId: run.corpusId },
+    {
+      done,
+      total: units.length,
+      actualUSD: run.cost.actualUSD,
+      quarantined: run.quarantine.length,
+    },
+  );
   if (run.escalation.count > 0) {
-    await ledger.append(pdir, "system", "run.escalation_summary", { runId: run.id }, {
-      count: run.escalation.count, directorModel: run.escalation.directorModel,
-    });
+    await ledger.append(
+      pdir,
+      "system",
+      "run.escalation_summary",
+      { runId: run.id },
+      {
+        count: run.escalation.count,
+        directorModel: run.escalation.directorModel,
+      },
+    );
   }
   // Monitor hygiene: clear this run's in-memory telemetry (and any armed
   // drift tripwire) now that the run is done — the module-level Map must not

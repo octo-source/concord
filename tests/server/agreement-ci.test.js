@@ -76,7 +76,11 @@ async function call(method, p, body) {
   const res = await fetch(base + p, init);
   const text = await res.text();
   let json = null;
-  try { json = JSON.parse(text); } catch { /* non-JSON */ }
+  try {
+    json = JSON.parse(text);
+  } catch {
+    /* non-JSON */
+  }
   return { status: res.status, json, text };
 }
 
@@ -92,7 +96,11 @@ async function upload(p, filename, content) {
   form.append("file", new Blob([content]), filename);
   const res = await fetch(base + p, { method: "POST", body: form });
   const json = JSON.parse(await res.text());
-  assert.equal(res.status, 200, `upload ${p} → ${res.status}: ${JSON.stringify(json).slice(0, 300)}`);
+  assert.equal(
+    res.status,
+    200,
+    `upload ${p} → ${res.status}: ${JSON.stringify(json).slice(0, 300)}`,
+  );
   assert.equal(json.ok, true);
   return json.data;
 }
@@ -102,9 +110,11 @@ async function upload(p, filename, content) {
 function makeCsv(rows) {
   const lines = ["respondent_id,dept,response"];
   for (let i = 0; i < rows; i++) {
-    const text = (i % 2 === 0
-      ? `the salary is too low for this work and it never improves (${i})`
-      : `the office is comfortable and the team is genuinely kind here (${i})`).padEnd(100, ".");
+    const text = (
+      i % 2 === 0
+        ? `the salary is too low for this work and it never improves (${i})`
+        : `the office is comfortable and the team is genuinely kind here (${i})`
+    ).padEnd(100, ".");
     lines.push(`r${i},${i % 2 ? "sales" : "ops"},${text}`);
   }
   return lines.join("\n") + "\n";
@@ -169,9 +179,12 @@ test("setup: project + corpus + binary construct + judge instrument + a complete
   S.corpusId = conf.corpusId;
   assert.equal(conf.unitCount, 40);
 
-  const lines = (await readFile(
-    path.join(projectDir(S.slug), "corpora", S.corpusId, "units.ndjson"), "utf8",
-  )).split(/\n/).filter(Boolean).map((l) => JSON.parse(l));
+  const lines = (
+    await readFile(path.join(projectDir(S.slug), "corpora", S.corpusId, "units.ndjson"), "utf8")
+  )
+    .split(/\n/)
+    .filter(Boolean)
+    .map((l) => JSON.parse(l));
   S.unitIds = lines.map((u) => u.id);
   S.textById = new Map(lines.map((u) => [u.id, u.text]));
 
@@ -179,7 +192,10 @@ test("setup: project + corpus + binary construct + judge instrument + a complete
     name: "Pay complaint",
     type: "binary",
     definition: "The unit complains about compensation.",
-    categories: [{ value: "yes", label: "Yes" }, { value: "no", label: "No" }],
+    categories: [
+      { value: "yes", label: "Yes" },
+      { value: "no", label: "No" },
+    ],
   });
   S.binaryId = binary.id;
 
@@ -206,7 +222,7 @@ test("agreement: every perInstrument entry carries a bootstrap CI bracketing its
     return truth;
   });
 
-  const r = await ok("GET", G(`/${(await firstGoldsetId())}/agreement`));
+  const r = await ok("GET", G(`/${await firstGoldsetId()}/agreement`));
 
   // human side keeps its own CI (additive — we did not disturb it)
   assert.ok(r.humanAgreement, "human agreement present");
@@ -214,7 +230,10 @@ test("agreement: every perInstrument entry carries a bootstrap CI bracketing its
   assert.equal(r.humanAgreement.ci.method, "bootstrap-percentile");
 
   const mine = r.perInstrument.find((x) => x.instrumentId === S.instId);
-  assert.ok(mine, `inst in perInstrument: ${JSON.stringify(r.perInstrument.map((x) => x.instrumentId))}`);
+  assert.ok(
+    mine,
+    `inst in perInstrument: ${JSON.stringify(r.perInstrument.map((x) => x.instrumentId))}`,
+  );
   assert.ok(!mine.error, JSON.stringify(mine.error ?? null));
 
   const a = mine.agreement;
@@ -231,8 +250,10 @@ test("agreement: every perInstrument entry carries a bootstrap CI bracketing its
   // 2. COVERAGE — the percentile interval brackets the full-sample κ (allow a
   // hair of tolerance: the point estimate need not equal a sample quantile).
   const tol = 1e-9;
-  assert.ok(ci.lo <= a.kappa + tol && a.kappa - tol <= ci.hi,
-    `lo ${ci.lo} ≤ κ ${a.kappa} ≤ hi ${ci.hi}`);
+  assert.ok(
+    ci.lo <= a.kappa + tol && a.kappa - tol <= ci.hi,
+    `lo ${ci.lo} ≤ κ ${a.kappa} ≤ hi ${ci.hi}`,
+  );
 
   // every non-error perInstrument entry follows the same contract
   for (const inst of r.perInstrument) {
@@ -245,8 +266,10 @@ test("agreement: every perInstrument entry carries a bootstrap CI bracketing its
     assert.ok(ag.ci, `perInstrument ${inst.instrumentId} carries a ci`);
     assert.equal(ag.ci.method, "bootstrap-percentile");
     assert.ok(ag.ci.lo <= ag.ci.hi, "lo ≤ hi");
-    assert.ok(ag.ci.lo <= ag.kappa + tol && ag.kappa - tol <= ag.ci.hi,
-      `${inst.instrumentId}: lo ≤ κ ≤ hi`);
+    assert.ok(
+      ag.ci.lo <= ag.kappa + tol && ag.kappa - tol <= ag.ci.hi,
+      `${inst.instrumentId}: lo ≤ κ ≤ hi`,
+    );
   }
 });
 
@@ -328,8 +351,10 @@ test("agreement (ordinal): the per-instrument CI brackets κw (linear), the head
   assert.ok(ci, "ordinal per-instrument ci present");
   assert.equal(ci.method, "bootstrap-percentile");
   const tol = 1e-9;
-  assert.ok(ci.lo <= a.kappa + tol && a.kappa - tol <= ci.hi,
-    `the interval brackets the weighted κ the pane headlines: lo ${ci.lo} ≤ κw ${a.kappa} ≤ hi ${ci.hi}`);
+  assert.ok(
+    ci.lo <= a.kappa + tol && a.kappa - tol <= ci.hi,
+    `the interval brackets the weighted κ the pane headlines: lo ${ci.lo} ≤ κw ${a.kappa} ≤ hi ${ci.hi}`,
+  );
 });
 
 // the gold set the binary tests share (first one created on this project)

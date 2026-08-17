@@ -11,8 +11,20 @@ import { createRun, executeRun, runEphemeral, parseUnitFilter } from "../../serv
 import * as monitor from "../../server/runs/monitor.js";
 import { stabilityCheck } from "../../server/instruments/stability.js";
 import { DEFAULT_TEMPLATE } from "../../server/instruments/judge.js";
-import { createProject, createConstruct, createInstrument, freeze, instrumentVersionHash } from "../../server/core/objects.js";
-import { saveProject, loadProject, readNdjson, updateProject, projectsDir } from "../../server/core/store.js";
+import {
+  createProject,
+  createConstruct,
+  createInstrument,
+  freeze,
+  instrumentVersionHash,
+} from "../../server/core/objects.js";
+import {
+  saveProject,
+  loadProject,
+  readNdjson,
+  updateProject,
+  projectsDir,
+} from "../../server/core/store.js";
 import * as ledger from "../../server/core/ledger.js";
 import { getAdapter } from "../../server/providers/registry.js";
 import { ConcordError } from "../../server/core/errors.js";
@@ -42,7 +54,14 @@ const judgePayload = (extra = {}) => ({
 });
 
 const judgeInstrument = (extra = {}, payloadExtra = {}) =>
-  createInstrument({ id: "inst_j", constructId: "c_bin", kind: "judge", name: "judge", payload: judgePayload(payloadExtra), ...extra });
+  createInstrument({
+    id: "inst_j",
+    constructId: "c_bin",
+    kind: "judge",
+    name: "judge",
+    payload: judgePayload(payloadExtra),
+    ...extra,
+  });
 
 // Fixed-width unit texts (equal lengths → the p99-length escalation
 // predicate stays quiet unless a test plants a long unit on purpose).
@@ -60,7 +79,10 @@ function makeUnits(n, { isPay = (i) => i % 3 === 0, len = 60 } = {}) {
 
 const ORACLE = (text) => (text.includes("pay salary") ? "yes" : "no");
 
-async function setup(t, { units, instruments = [], constructs = [binaryConstruct()], director = null } = {}) {
+async function setup(
+  t,
+  { units, instruments = [], constructs = [binaryConstruct()], director = null } = {},
+) {
   const dir = await mkdtemp(path.join(os.tmpdir(), "concord-runs-"));
   t.after(() => rm(dir, { recursive: true, force: true }));
   const project = createProject({ name: "Runs Test", slug: SLUG, privacyMode: "open" });
@@ -71,7 +93,11 @@ async function setup(t, { units, instruments = [], constructs = [binaryConstruct
   await saveProject(project, dir);
   const file = path.join(dir, SLUG, "corpora", "c1", "units.ndjson");
   await mkdir(path.dirname(file), { recursive: true });
-  await writeFile(file, units.length ? units.map((u) => JSON.stringify(u)).join("\n") + "\n" : "", "utf8");
+  await writeFile(
+    file,
+    units.length ? units.map((u) => JSON.stringify(u)).join("\n") + "\n" : "",
+    "utf8",
+  );
   return { dir, project, pdir: path.join(dir, SLUG) };
 }
 
@@ -88,9 +114,18 @@ function mockAdapter(project, { accuracy = 1.0, oracle = ORACLE } = {}) {
 function patchPricing(t, adapter, inUSDper1M = 1000, outUSDper1M = 1000) {
   const orig = adapter.catalog;
   adapter.catalog = async () => [
-    { id: "mock-1", name: "Mock", family: "mock", ctx: 128_000, pricing: { inUSDper1M, outUSDper1M }, snapshot: "mock-1" },
+    {
+      id: "mock-1",
+      name: "Mock",
+      family: "mock",
+      ctx: 128_000,
+      pricing: { inUSDper1M, outUSDper1M },
+      snapshot: "mock-1",
+    },
   ];
-  t.after(() => { adapter.catalog = orig; });
+  t.after(() => {
+    adapter.catalog = orig;
+  });
 }
 
 const outputsFile = (pdir, runId) => path.join(pdir, "runs", runId, "outputs.ndjson");
@@ -111,19 +146,35 @@ test("parseUnitFilter: meta.<key>=<value> matches; bad syntax throws", () => {
   assert.equal(f({ meta: { dept: "sales" } }), true);
   assert.equal(f({ meta: { dept: "ops" } }), false);
   assert.equal(parseUnitFilter(""), null);
-  assert.throws(() => parseUnitFilter("dept=sales"), (e) => e.code === "VALIDATION");
+  assert.throws(
+    () => parseUnitFilter("dept=sales"),
+    (e) => e.code === "VALIDATION",
+  );
 });
 
 // ---------------------------------------------------------------- createRun
 
 test("createRun: validates instrument and corpus, persists a pending run, ledgers run.preflight", async (t) => {
-  const { dir, project, pdir } = await setup(t, { units: makeUnits(10), instruments: [judgeInstrument()] });
+  const { dir, project, pdir } = await setup(t, {
+    units: makeUnits(10),
+    instruments: [judgeInstrument()],
+  });
   mockAdapter(project);
 
-  await assert.rejects(() => createRun(project, { instrumentId: "nope", corpusId: "c1" }, { dir }), (e) => e.code === "NOT_FOUND");
-  await assert.rejects(() => createRun(project, { instrumentId: "inst_j", corpusId: "nope" }, { dir }), (e) => e.code === "NOT_FOUND");
+  await assert.rejects(
+    () => createRun(project, { instrumentId: "nope", corpusId: "c1" }, { dir }),
+    (e) => e.code === "NOT_FOUND",
+  );
+  await assert.rejects(
+    () => createRun(project, { instrumentId: "inst_j", corpusId: "nope" }, { dir }),
+    (e) => e.code === "NOT_FOUND",
+  );
 
-  const run = await createRun(project, { instrumentId: "inst_j", corpusId: "c1", capUSD: 5 }, { dir });
+  const run = await createRun(
+    project,
+    { instrumentId: "inst_j", corpusId: "c1", capUSD: 5 },
+    { dir },
+  );
   assert.equal(run.status, "pending");
   assert.deepEqual(run.checkpoint, { done: 0, total: 10 });
   assert.equal(run.capUSD, 5);
@@ -147,13 +198,22 @@ test("createRun: validates instrument and corpus, persists a pending run, ledger
 
 test("executeRun: 500-unit run completes with checkpoints, ledger events, exact label distribution", async (t) => {
   const N = 500;
-  const { dir, project, pdir } = await setup(t, { units: makeUnits(N), instruments: [judgeInstrument()] });
+  const { dir, project, pdir } = await setup(t, {
+    units: makeUnits(N),
+    instruments: [judgeInstrument()],
+  });
   mockAdapter(project, { accuracy: 1.0 });
 
   const run = await createRun(project, { instrumentId: "inst_j", corpusId: "c1" }, { dir });
   const ticks = [];
   let lastTick = null;
-  const done = await executeRun(SLUG, run.id, { dir, onTick: (s) => { ticks.push(s.done); lastTick = s; } });
+  const done = await executeRun(SLUG, run.id, {
+    dir,
+    onTick: (s) => {
+      ticks.push(s.done);
+      lastTick = s;
+    },
+  });
 
   assert.equal(done.status, "complete");
   assert.deepEqual(done.checkpoint, { done: N, total: N });
@@ -204,13 +264,23 @@ test("executeRun: dictionary instruments run through the same outputs path at $0
     negation: { enabled: false, window: 3 },
     scoring: "count",
   };
-  const inst = createInstrument({ id: "inst_d", constructId: "c_bin", kind: "dictionary", name: "dict", payload: dictPayload });
+  const inst = createInstrument({
+    id: "inst_d",
+    constructId: "c_bin",
+    kind: "dictionary",
+    name: "dict",
+    payload: dictPayload,
+  });
   const { dir, project, pdir } = await setup(t, { units: makeUnits(40), instruments: [inst] });
   // poison the adapter: ANY model call would throw
   const adapter = mockAdapter(project);
   const orig = adapter.complete.bind(adapter);
-  adapter.complete = async () => { throw new Error("dictionary runs must not call a model"); };
-  t.after(() => { adapter.complete = orig; });
+  adapter.complete = async () => {
+    throw new Error("dictionary runs must not call a model");
+  };
+  t.after(() => {
+    adapter.complete = orig;
+  });
 
   const run = await createRun(project, { instrumentId: "inst_d", corpusId: "c1" }, { dir });
   assert.equal(run.provider, "local");
@@ -237,11 +307,18 @@ test("executeRun: dictionary instruments run through the same outputs path at $0
 
 test("executeRun: budget cap aborts mid-stream cleanly; resume completes exactly-once", async (t) => {
   const N = 60;
-  const { dir, project, pdir } = await setup(t, { units: makeUnits(N), instruments: [judgeInstrument()] });
+  const { dir, project, pdir } = await setup(t, {
+    units: makeUnits(N),
+    instruments: [judgeInstrument()],
+  });
   const adapter = mockAdapter(project, { accuracy: 1.0 });
   patchPricing(t, adapter); // $1000/1M tokens → each call costs real money
 
-  const run = await createRun(project, { instrumentId: "inst_j", corpusId: "c1", capUSD: 0.01 }, { dir });
+  const run = await createRun(
+    project,
+    { instrumentId: "inst_j", corpusId: "c1", capUSD: 0.01 },
+    { dir },
+  );
   const aborted = await executeRun(SLUG, run.id, { dir });
 
   assert.equal(aborted.status, "aborted");
@@ -273,17 +350,23 @@ test("executeRun: budget cap aborts mid-stream cleanly; resume completes exactly
 
 test("executeRun: PROVIDER_UNREACHABLE pauses the run (resumable), good units are never quarantined", async (t) => {
   const N = 24;
-  const { dir, project, pdir } = await setup(t, { units: makeUnits(N), instruments: [judgeInstrument()] });
+  const { dir, project, pdir } = await setup(t, {
+    units: makeUnits(N),
+    instruments: [judgeInstrument()],
+  });
   const adapter = mockAdapter(project, { accuracy: 1.0 });
 
   const orig = adapter.complete.bind(adapter);
   let calls = 0;
   adapter.complete = async (req) => {
     calls += 1;
-    if (calls > 8) throw new ConcordError("PROVIDER_UNREACHABLE", "network down", { kind: "TypeError" });
+    if (calls > 8)
+      throw new ConcordError("PROVIDER_UNREACHABLE", "network down", { kind: "TypeError" });
     return orig(req);
   };
-  t.after(() => { adapter.complete = orig; });
+  t.after(() => {
+    adapter.complete = orig;
+  });
 
   const run = await createRun(project, { instrumentId: "inst_j", corpusId: "c1" }, { dir });
   const paused = await executeRun(SLUG, run.id, { dir });
@@ -305,7 +388,10 @@ test("executeRun: PROVIDER_UNREACHABLE pauses the run (resumable), good units ar
 
 test("executeRun: shouldStop hook pauses mid-run — the engine drains, writes paused itself, appends nothing after; resume completes exactly-once", async (t) => {
   const N = 60;
-  const { dir, project, pdir } = await setup(t, { units: makeUnits(N), instruments: [judgeInstrument()] });
+  const { dir, project, pdir } = await setup(t, {
+    units: makeUnits(N),
+    instruments: [judgeInstrument()],
+  });
   mockAdapter(project, { accuracy: 1.0 });
   const run = await createRun(project, { instrumentId: "inst_j", corpusId: "c1" }, { dir });
 
@@ -314,19 +400,34 @@ test("executeRun: shouldStop hook pauses mid-run — the engine drains, writes p
   const paused = await executeRun(SLUG, run.id, {
     dir,
     shouldStop: () => control,
-    onTick: () => { ticks += 1; if (ticks === 5) control = "pause"; },
+    onTick: () => {
+      ticks += 1;
+      if (ticks === 5) control = "pause";
+    },
   });
   assert.equal(paused.status, "paused");
   assert.equal(paused.error, undefined, "a user pause is not an error");
   const partial = await readNdjson(outputsFile(pdir, run.id));
   assert.ok(partial.length >= 5 && partial.length < N, `paused mid-run (${partial.length}/${N})`);
   assertExactlyOnce(partial);
-  assert.equal(paused.checkpoint.done, partial.length, "in-flight pool work drained and checkpointed before returning");
+  assert.equal(
+    paused.checkpoint.done,
+    partial.length,
+    "in-flight pool work drained and checkpointed before returning",
+  );
 
   // the engine settled before resolving: no post-pause output lines, ever
   await new Promise((r) => setTimeout(r, 80));
-  assert.equal((await readNdjson(outputsFile(pdir, run.id))).length, partial.length, "no post-pause output lines");
-  assert.equal((await loadProject(SLUG, dir)).runs[0].status, "paused", "paused status persisted by the engine itself");
+  assert.equal(
+    (await readNdjson(outputsFile(pdir, run.id))).length,
+    partial.length,
+    "no post-pause output lines",
+  );
+  assert.equal(
+    (await loadProject(SLUG, dir)).runs[0].status,
+    "paused",
+    "paused status persisted by the engine itself",
+  );
 
   control = null;
   const done = await executeRun(SLUG, run.id, { dir, shouldStop: () => control });
@@ -342,7 +443,10 @@ test("executeRun: shouldStop hook pauses mid-run — the engine drains, writes p
 
 test("executeRun: shouldStop hook aborts — status aborted + resumable; user aborts are the CALLER's ledger event, not the engine's", async (t) => {
   const N = 40;
-  const { dir, project, pdir } = await setup(t, { units: makeUnits(N), instruments: [judgeInstrument()] });
+  const { dir, project, pdir } = await setup(t, {
+    units: makeUnits(N),
+    instruments: [judgeInstrument()],
+  });
   mockAdapter(project, { accuracy: 1.0 });
   const run = await createRun(project, { instrumentId: "inst_j", corpusId: "c1" }, { dir });
 
@@ -351,13 +455,19 @@ test("executeRun: shouldStop hook aborts — status aborted + resumable; user ab
   const aborted = await executeRun(SLUG, run.id, {
     dir,
     shouldStop: () => control,
-    onTick: () => { ticks += 1; if (ticks === 3) control = "abort"; },
+    onTick: () => {
+      ticks += 1;
+      if (ticks === 3) control = "abort";
+    },
   });
   assert.equal(aborted.status, "aborted");
   const partial = await readNdjson(outputsFile(pdir, run.id));
   assert.ok(partial.length >= 3 && partial.length < N, `aborted mid-run (${partial.length}/${N})`);
-  assert.equal((await ledger.query(pdir, { type: "run.aborted" })).length, 0,
-    "the engine ledgers only budget-cap aborts; a human abort is the routes layer's event");
+  assert.equal(
+    (await ledger.query(pdir, { type: "run.aborted" })).length,
+    0,
+    "the engine ledgers only budget-cap aborts; a human abort is the routes layer's event",
+  );
 
   control = null;
   const done = await executeRun(SLUG, run.id, { dir });
@@ -369,7 +479,10 @@ test("executeRun: shouldStop hook aborts — status aborted + resumable; user ab
 
 test("executeRun: a second identical run is 100% cache hits and $0 incremental cost; re-executing a complete run is a no-op", async (t) => {
   const N = 30;
-  const { dir, project, pdir } = await setup(t, { units: makeUnits(N), instruments: [judgeInstrument()] });
+  const { dir, project, pdir } = await setup(t, {
+    units: makeUnits(N),
+    instruments: [judgeInstrument()],
+  });
   const adapter = mockAdapter(project, { accuracy: 1.0 });
   patchPricing(t, adapter); // nonzero pricing makes "$0 incremental" a real assertion
 
@@ -393,7 +506,9 @@ test("executeRun: a second identical run is 100% cache hits and $0 incremental c
   assert.equal(lines2.length, N);
   for (const l of lines2) assert.equal(l.cacheHit, true, "every output is a cache hit");
   // and the verdicts are byte-identical to the first run's
-  const byUnit1 = new Map((await readNdjson(outputsFile(pdir, run1.id))).map((l) => [l.unitId, l.label]));
+  const byUnit1 = new Map(
+    (await readNdjson(outputsFile(pdir, run1.id))).map((l) => [l.unitId, l.label]),
+  );
   for (const l of lines2) assert.equal(l.label, byUnit1.get(l.unitId));
 });
 
@@ -418,7 +533,12 @@ test("executeRun: SCHEMA_INVALID after repairs quarantines the unit; the run con
 
   const run = await createRun(project, { instrumentId: "inst_j", corpusId: "c1" }, { dir });
   let lastTick = null;
-  const done = await executeRun(SLUG, run.id, { dir, onTick: (s) => { lastTick = s; } });
+  const done = await executeRun(SLUG, run.id, {
+    dir,
+    onTick: (s) => {
+      lastTick = s;
+    },
+  });
 
   assert.equal(done.status, "complete", "quarantine never kills the run");
   // quarantine entries carry their reasons: {unitId, code, message} — the
@@ -427,7 +547,10 @@ test("executeRun: SCHEMA_INVALID after repairs quarantines the unit; the run con
   const q = done.quarantine[0];
   assert.equal(q.unitId, poison.id);
   assert.equal(q.code, "SCHEMA_INVALID");
-  assert.ok(typeof q.message === "string" && q.message.length > 0, "the failure message rides along");
+  assert.ok(
+    typeof q.message === "string" && q.message.length > 0,
+    "the failure message rides along",
+  );
   assert.ok(q.message.length <= 200, "message is trimmed to ≤200 chars");
   // …and the persisted run record carries the same rich shape
   const onDisk = (await loadProject(SLUG, dir)).runs[0];
@@ -438,12 +561,19 @@ test("executeRun: SCHEMA_INVALID after repairs quarantines the unit; the run con
   assertExactlyOnce(lines);
   // the quarantine warning was visible in live telemetry (state clears at
   // complete) and now carries the taxonomy code too
-  assert.ok(lastTick.warnings.some((w) => w.kind === "quarantine" && w.unitId === poison.id && w.code === "SCHEMA_INVALID"));
+  assert.ok(
+    lastTick.warnings.some(
+      (w) => w.kind === "quarantine" && w.unitId === poison.id && w.code === "SCHEMA_INVALID",
+    ),
+  );
 });
 
 test("executeRun: legacy string quarantine entries (old run records) normalize on read — resume never breaks", async (t) => {
   const N = 6;
-  const { dir, project, pdir } = await setup(t, { units: makeUnits(N), instruments: [judgeInstrument()] });
+  const { dir, project, pdir } = await setup(t, {
+    units: makeUnits(N),
+    instruments: [judgeInstrument()],
+  });
   mockAdapter(project, { accuracy: 1.0 });
   const run = await createRun(project, { instrumentId: "inst_j", corpusId: "c1" }, { dir });
   // Simulate a record written by the pre-reasons engine: bare unitId strings
@@ -455,11 +585,24 @@ test("executeRun: legacy string quarantine entries (old run records) normalize o
   const u3 = makeUnits(N).find((u) => u.id === "u_0003");
   const u3File = outputsFile(pdir, run.id);
   await mkdir(path.dirname(u3File), { recursive: true });
-  await writeFile(u3File, JSON.stringify({ unitId: u3.id, juror: run.versionHash, label: ORACLE(u3.text), rationale: "legacy" }) + "\n", "utf8");
-  await updateProject(SLUG, (p) => {
-    p.runs[0].status = "paused";
-    p.runs[0].quarantine = ["u_0003", "u_0003"];
-  }, dir);
+  await writeFile(
+    u3File,
+    JSON.stringify({
+      unitId: u3.id,
+      juror: run.versionHash,
+      label: ORACLE(u3.text),
+      rationale: "legacy",
+    }) + "\n",
+    "utf8",
+  );
+  await updateProject(
+    SLUG,
+    (p) => {
+      p.runs[0].status = "paused";
+      p.runs[0].quarantine = ["u_0003", "u_0003"];
+    },
+    dir,
+  );
 
   const done = await executeRun(SLUG, run.id, { dir });
   assert.equal(done.status, "complete");
@@ -476,11 +619,16 @@ test("executeRun: legacy string quarantine entries (old run records) normalize o
 
 test("executeRun: panel run writes per-juror lines AND an aggregate line per unit", async (t) => {
   const N = 21;
-  const jurors = [judgePayload({ params: { temperature: 0, maxTokens: 64, seed: "j1" } }),
-                  judgePayload({ params: { temperature: 0, maxTokens: 64, seed: "j2" } }),
-                  judgePayload({ params: { temperature: 0, maxTokens: 64, seed: "j3" } })];
+  const jurors = [
+    judgePayload({ params: { temperature: 0, maxTokens: 64, seed: "j1" } }),
+    judgePayload({ params: { temperature: 0, maxTokens: 64, seed: "j2" } }),
+    judgePayload({ params: { temperature: 0, maxTokens: 64, seed: "j3" } }),
+  ];
   const inst = createInstrument({
-    id: "inst_p", constructId: "c_bin", kind: "panel", name: "panel",
+    id: "inst_p",
+    constructId: "c_bin",
+    kind: "panel",
+    name: "panel",
     payload: { jurors, aggregation: "majority" },
   });
   const { dir, project, pdir } = await setup(t, { units: makeUnits(N), instruments: [inst] });
@@ -501,7 +649,11 @@ test("executeRun: panel run writes per-juror lines AND an aggregate line per uni
     const agg = mine.find((l) => l.juror === "aggregate");
     assert.ok(agg, "aggregate line present");
     assert.ok(typeof agg.entropy === "number");
-    for (const h of hashes) assert.ok(mine.some((l) => l.juror === h), "every juror wrote a line");
+    for (const h of hashes)
+      assert.ok(
+        mine.some((l) => l.juror === h),
+        "every juror wrote a line",
+      );
     // aggregate = majority of the three juror labels (or flagged on a tie —
     // impossible with 3 binary jurors)
     const labels = mine.filter((l) => l.juror !== "aggregate").map((l) => l.label);
@@ -514,7 +666,7 @@ test("executeRun: panel run writes per-juror lines AND an aggregate line per uni
 
 test("executeRun: escalation predicate marks atypically long units; the Director callback's replacement is recorded", async (t) => {
   const units = makeUnits(20);
-  units[7] = { ...units[7], text: ("the one enormous unit about pay salary ").repeat(12) }; // ≫ p99
+  units[7] = { ...units[7], text: "the one enormous unit about pay salary ".repeat(12) }; // ≫ p99
   const big = units[7];
   const { dir, project, pdir } = await setup(t, { units, instruments: [judgeInstrument()] });
   mockAdapter(project, { accuracy: 1.0 });
@@ -531,15 +683,26 @@ test("executeRun: escalation predicate marks atypically long units; the Director
   });
   assert.equal(done.status, "complete");
   assert.equal(done.escalation.count, 1);
-  assert.deepEqual(escalatedSeen.map((e) => e.unitId), [big.id]);
+  assert.deepEqual(
+    escalatedSeen.map((e) => e.unitId),
+    [big.id],
+  );
 
   const lines = await readNdjson(outputsFile(pdir, run.id));
   const line = lines.find((l) => l.unitId === big.id);
   assert.equal(line.escalated, true);
   assert.equal(line.label, "no", "the replacement label is what lands in outputs");
   assert.equal(line.rationale, "director second opinion");
-  assert.equal(line.juror, done.versionHash, "the worker's juror hash stays on the line — resume keys on it");
-  assert.equal(line.escalatedBy, "director", "the replacement's provenance marker is copied onto the line");
+  assert.equal(
+    line.juror,
+    done.versionHash,
+    "the worker's juror hash stays on the line — resume keys on it",
+  );
+  assert.equal(
+    line.escalatedBy,
+    "director",
+    "the replacement's provenance marker is copied onto the line",
+  );
   assert.equal(lines.filter((l) => l.escalated).length, 1);
 
   const summary = await ledger.query(pdir, { type: "run.escalation_summary" });
@@ -564,20 +727,34 @@ test("executeRun: empty corpus completes immediately; missing run is NOT_FOUND",
   assert.deepEqual(run.checkpoint, { done: 0, total: 0 });
   const done = await executeRun(SLUG, run.id, { dir });
   assert.equal(done.status, "complete");
-  await assert.rejects(() => executeRun(SLUG, "run_missing", { dir }), (e) => e.code === "NOT_FOUND");
+  await assert.rejects(
+    () => executeRun(SLUG, "run_missing", { dir }),
+    (e) => e.code === "NOT_FOUND",
+  );
 });
 
 test("executeRun: unitFilter meta.dept=sales judges only matching units", async (t) => {
   const N = 20;
-  const { dir, project, pdir } = await setup(t, { units: makeUnits(N), instruments: [judgeInstrument()] });
+  const { dir, project, pdir } = await setup(t, {
+    units: makeUnits(N),
+    instruments: [judgeInstrument()],
+  });
   mockAdapter(project, { accuracy: 1.0 });
-  const run = await createRun(project, { instrumentId: "inst_j", corpusId: "c1", unitFilter: "meta.dept=sales" }, { dir });
+  const run = await createRun(
+    project,
+    { instrumentId: "inst_j", corpusId: "c1", unitFilter: "meta.dept=sales" },
+    { dir },
+  );
   assert.equal(run.checkpoint.total, 10);
   const done = await executeRun(SLUG, run.id, { dir });
   assert.equal(done.status, "complete");
   const lines = await readNdjson(outputsFile(pdir, run.id));
   assert.equal(lines.length, 10);
-  const sales = new Set(makeUnits(N).filter((u) => u.meta.dept === "sales").map((u) => u.id));
+  const sales = new Set(
+    makeUnits(N)
+      .filter((u) => u.meta.dept === "sales")
+      .map((u) => u.id),
+  );
   for (const l of lines) assert.ok(sales.has(l.unitId));
 });
 
@@ -595,7 +772,8 @@ test("runEphemeral: outputs without persistence; cache-aware; seedOffset decorre
   assert.deepEqual(first.quarantine, []);
   assert.ok(first.cost.actualUSD > 0);
   assert.ok(!existsSync(path.join(pdir, "runs")), "ephemeral runs persist nothing under runs/");
-  for (const o of first.outputs) assert.equal(o.label, ORACLE(units.find((u) => u.id === o.unitId).text));
+  for (const o of first.outputs)
+    assert.equal(o.label, ORACLE(units.find((u) => u.id === o.unitId).text));
 
   // identical second call → 100% cache hits, $0
   const second = await runEphemeral(project, inst, units, { dir });
@@ -604,11 +782,19 @@ test("runEphemeral: outputs without persistence; cache-aware; seedOffset decorre
 
   // distinct seedOffset → its own cache namespace and its own output stream.
   // Outputs land in completion order (concurrency) — compare BY UNIT.
-  const byUnit = (res) => res.outputs.slice().sort((x, y) => (x.unitId < y.unitId ? -1 : 1)).map((o) => `${o.unitId}:${o.label}`).join(",");
+  const byUnit = (res) =>
+    res.outputs
+      .slice()
+      .sort((x, y) => (x.unitId < y.unitId ? -1 : 1))
+      .map((o) => `${o.unitId}:${o.label}`)
+      .join(",");
   adapter.setAccuracy(0.5);
   const a = await runEphemeral(project, inst, units, { dir, seedOffset: "s1" });
   const b = await runEphemeral(project, inst, units, { dir, seedOffset: "s2" });
-  assert.ok(a.outputs.some((o) => !o.cacheHit), "new seed is not the old cache");
+  assert.ok(
+    a.outputs.some((o) => !o.cacheHit),
+    "new seed is not the old cache",
+  );
   assert.notEqual(byUnit(a), byUnit(b), "distinct seeds yield distinct streams");
   // and each seed's stream is itself cached + reproducible
   const a2 = await runEphemeral(project, inst, units, { dir, seedOffset: "s1" });
@@ -619,7 +805,10 @@ test("runEphemeral: outputs without persistence; cache-aware; seedOffset decorre
 test("runEphemeral: quarantine entries carry {unitId, code, message} (previews show the reason, not an empty list)", async (t) => {
   const units = makeUnits(6);
   const poison = units[2];
-  const inst = judgeInstrument({}, { promptTemplate: `[[handler:badjson-eph]]\n${DEFAULT_TEMPLATE}` });
+  const inst = judgeInstrument(
+    {},
+    { promptTemplate: `[[handler:badjson-eph]]\n${DEFAULT_TEMPLATE}` },
+  );
   const { dir, project } = await setup(t, { units, instruments: [inst] });
   const adapter = mockAdapter(project, { accuracy: 1.0 });
   adapter.setHandler("badjson-eph", (req) => {
@@ -685,7 +874,12 @@ test("stabilityCheck: noisy instrument (accuracy 0.6) → distinct seeds expose 
   assert.equal(res.runs[0].outputs.length, 50);
   // the reruns genuinely differ — distinct req.seed per rerun (sort by unit:
   // completion order is concurrency-dependent)
-  const sorted = (i) => res.runs[i].outputs.slice().sort((x, y) => (x.unitId < y.unitId ? -1 : 1)).map((o) => `${o.unitId}:${o.label}`).join(",");
+  const sorted = (i) =>
+    res.runs[i].outputs
+      .slice()
+      .sort((x, y) => (x.unitId < y.unitId ? -1 : 1))
+      .map((o) => `${o.unitId}:${o.label}`)
+      .join(",");
   assert.notEqual(sorted(0), sorted(1));
 });
 
@@ -696,18 +890,29 @@ test("stabilityCheck: sample is capped at min(n, 100, units) and empty units thr
   mockAdapter(project, { accuracy: 1.0 });
   const res = await stabilityCheck(project, inst, units, { k: 2, n: 500, dir });
   assert.equal(res.runs[0].outputs.length, 100, "default sample caps at 100");
-  await assert.rejects(() => stabilityCheck(project, inst, [], { dir }), (e) => e.code === "VALIDATION");
+  await assert.rejects(
+    () => stabilityCheck(project, inst, [], { dir }),
+    (e) => e.code === "VALIDATION",
+  );
 });
 
 // ---------------------------------------------------------------- monitor
 
 test("monitor: degenerate-output warning fires once after 100+ outputs of one label", async (t) => {
   const N = 120;
-  const { dir, project } = await setup(t, { units: makeUnits(N, { isPay: () => false }), instruments: [judgeInstrument()] });
+  const { dir, project } = await setup(t, {
+    units: makeUnits(N, { isPay: () => false }),
+    instruments: [judgeInstrument()],
+  });
   mockAdapter(project, { accuracy: 1.0 }); // oracle says "no" for every unit
   const run = await createRun(project, { instrumentId: "inst_j", corpusId: "c1" }, { dir });
   let lastTick = null;
-  await executeRun(SLUG, run.id, { dir, onTick: (s) => { lastTick = s; } });
+  await executeRun(SLUG, run.id, {
+    dir,
+    onTick: (s) => {
+      lastTick = s;
+    },
+  });
   const degen = lastTick.warnings.filter((w) => w.kind === "degenerate-output");
   assert.equal(degen.length, 1, "warned exactly once");
   assert.equal(degen[0].label, "no");
@@ -753,28 +958,54 @@ test("monitor: drift tripwire warns when run-time agreement on gold drops below 
   const run = await createRun(project, { instrumentId: "inst_j", corpusId: "c1" }, { dir });
   // {dir} threads the bundle dir through driftTick's runEphemeral — without it
   // the re-judge cache pollutes the DEFAULT projects dir (<repo>/projects).
-  monitor.armDriftTripwire(run.id, { project, goldOutputs, instrument: inst, every: 10, threshold: 0.15, dir });
+  monitor.armDriftTripwire(run.id, {
+    project,
+    goldOutputs,
+    instrument: inst,
+    every: 10,
+    threshold: 0.15,
+    dir,
+  });
 
   const warningsSeen = new Map(); // message → warning, union across ticks
   await executeRun(SLUG, run.id, {
     dir,
-    onTick: (s) => { for (const w of s.warnings) warningsSeen.set(w.message, w); },
+    onTick: (s) => {
+      for (const w of s.warnings) warningsSeen.set(w.message, w);
+    },
   });
   const drift = [...warningsSeen.values()].filter((w) => w.kind === "drift");
   assert.ok(drift.length >= 1, "drift warning fired");
-  assert.ok(drift[0].agreement < 0.85, `re-judged agreement ${drift[0].agreement} reflects the degraded model`);
+  assert.ok(
+    drift[0].agreement < 0.85,
+    `re-judged agreement ${drift[0].agreement} reflects the degraded model`,
+  );
   assert.equal(drift[0].baseline, 1.0);
-  assert.ok(!existsSync(path.join(projectsDir(), SLUG)),
-    "the drift re-judge must not write into the default projects dir (BUG-2: cache pollution under <repo>/projects)");
-  assert.equal(monitor.runState(run.id), null, "complete run clears monitor state (and its tripwire)");
+  assert.ok(
+    !existsSync(path.join(projectsDir(), SLUG)),
+    "the drift re-judge must not write into the default projects dir (BUG-2: cache pollution under <repo>/projects)",
+  );
+  assert.equal(
+    monitor.runState(run.id),
+    null,
+    "complete run clears monitor state (and its tripwire)",
+  );
 });
 
 test("monitor: armDriftTripwire validates its inputs", async (t) => {
   const inst = judgeInstrument();
   const { project } = await setup(t, { units: makeUnits(3), instruments: [inst] });
-  assert.throws(() => monitor.armDriftTripwire("r", { project, instrument: inst, goldOutputs: [] }), (e) => e.code === "VALIDATION");
   assert.throws(
-    () => monitor.armDriftTripwire("r", { project, instrument: inst, goldOutputs: [{ unit: makeUnits(1)[0], label: "yes" }] }),
+    () => monitor.armDriftTripwire("r", { project, instrument: inst, goldOutputs: [] }),
+    (e) => e.code === "VALIDATION",
+  );
+  assert.throws(
+    () =>
+      monitor.armDriftTripwire("r", {
+        project,
+        instrument: inst,
+        goldOutputs: [{ unit: makeUnits(1)[0], label: "yes" }],
+      }),
     (e) => e.code === "VALIDATION", // no certificate, no explicit baseline
   );
 });

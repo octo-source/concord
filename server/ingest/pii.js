@@ -27,29 +27,145 @@ const SSN_RE = /\b\d{3}-\d{2}-\d{4}\b/g;
 // Three branches: parenthesized area code (needs only one more separator,
 // "(555) 867-5309"), plain separated runs (need two, so "12-34" stays out),
 // and bare +international.
-const PHONE_RE = /(?:\+\d{1,3}[-.\s]?)?\(\d{2,4}\)[-.\s]?\d{2,4}(?:[-.\s]\d{2,4}){1,4}|(?:\+\d{1,3}[-.\s]?)?\d{2,4}(?:[-.\s]\d{2,4}){2,4}|\+\d{8,14}\b/g;
+const PHONE_RE =
+  /(?:\+\d{1,3}[-.\s]?)?\(\d{2,4}\)[-.\s]?\d{2,4}(?:[-.\s]\d{2,4}){1,4}|(?:\+\d{1,3}[-.\s]?)?\d{2,4}(?:[-.\s]\d{2,4}){2,4}|\+\d{8,14}\b/g;
 
 // Capitalized-bigram name heuristic stoplist: common capitalized words that
 // start places, orgs, months, weekdays, honorific phrases.
 const NAME_STOP = new Set([
-  "United", "States", "New", "York", "Los", "Angeles", "San", "Las", "North",
-  "South", "East", "West", "Great", "Britain", "Hong", "Kong", "Saudi",
-  "Arabia", "Sri", "Lanka", "Costa", "Rica", "Puerto", "Rico", "Latin",
-  "America", "Middle", "Eastern", "Western", "Northern", "Southern",
-  "Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday", "Sunday",
-  "January", "February", "March", "April", "May", "June", "July", "August",
-  "September", "October", "November", "December",
-  "Many", "Thanks", "Thank", "Best", "Kind", "Regards", "Dear", "Happy",
-  "Human", "Resources", "Customer", "Service", "Vice", "President", "General",
-  "Manager", "Senior", "Junior", "Chief", "Executive", "Officer", "Account",
-  "The", "This", "That", "These", "Those", "There", "Then", "When", "Where",
-  "What", "Which", "While", "After", "Before", "During", "Every", "Some",
-  "All", "Most", "More", "Less", "Very", "Much", "Such", "Other", "Another",
-  "First", "Second", "Third", "Last", "Next", "Per", "Pro", "Anti",
-  "God", "Lord", "Christmas", "Easter", "Thanksgiving", "Internet", "Google",
-  "Microsoft", "Apple", "Amazon", "Facebook", "Twitter", "Zoom", "Excel",
-  "Word", "Slack", "Teams", "Covid", "American", "British", "European",
-  "English", "Spanish", "French", "German", "Chinese", "Japanese",
+  "United",
+  "States",
+  "New",
+  "York",
+  "Los",
+  "Angeles",
+  "San",
+  "Las",
+  "North",
+  "South",
+  "East",
+  "West",
+  "Great",
+  "Britain",
+  "Hong",
+  "Kong",
+  "Saudi",
+  "Arabia",
+  "Sri",
+  "Lanka",
+  "Costa",
+  "Rica",
+  "Puerto",
+  "Rico",
+  "Latin",
+  "America",
+  "Middle",
+  "Eastern",
+  "Western",
+  "Northern",
+  "Southern",
+  "Monday",
+  "Tuesday",
+  "Wednesday",
+  "Thursday",
+  "Friday",
+  "Saturday",
+  "Sunday",
+  "January",
+  "February",
+  "March",
+  "April",
+  "May",
+  "June",
+  "July",
+  "August",
+  "September",
+  "October",
+  "November",
+  "December",
+  "Many",
+  "Thanks",
+  "Thank",
+  "Best",
+  "Kind",
+  "Regards",
+  "Dear",
+  "Happy",
+  "Human",
+  "Resources",
+  "Customer",
+  "Service",
+  "Vice",
+  "President",
+  "General",
+  "Manager",
+  "Senior",
+  "Junior",
+  "Chief",
+  "Executive",
+  "Officer",
+  "Account",
+  "The",
+  "This",
+  "That",
+  "These",
+  "Those",
+  "There",
+  "Then",
+  "When",
+  "Where",
+  "What",
+  "Which",
+  "While",
+  "After",
+  "Before",
+  "During",
+  "Every",
+  "Some",
+  "All",
+  "Most",
+  "More",
+  "Less",
+  "Very",
+  "Much",
+  "Such",
+  "Other",
+  "Another",
+  "First",
+  "Second",
+  "Third",
+  "Last",
+  "Next",
+  "Per",
+  "Pro",
+  "Anti",
+  "God",
+  "Lord",
+  "Christmas",
+  "Easter",
+  "Thanksgiving",
+  "Internet",
+  "Google",
+  "Microsoft",
+  "Apple",
+  "Amazon",
+  "Facebook",
+  "Twitter",
+  "Zoom",
+  "Excel",
+  "Word",
+  "Slack",
+  "Teams",
+  "Covid",
+  "American",
+  "British",
+  "European",
+  "English",
+  "Spanish",
+  "French",
+  "German",
+  "Chinese",
+  "Japanese",
 ]);
 
 // Unicode-aware capitalized bigram: \p{Lu}\p{L}+ matches "José García",
@@ -181,13 +297,17 @@ async function loadVault(vaultPath) {
     raw = await readFile(vaultPath, "utf8");
   } catch (e) {
     if (e.code === "ENOENT") return null;
-    throw new ConcordError("BAD_VAULT", `cannot read vault at ${vaultPath}: ${e.message}`, { vaultPath });
+    throw new ConcordError("BAD_VAULT", `cannot read vault at ${vaultPath}: ${e.message}`, {
+      vaultPath,
+    });
   }
   let vault;
   try {
     vault = JSON.parse(raw);
   } catch (e) {
-    throw new ConcordError("BAD_VAULT", `vault at ${vaultPath} is not valid JSON: ${e.message}`, { vaultPath });
+    throw new ConcordError("BAD_VAULT", `vault at ${vaultPath} is not valid JSON: ${e.message}`, {
+      vaultPath,
+    });
   }
   if (!vault || typeof vault.tokens !== "object" || vault.tokens === null) {
     throw new ConcordError("BAD_VAULT", "vault file has no tokens map", { vaultPath });
@@ -208,7 +328,12 @@ async function loadVault(vaultPath) {
 // against some other vault; remapping it would corrupt re-identification, so
 // that throws VAULT_CONFLICT and leaves the vault file unmodified.
 export async function pseudonymize(units, vaultPath) {
-  if (!vaultPath) throw new ConcordError("NO_VAULT_PATH", "pseudonymize requires a vault path outside the project bundle", {});
+  if (!vaultPath)
+    throw new ConcordError(
+      "NO_VAULT_PATH",
+      "pseudonymize requires a vault path outside the project bundle",
+      {},
+    );
   const existing = await loadVault(vaultPath);
   const tokens = { ...(existing?.tokens || {}) }; // token -> original (union)
   const tokenOf = new Map(); // `${kind}|${original}` -> token
@@ -237,7 +362,7 @@ export async function pseudonymize(units, vaultPath) {
         throw new ConcordError(
           "VAULT_CONFLICT",
           `text contains pseudonym token ${tm[0]} that is not in the vault; refusing to remap an existing token to a different original`,
-          { vaultPath, token: tm[0], ...where }
+          { vaultPath, token: tm[0], ...where },
         );
       }
     }
@@ -256,7 +381,11 @@ export async function pseudonymize(units, vaultPath) {
         if (Object.prototype.hasOwnProperty.call(tokens, token) && tokens[token] !== span.text) {
           // invariant guard: counters continue past every vault index, so a
           // collision here means the vault was edited out from under us
-          throw new ConcordError("VAULT_CONFLICT", `token ${token} already maps to a different original`, { vaultPath, token });
+          throw new ConcordError(
+            "VAULT_CONFLICT",
+            `token ${token} already maps to a different original`,
+            { vaultPath, token },
+          );
         }
         tokenOf.set(key, token);
         tokens[token] = span.text;
@@ -302,7 +431,10 @@ export async function pseudonymize(units, vaultPath) {
     counts: vaultCounts,
   };
   await writeJsonAtomic(vaultPath, vault);
-  return { units: masked, vault: { path: vaultPath, counts, tokenCount: Object.keys(tokens).length } };
+  return {
+    units: masked,
+    vault: { path: vaultPath, counts, tokenCount: Object.keys(tokens).length },
+  };
 }
 
 // Restore original text AND metadata values from the vault map. Returns new
@@ -312,7 +444,9 @@ export async function reidentify(units, vaultPath) {
   try {
     vault = JSON.parse(await readFile(vaultPath, "utf8"));
   } catch (e) {
-    throw new ConcordError("BAD_VAULT", `cannot read vault at ${vaultPath}: ${e.message}`, { vaultPath });
+    throw new ConcordError("BAD_VAULT", `cannot read vault at ${vaultPath}: ${e.message}`, {
+      vaultPath,
+    });
   }
   if (!vault || typeof vault.tokens !== "object") {
     throw new ConcordError("BAD_VAULT", "vault file has no tokens map", { vaultPath });

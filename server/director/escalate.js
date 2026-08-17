@@ -20,7 +20,10 @@ export function makeEscalator(project, construct) {
     let res;
     try {
       res = await callDirector(project, {
-        messages: [{ role: "system", content: system }, { role: "user", content: user }],
+        messages: [
+          { role: "system", content: system },
+          { role: "user", content: user },
+        ],
         schema,
         // reasoning-class Directors bill thinking tokens against max_tokens —
         // 512 (even doubled once by the truncation retry) starved them in the

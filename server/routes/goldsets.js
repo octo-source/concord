@@ -26,9 +26,22 @@ import { loadProject, updateProject } from "../core/store.js";
 import * as ledger from "../core/ledger.js";
 import * as engineMod from "../runs/engine.js";
 import {
-  findOr404, requireBody, pdirOf, readCorpusUnits, unitsById, metaColumnNames,
-  goldsetFile, readGoldset, goldLabelMap, agreementReport, statValue,
-  finalsOf, addSpend, writeJsonAtomic, readNdjson, runOutputsFile,
+  findOr404,
+  requireBody,
+  pdirOf,
+  readCorpusUnits,
+  unitsById,
+  metaColumnNames,
+  goldsetFile,
+  readGoldset,
+  goldLabelMap,
+  agreementReport,
+  statValue,
+  finalsOf,
+  addSpend,
+  writeJsonAtomic,
+  readNdjson,
+  runOutputsFile,
   validateName,
 } from "./_shared.js";
 import { finalJurorOfRun } from "../runs/engine.js";
@@ -52,7 +65,16 @@ function metaOf(gs) {
     n: gs.sample?.length ?? 0,
     coders: (gs.coders ?? []).map((c) => c.coderId),
     ...(gs.corpusId ? { corpusId: gs.corpusId } : {}),
-    ...(gs.humanAgreement ? { humanAgreement: { percent: gs.humanAgreement.percent, kappa: gs.humanAgreement.kappa, alpha: gs.humanAgreement.alpha, n: gs.humanAgreement.n } } : {}),
+    ...(gs.humanAgreement
+      ? {
+          humanAgreement: {
+            percent: gs.humanAgreement.percent,
+            kappa: gs.humanAgreement.kappa,
+            alpha: gs.humanAgreement.alpha,
+            n: gs.humanAgreement.n,
+          },
+        }
+      : {}),
     createdAt: gs.createdAt,
   };
 }
@@ -78,7 +100,10 @@ function committedWork(gs) {
   const adjudicated = Object.keys(gs?.adjudicated ?? {}).length;
   const excluded = (gs?.excluded ?? []).length;
   return {
-    labels, coders, adjudicated, excluded,
+    labels,
+    coders,
+    adjudicated,
+    excluded,
     committed: labels + adjudicated + excluded > 0,
   };
 }
@@ -88,7 +113,8 @@ function committedWork(gs) {
 function describeWork(w) {
   const s = (n) => (n === 1 ? "" : "s");
   const parts = [];
-  if (w.labels > 0) parts.push(`${w.labels} human label${s(w.labels)} from ${w.coders} coder${s(w.coders)}`);
+  if (w.labels > 0)
+    parts.push(`${w.labels} human label${s(w.labels)} from ${w.coders} coder${s(w.coders)}`);
   if (w.adjudicated > 0) parts.push(`${w.adjudicated} adjudication${s(w.adjudicated)}`);
   if (w.excluded > 0) parts.push(`${w.excluded} exclusion${s(w.excluded)}`);
   if (parts.length <= 2) return parts.join(" and ");
@@ -101,7 +127,12 @@ function requireForce(work, consequence) {
   throw new ConcordError(
     "CONFIRM_REQUIRED",
     `This gold set has ${describeWork(work)}. ${consequence}`,
-    { labels: work.labels, coders: work.coders, adjudicated: work.adjudicated, excluded: work.excluded },
+    {
+      labels: work.labels,
+      coders: work.coders,
+      adjudicated: work.adjudicated,
+      excluded: work.excluded,
+    },
   );
 }
 
@@ -124,7 +155,8 @@ async function mutateGoldset(slug, goldsetId, mutator) {
   let result;
   await updateProject(slug, async (p) => {
     const meta = (p.goldsets ?? []).find((g) => g.id === goldsetId);
-    if (!meta) throw new ConcordError("NOT_FOUND", `gold set '${goldsetId}' not found`, { goldsetId });
+    if (!meta)
+      throw new ConcordError("NOT_FOUND", `gold set '${goldsetId}' not found`, { goldsetId });
     const gs = await readGoldset(slug, goldsetId);
     result = (await mutator(gs, p)) ?? gs;
     await writeGoldset(slug, result);
@@ -149,7 +181,9 @@ function seededShuffle(items, seedStr) {
 function srsSample(units, n, seed) {
   const take = Math.min(n, units.length);
   const pi = take / units.length;
-  return seededShuffle(units, seed).slice(0, take).map((u) => ({ unitId: u.id, pi }));
+  return seededShuffle(units, seed)
+    .slice(0, take)
+    .map((u) => ({ unitId: u.id, pi }));
 }
 
 // Proportional allocation (largest remainder) within meta-key strata, with a
@@ -240,18 +274,22 @@ async function uncertaintySample(project, gs, units, n, seed) {
     if (outputs.length === 0) continue;
     for (const o of outputs) {
       if (score.has(o.unitId)) continue;
-      const u = typeof o.entropy === "number" ? o.entropy
-        : typeof o.confidence === "number" ? 1 - o.confidence
-          : 0.5;
+      const u =
+        typeof o.entropy === "number"
+          ? o.entropy
+          : typeof o.confidence === "number"
+            ? 1 - o.confidence
+            : 0.5;
       score.set(o.unitId, u);
     }
     break; // most recent run with outputs wins
   }
   const take = Math.min(n, units.length);
   const pi = take / units.length;
-  const ranked = score.size > 0
-    ? [...units].sort((a, b) => (score.get(b.id) ?? -1) - (score.get(a.id) ?? -1))
-    : seededShuffle(units, seed);
+  const ranked =
+    score.size > 0
+      ? [...units].sort((a, b) => (score.get(b.id) ?? -1) - (score.get(a.id) ?? -1))
+      : seededShuffle(units, seed);
   return ranked.slice(0, take).map((u) => ({ unitId: u.id, pi }));
 }
 
@@ -260,7 +298,15 @@ async function uncertaintySample(project, gs, units, n, seed) {
 function coderEntry(gs, coderId) {
   let entry = (gs.coders ?? []).find((c) => c.coderId === coderId);
   if (!entry) {
-    entry = { coderId, blind: true, labels: {}, memos: {}, flagged: [], startedAt: new Date().toISOString(), finishedAt: null };
+    entry = {
+      coderId,
+      blind: true,
+      labels: {},
+      memos: {},
+      flagged: [],
+      startedAt: new Date().toISOString(),
+      finishedAt: null,
+    };
     gs.coders = gs.coders ?? [];
     gs.coders.push(entry);
   }
@@ -275,7 +321,14 @@ function progressView(gs, coderId) {
   const entry = (gs.coders ?? []).find((c) => c.coderId === coderId);
   const uncodable = entry ? Object.keys(entry.uncodable ?? {}).length : 0;
   const done = (entry ? Object.keys(entry.labels ?? {}).length : 0) + uncodable;
-  return { coderId, done, uncodable, total, remaining: total - done, flagged: entry?.flagged?.length ?? 0 };
+  return {
+    coderId,
+    done,
+    uncodable,
+    total,
+    remaining: total - done,
+    flagged: entry?.flagged?.length ?? 0,
+  };
 }
 
 // The blind payload: the requesting coder's progress, the codebook entry
@@ -294,27 +347,33 @@ export async function coderNextView(slug, goldsetId, coderId, { queue = false } 
   findOr404(project.goldsets, goldsetId, "gold set");
   const gs = await readGoldset(slug, goldsetId);
   const entry = (gs.coders ?? []).find((c) => c.coderId === coderId);
-  const finished = new Set([...Object.keys(entry?.labels ?? {}), ...Object.keys(entry?.uncodable ?? {})]);
+  const finished = new Set([
+    ...Object.keys(entry?.labels ?? {}),
+    ...Object.keys(entry?.uncodable ?? {}),
+  ]);
   const remainingIds = (gs.sample ?? []).map((s) => s.unitId).filter((id) => !finished.has(id));
   const nextId = remainingIds[0] ?? null;
 
   const construct = (project.constructs ?? []).find((c) => c.id === gs.constructId) ?? null;
-  const codebook = construct ? {
-    name: construct.name,
-    type: construct.type,
-    definition: construct.definition,
-    criteria: construct.criteria,
-    edgeCases: construct.edgeCases,
-    ...(construct.examples?.length ? { examples: construct.examples } : {}),
-    ...(construct.categories ? { categories: construct.categories } : {}),
-    ...(construct.scale ? { scale: construct.scale } : {}),
-  } : null;
+  const codebook = construct
+    ? {
+        name: construct.name,
+        type: construct.type,
+        definition: construct.definition,
+        criteria: construct.criteria,
+        edgeCases: construct.edgeCases,
+        ...(construct.examples?.length ? { examples: construct.examples } : {}),
+        ...(construct.categories ? { categories: construct.categories } : {}),
+        ...(construct.scale ? { scale: construct.scale } : {}),
+      }
+    : null;
 
   const progress = progressView(gs, coderId);
   if (!nextId) {
     return { unit: null, construct: codebook, progress, ...(queue ? { remaining: [] } : {}) };
   }
-  const blindUnit = (id, u) => (u ? { id: u.id, text: u.text, pos: u.pos ?? null } : { id, text: null, pos: null });
+  const blindUnit = (id, u) =>
+    u ? { id: u.id, text: u.text, pos: u.pos ?? null } : { id, text: null, pos: null };
   if (!queue) {
     const found = await unitsById(project, [nextId], { corpusId: gs.corpusId });
     return { unit: blindUnit(nextId, found.get(nextId)), construct: codebook, progress };
@@ -366,20 +425,36 @@ function validateLabelForConstruct(construct, label, what = "label") {
 // an absent row (the stats engine's missing-data path) instead of a forced
 // guess. The later submission wins either way: labeling clears a prior
 // uncodable mark and vice versa.
-export async function submitCoderLabel(slug, goldsetId, { coder, unitId, label, memo, flag, uncodable }) {
+export async function submitCoderLabel(
+  slug,
+  goldsetId,
+  { coder, unitId, label, memo, flag, uncodable },
+) {
   if (!coder) throw new ConcordError("VALIDATION", "label submission requires a coder id", {});
   if (!unitId) throw new ConcordError("VALIDATION", "label submission requires a unitId", {});
   const hasLabel = !(label === undefined || label === null || label === "");
   if (uncodable && hasLabel) {
-    throw new ConcordError("VALIDATION", "a submission is either a label or uncodable: true, not both", { unitId });
+    throw new ConcordError(
+      "VALIDATION",
+      "a submission is either a label or uncodable: true, not both",
+      { unitId },
+    );
   }
   if (!uncodable && !hasLabel) {
-    throw new ConcordError("VALIDATION", "label submission requires a label (or uncodable: true)", {});
+    throw new ConcordError(
+      "VALIDATION",
+      "label submission requires a label (or uncodable: true)",
+      {},
+    );
   }
   let progress;
   await mutateGoldset(slug, goldsetId, (gs, p) => {
     if (!(gs.sample ?? []).some((s) => s.unitId === unitId)) {
-      throw new ConcordError("VALIDATION", `unit '${unitId}' is not part of this gold set's sample`, { unitId });
+      throw new ConcordError(
+        "VALIDATION",
+        `unit '${unitId}' is not part of this gold set's sample`,
+        { unitId },
+      );
     }
     if (!uncodable) {
       const construct = (p.constructs ?? []).find((c) => c.id === gs.constructId) ?? null;
@@ -402,16 +477,25 @@ export async function submitCoderLabel(slug, goldsetId, { coder, unitId, label, 
       entry.flagged = entry.flagged ?? [];
       if (!entry.flagged.includes(unitId)) entry.flagged.push(unitId);
     }
-    if (Object.keys(entry.labels).length + Object.keys(entry.uncodable ?? {}).length >= (gs.sample?.length ?? 0)) {
+    if (
+      Object.keys(entry.labels).length + Object.keys(entry.uncodable ?? {}).length >=
+      (gs.sample?.length ?? 0)
+    ) {
       entry.finishedAt = new Date().toISOString();
     }
     if (gs.status === "sampling") gs.status = "coding";
     progress = progressView(gs, coder);
   });
-  await ledger.append(pdirOf(slug), "human", "goldset.label", { goldsetId, coderId: coder, unitId }, {
-    ...(uncodable ? { uncodable: true } : { label }),
-    ...(flag ? { flagged: true } : {}),
-  });
+  await ledger.append(
+    pdirOf(slug),
+    "human",
+    "goldset.label",
+    { goldsetId, coderId: coder, unitId },
+    {
+      ...(uncodable ? { uncodable: true } : { label }),
+      ...(flag ? { flagged: true } : {}),
+    },
+  );
   return progress;
 }
 
@@ -473,21 +557,35 @@ export default [
       const body = requireBody(req, ["constructId"]);
       const construct = findOr404(project.constructs, body.constructId, "construct");
       const corpusId = body.corpusId ?? project.corpora?.[0]?.id;
-      if (!corpusId) throw new ConcordError("VALIDATION", "gold sets need a corpus to sample from", {});
+      if (!corpusId)
+        throw new ConcordError("VALIDATION", "gold sets need a corpus to sample from", {});
       findOr404(project.corpora, corpusId, "corpus");
-      const name = typeof body.name === "string" && body.name !== ""
-        ? validateName(body.name, "name")
-        : uniqueGoldsetName(project, construct.name);
-      const gs = createGoldSet({ constructId: body.constructId, tier: body.tier, design: body.design, name });
+      const name =
+        typeof body.name === "string" && body.name !== ""
+          ? validateName(body.name, "name")
+          : uniqueGoldsetName(project, construct.name);
+      const gs = createGoldSet({
+        constructId: body.constructId,
+        tier: body.tier,
+        design: body.design,
+        name,
+      });
       gs.corpusId = corpusId;
       gs.createdAt = new Date().toISOString();
       await writeGoldset(params.p, gs);
       await updateProject(params.p, (p) => {
         p.goldsets.push(metaOf(gs));
       });
-      await ledger.append(pdirOf(params.p), "human", "goldset.created", {
-        goldsetId: gs.id, constructId: gs.constructId,
-      }, { tier: gs.tier, design: gs.design, corpusId });
+      await ledger.append(
+        pdirOf(params.p),
+        "human",
+        "goldset.created",
+        {
+          goldsetId: gs.id,
+          constructId: gs.constructId,
+        },
+        { tier: gs.tier, design: gs.design, corpusId },
+      );
       return gs;
     },
   },
@@ -513,7 +611,9 @@ export default [
       const body = requireBody(req);
       const allowed = ["sampling", "coding", "adjudicating", "complete"];
       if (body.status !== undefined && !allowed.includes(body.status)) {
-        throw new ConcordError("VALIDATION", `status must be one of ${allowed.join(", ")}`, { status: body.status });
+        throw new ConcordError("VALIDATION", `status must be one of ${allowed.join(", ")}`, {
+          status: body.status,
+        });
       }
       // a rename is validated up front (1..120) but never ledgered — the name
       // is a human label, not a scientific act on the gold standard
@@ -527,7 +627,13 @@ export default [
         }
       });
       if (completedNow) {
-        await ledger.append(pdirOf(params.p), "human", "goldset.completed", { goldsetId: params.id, constructId: gs.constructId }, {});
+        await ledger.append(
+          pdirOf(params.p),
+          "human",
+          "goldset.completed",
+          { goldsetId: params.id, constructId: gs.constructId },
+          {},
+        );
       }
       return gs;
     },
@@ -548,11 +654,20 @@ export default [
       }
       await updateProject(params.p, (p) => {
         const i = (p.goldsets ?? []).findIndex((g) => g.id === params.id);
-        if (i === -1) throw new ConcordError("NOT_FOUND", `gold set '${params.id}' not found`, { id: params.id });
+        if (i === -1)
+          throw new ConcordError("NOT_FOUND", `gold set '${params.id}' not found`, {
+            id: params.id,
+          });
         p.goldsets.splice(i, 1);
       });
       await rm(goldsetFile(params.p, params.id), { force: true }).catch(() => {});
-      await ledger.append(pdirOf(params.p), "human", "goldset.deleted", { goldsetId: params.id }, {});
+      await ledger.append(
+        pdirOf(params.p),
+        "human",
+        "goldset.deleted",
+        { goldsetId: params.id },
+        {},
+      );
       return { deleted: params.id };
     },
   },
@@ -568,7 +683,8 @@ export default [
         throw new ConcordError("VALIDATION", `unknown sampling design "${design}"`, { design });
       }
       const n = Number(body.n);
-      if (!Number.isInteger(n) || n < 1) throw new ConcordError("VALIDATION", "n must be a positive integer", { n: body.n });
+      if (!Number.isInteger(n) || n < 1)
+        throw new ConcordError("VALIDATION", "n must be a positive integer", { n: body.n });
 
       const current = await readGoldset(params.p, params.g);
       // Overwriting g.sample silently destroys committed coding work and
@@ -585,29 +701,37 @@ export default [
       // resolved corpus must still exist on the project; if it is gone, refuse
       // (400) and name it rather than swapping in corpora[0].
       const corpusId = body.corpusId ?? current.corpusId ?? project.corpora?.[0]?.id;
-      if (!corpusId) throw new ConcordError("VALIDATION", "gold sets need a corpus to sample from", {});
+      if (!corpusId)
+        throw new ConcordError("VALIDATION", "gold sets need a corpus to sample from", {});
       if (!(project.corpora ?? []).some((c) => c.id === corpusId)) {
-        throw new ConcordError("VALIDATION",
+        throw new ConcordError(
+          "VALIDATION",
           `gold set '${params.g}' samples corpus '${corpusId}', which is no longer in this project — re-import it or create a gold set on a current corpus`,
-          { corpusId, goldsetId: params.g });
+          { corpusId, goldsetId: params.g },
+        );
       }
       const units = await readCorpusUnits(params.p, corpusId);
-      if (units.length === 0) throw new ConcordError("VALIDATION", `corpus '${corpusId}' has no units`, { corpusId });
+      if (units.length === 0)
+        throw new ConcordError("VALIDATION", `corpus '${corpusId}' has no units`, { corpusId });
 
       // The seed carries a persisted per-goldset draw counter so a redraw
       // with unchanged parameters actually draws a NEW sample (the discard
       // dialog says "drawing a new sample" — it must be true). Draw 0 omits
       // the salt, keeping first draws bit-identical to the historical seed.
-      const drawIndex = Number.isInteger(current.sampleDraws) && current.sampleDraws > 0
-        ? current.sampleDraws
-        : 0;
+      const drawIndex =
+        Number.isInteger(current.sampleDraws) && current.sampleDraws > 0 ? current.sampleDraws : 0;
       const seed = `sample|${params.g}|${design}|${n}${drawIndex > 0 ? `|draw${drawIndex}` : ""}`;
       let sample;
       if (design === "srs") {
         sample = srsSample(units, n, seed);
       } else if (design === "stratified") {
         const by = body.strata?.by;
-        if (!by) throw new ConcordError("VALIDATION", "stratified sampling requires strata: {by: <meta key>}", {});
+        if (!by)
+          throw new ConcordError(
+            "VALIDATION",
+            "stratified sampling requires strata: {by: <meta key>}",
+            {},
+          );
         // ANY real metadata column stratifies; a column the corpus does not
         // have would silently collapse everything into one "" stratum (an
         // SRS wearing a stratified label), so it is rejected by name with
@@ -633,7 +757,12 @@ export default [
         if (body.force === true) {
           const work = committedWork(g);
           if (work.committed) {
-            discarded = { labels: work.labels, coders: work.coders, adjudicated: work.adjudicated, excluded: work.excluded };
+            discarded = {
+              labels: work.labels,
+              coders: work.coders,
+              adjudicated: work.adjudicated,
+              excluded: work.excluded,
+            };
             for (const c of g.coders ?? []) {
               c.labels = {};
               c.uncodable = {};
@@ -655,16 +784,28 @@ export default [
       });
       const pis = [...new Set(sample.map((s) => s.pi))];
       if (discarded) {
-        await ledger.append(pdirOf(params.p), "human", "goldset.resampled", { goldsetId: params.g, corpusId }, {
-          discarded,
-        });
+        await ledger.append(
+          pdirOf(params.p),
+          "human",
+          "goldset.resampled",
+          { goldsetId: params.g, corpusId },
+          {
+            discarded,
+          },
+        );
       }
-      await ledger.append(pdirOf(params.p), "human", "goldset.sampled", { goldsetId: params.g, corpusId }, {
-        design,
-        n: sample.length,
-        N: units.length,
-        pi: pis.length === 1 ? pis[0] : { min: Math.min(...pis), max: Math.max(...pis) },
-      });
+      await ledger.append(
+        pdirOf(params.p),
+        "human",
+        "goldset.sampled",
+        { goldsetId: params.g, corpusId },
+        {
+          design,
+          n: sample.length,
+          N: units.length,
+          pi: pis.length === 1 ? pis[0] : { min: Math.min(...pis), max: Math.max(...pis) },
+        },
+      );
       return { goldsetId: gs.id, design, n: sample.length, sample };
     },
   },
@@ -683,7 +824,11 @@ export default [
       const current = await readGoldset(params.p, params.g);
       const found = await unitsById(project, [body.unitId], { corpusId: current.corpusId });
       if (!found.has(body.unitId)) {
-        throw new ConcordError("NOT_FOUND", `unit '${body.unitId}' not found in this project's corpora`, { unitId: body.unitId });
+        throw new ConcordError(
+          "NOT_FOUND",
+          `unit '${body.unitId}' not found in this project's corpora`,
+          { unitId: body.unitId },
+        );
       }
       let already = false;
       let n = 0;
@@ -697,11 +842,23 @@ export default [
         n = g.sample.length;
       });
       if (!already) {
-        await ledger.append(pdirOf(params.p), "human", "goldset.sampled", { goldsetId: params.g }, {
-          queuedUnit: body.unitId,
-        });
+        await ledger.append(
+          pdirOf(params.p),
+          "human",
+          "goldset.sampled",
+          { goldsetId: params.g },
+          {
+            queuedUnit: body.unitId,
+          },
+        );
       }
-      return { goldsetId: gs.id, unitId: body.unitId, queued: true, n, ...(already ? { already: true } : {}) };
+      return {
+        goldsetId: gs.id,
+        unitId: body.unitId,
+        queued: true,
+        n,
+        ...(already ? { already: true } : {}),
+      };
     },
   },
   {
@@ -734,15 +891,19 @@ export default [
       const project = await loadProject(params.p);
       findOr404(project.goldsets, params.g, "gold set");
       const gsBefore = await readGoldset(params.p, params.g);
-      const construct = (project.constructs ?? []).find((c) => c.id === gsBefore.constructId) ?? null;
+      const construct =
+        (project.constructs ?? []).find((c) => c.id === gsBefore.constructId) ?? null;
       // Adjudicator-excluded units are out of the gold standard AND out of
       // every agreement statistic ("counts toward no agreement statistic and
       // no gold label") — drop their labels before anything is computed.
       const excludedIds = new Set(gsBefore.excluded ?? []);
       const coders = (gsBefore.coders ?? []).filter((c) =>
-        Object.keys(c.labels ?? {}).some((unitId) => !excludedIds.has(unitId)));
+        Object.keys(c.labels ?? {}).some((unitId) => !excludedIds.has(unitId)),
+      );
       if (coders.length < 2) {
-        throw new ConcordError("VALIDATION", "agreement needs at least two coders with labels", { coders: coders.length });
+        throw new ConcordError("VALIDATION", "agreement needs at least two coders with labels", {
+          coders: coders.length,
+        });
       }
 
       // ---- 1. the human report, persisted + ledgered BEFORE anything machine
@@ -763,15 +924,26 @@ export default [
       // (boot.js resamples units; its default B bounds the work). Degenerate
       // row sets (too few units, too many degenerate replicates) simply carry
       // no interval — the point estimate stands alone.
-      const alphaLevel = construct?.type === "ordinal" ? "ordinal"
-        : construct?.type === "continuous" ? "interval" : "nominal";
+      const alphaLevel =
+        construct?.type === "ordinal"
+          ? "ordinal"
+          : construct?.type === "continuous"
+            ? "interval"
+            : "nominal";
       const order = construct?.categories?.map((c) => String(c.value));
       try {
-        humanAgreement.ci = bootstrapCI(humanRows, (rows) => krippendorffAlpha(rows, {
-          level: alphaLevel,
-          ...(alphaLevel !== "nominal" && order ? { order } : {}),
-        }), { seed: parseInt(sha256(`bootci|${params.g}`).slice(0, 8), 16) });
-      } catch { /* no interval — never block the report */ }
+        humanAgreement.ci = bootstrapCI(
+          humanRows,
+          (rows) =>
+            krippendorffAlpha(rows, {
+              level: alphaLevel,
+              ...(alphaLevel !== "nominal" && order ? { order } : {}),
+            }),
+          { seed: parseInt(sha256(`bootci|${params.g}`).slice(0, 8), 16) },
+        );
+      } catch {
+        /* no interval — never block the report */
+      }
       // Disclosure counts for the report, certificate and methods prose:
       // uncodableUnits = sample units ≥1 coder marked uncodable;
       // excludedFromAgreement = sample units with <2 codable labels (they
@@ -784,7 +956,8 @@ export default [
       for (const s of gsBefore.sample ?? []) {
         if (excludedIds.has(s.unitId)) continue;
         if (allCoders.some((c) => c.uncodable?.[s.unitId])) uncodableUnits += 1;
-        if (allCoders.filter((c) => c.labels?.[s.unitId] !== undefined).length < 2) excludedFromAgreement += 1;
+        if (allCoders.filter((c) => c.labels?.[s.unitId] !== undefined).length < 2)
+          excludedFromAgreement += 1;
       }
       humanAgreement.uncodableUnits = uncodableUnits;
       humanAgreement.excludedFromAgreement = excludedFromAgreement;
@@ -792,15 +965,21 @@ export default [
         g.humanAgreement = humanAgreement;
         if (g.status === "coding") g.status = "adjudicating";
       });
-      await ledger.append(pdirOf(params.p), "human", "goldset.agreement", { goldsetId: params.g }, {
-        n: humanAgreement.n,
-        percent: humanAgreement.percent,
-        kappa: humanAgreement.kappa,
-        alpha: humanAgreement.alpha,
-        coders: coders.map((c) => c.coderId),
-        ...(uncodableUnits > 0 ? { uncodableUnits } : {}),
-        ...(excludedFromAgreement > 0 ? { excludedFromAgreement } : {}),
-      });
+      await ledger.append(
+        pdirOf(params.p),
+        "human",
+        "goldset.agreement",
+        { goldsetId: params.g },
+        {
+          n: humanAgreement.n,
+          percent: humanAgreement.percent,
+          kappa: humanAgreement.kappa,
+          alpha: humanAgreement.alpha,
+          coders: coders.map((c) => c.coderId),
+          ...(uncodableUnits > 0 ? { uncodableUnits } : {}),
+          ...(excludedFromAgreement > 0 ? { excludedFromAgreement } : {}),
+        },
+      );
 
       // ---- 2. machine comparison vs adjudicated-or-consensus gold
       const gold = goldLabelMap(gs);
@@ -808,7 +987,9 @@ export default [
       if (gold.size > 0) {
         const found = await unitsById(project, [...gold.keys()], { corpusId: gs.corpusId });
         const goldUnits = [...found.values()];
-        const instruments = (project.instruments ?? []).filter((i) => i.constructId === gs.constructId);
+        const instruments = (project.instruments ?? []).filter(
+          (i) => i.constructId === gs.constructId,
+        );
         for (const inst of instruments) {
           try {
             const eph = await engineMod.runEphemeral(project, inst, goldUnits);
@@ -822,10 +1003,19 @@ export default [
               rows.push({ unitId, coder: "machine", value: statValue(out.label) });
             }
             if (rows.length === 0) {
-              perInstrument.push({ instrumentId: inst.id, name: inst.name, kind: inst.kind, level: inst.level, error: { code: "NO_OUTPUTS", message: "no comparable outputs" } });
+              perInstrument.push({
+                instrumentId: inst.id,
+                name: inst.name,
+                kind: inst.kind,
+                level: inst.level,
+                error: { code: "NO_OUTPUTS", message: "no comparable outputs" },
+              });
               continue;
             }
-            const agreement = agreementReport(rows, construct, { goldCoder: "gold", pairCoders: ["gold", "machine"] });
+            const agreement = agreementReport(rows, construct, {
+              goldCoder: "gold",
+              pairCoders: ["gold", "machine"],
+            });
             // Percentile bootstrap CI for the headline κ over THIS instrument's
             // machine-vs-gold rows — the forest plot's whisker. Reuses boot.js
             // bootstrapCI exactly as the human α row does (it resamples gold
@@ -837,11 +1027,17 @@ export default [
             // no interval — agreement.kappa stands alone.
             if (typeof agreement.kappa === "number") {
               try {
-                agreement.ci = bootstrapCI(rows, (resampled) => (construct?.type === "ordinal" && order
-                  ? cohenKappa(resampled, { weighted: "linear", order })
-                  : cohenKappa(resampled)),
-                { seed: parseInt(sha256(`bootci|${params.g}|${inst.id}`).slice(0, 8), 16) });
-              } catch { /* no interval — never block the report */ }
+                agreement.ci = bootstrapCI(
+                  rows,
+                  (resampled) =>
+                    construct?.type === "ordinal" && order
+                      ? cohenKappa(resampled, { weighted: "linear", order })
+                      : cohenKappa(resampled),
+                  { seed: parseInt(sha256(`bootci|${params.g}|${inst.id}`).slice(0, 8), 16) },
+                );
+              } catch {
+                /* no interval — never block the report */
+              }
             }
             perInstrument.push({
               instrumentId: inst.id,
@@ -884,15 +1080,27 @@ export default [
       const exclude = body.exclude === true;
       const hasLabel = !(body.label === undefined || body.label === null || body.label === "");
       if (exclude && hasLabel) {
-        throw new ConcordError("VALIDATION", "adjudication takes either a label or exclude: true, not both", { unitId: body.unitId });
+        throw new ConcordError(
+          "VALIDATION",
+          "adjudication takes either a label or exclude: true, not both",
+          { unitId: body.unitId },
+        );
       }
       if (!exclude && !hasLabel) {
-        throw new ConcordError("VALIDATION", "adjudication requires a label (or exclude: true)", {});
+        throw new ConcordError(
+          "VALIDATION",
+          "adjudication requires a label (or exclude: true)",
+          {},
+        );
       }
       let completedNow = false;
       const gs = await mutateGoldset(params.p, params.g, (g, p) => {
         if (!(g.sample ?? []).some((s) => s.unitId === body.unitId)) {
-          throw new ConcordError("VALIDATION", `unit '${body.unitId}' is not in this gold set's sample`, { unitId: body.unitId });
+          throw new ConcordError(
+            "VALIDATION",
+            `unit '${body.unitId}' is not in this gold set's sample`,
+            { unitId: body.unitId },
+          );
         }
         if (!exclude) {
           // a typo'd gold label forks the category space downstream — refuse
@@ -912,19 +1120,33 @@ export default [
         if (g.status === "coding") g.status = "adjudicating";
         const gold = goldLabelMap(g);
         const excludedSet = new Set(g.excluded ?? []);
-        if ((g.sample ?? []).every((s) => gold.has(s.unitId) || excludedSet.has(s.unitId)) && g.status !== "complete") {
+        if (
+          (g.sample ?? []).every((s) => gold.has(s.unitId) || excludedSet.has(s.unitId)) &&
+          g.status !== "complete"
+        ) {
           g.status = "complete";
           completedNow = true;
         }
       });
       const pdir = pdirOf(params.p);
-      await ledger.append(pdir, "human", "goldset.adjudicated", { goldsetId: params.g, unitId: body.unitId },
-        exclude ? { excluded: true } : { label: body.label });
+      await ledger.append(
+        pdir,
+        "human",
+        "goldset.adjudicated",
+        { goldsetId: params.g, unitId: body.unitId },
+        exclude ? { excluded: true } : { label: body.label },
+      );
       if (completedNow) {
-        await ledger.append(pdir, "human", "goldset.completed", { goldsetId: params.g, constructId: gs.constructId }, {
-          n: gs.sample?.length ?? 0,
-          ...(gs.excluded?.length ? { excluded: gs.excluded.length } : {}),
-        });
+        await ledger.append(
+          pdir,
+          "human",
+          "goldset.completed",
+          { goldsetId: params.g, constructId: gs.constructId },
+          {
+            n: gs.sample?.length ?? 0,
+            ...(gs.excluded?.length ? { excluded: gs.excluded.length } : {}),
+          },
+        );
       }
       return {
         status: gs.status,
@@ -949,7 +1171,10 @@ export default [
       // or closed) leaves a stale url on a dead port, so skip it and restart
       if (existing && !existing.dead) {
         return {
-          url: existing.url, port: existing.port, coderId: body.coderId, existing: true,
+          url: existing.url,
+          port: existing.port,
+          coderId: body.coderId,
+          existing: true,
           ...(existing.lanUrl ? { lanUrl: existing.lanUrl } : {}),
         };
       }
@@ -963,7 +1188,9 @@ export default [
       });
       sessions.set(key, session);
       return {
-        url: session.url, port: session.port, coderId: body.coderId,
+        url: session.url,
+        port: session.port,
+        coderId: body.coderId,
         ...(session.lanUrl ? { lanUrl: session.lanUrl } : {}),
       };
     },

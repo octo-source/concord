@@ -49,8 +49,8 @@ export function resolveDerived(ref, project = null) {
 export function optionLabel(corpus, project = null) {
   if (!corpus) return "";
   const p = fromCorpus(corpus, project);
-  const units = p.unitCount !== null && p.unitCount !== undefined
-    ? ` · ${fmtCount(p.unitCount)} units` : "";
+  const units =
+    p.unitCount !== null && p.unitCount !== undefined ? ` · ${fmtCount(p.unitCount)} units` : "";
   return `${displayName(corpus)} — text: ${p.textColumn ?? "not recorded"}${units}`;
 }
 
@@ -69,32 +69,56 @@ export function fromCorpus(corpus, project = null) {
 }
 
 export function render({
-  textColumn = null, scheme = null, unitCount = null, junk = null,
-  metaColumns = null, derivedFrom = null, allMeta = false,
+  textColumn = null,
+  scheme = null,
+  unitCount = null,
+  junk = null,
+  metaColumns = null,
+  derivedFrom = null,
+  allMeta = false,
 } = {}) {
   const segs = [];
 
   /* which column */
   if (textColumn) {
-    segs.push(el("span", {
-      class: "scopechip__seg",
-      title: `Unit text reads from “${textColumn}”${scheme ? ` (${scheme} unitization)` : ""}`,
-    },
-      el("span", { class: "scopechip__key" }, "Text: "),
-      el("span", { class: "scopechip__val data" }, textColumn)));
+    segs.push(
+      el(
+        "span",
+        {
+          class: "scopechip__seg",
+          title: `Unit text reads from “${textColumn}”${scheme ? ` (${scheme} unitization)` : ""}`,
+        },
+        el("span", { class: "scopechip__key" }, "Text: "),
+        el("span", { class: "scopechip__val data" }, textColumn),
+      ),
+    );
   } else {
-    segs.push(el("span", {
-      class: "scopechip__seg scopechip__seg--warn",
-      title: "This corpus predates scope tracking. Re-import it, or set the unit text column from its Instant Read (this builds a recorded, derived copy).",
-    }, "text column not recorded"));
+    segs.push(
+      el(
+        "span",
+        {
+          class: "scopechip__seg scopechip__seg--warn",
+          title:
+            "This corpus predates scope tracking. Re-import it, or set the unit text column from its Instant Read (this builds a recorded, derived copy).",
+        },
+        "text column not recorded",
+      ),
+    );
   }
 
   /* which rows */
   if (unitCount !== null && unitCount !== undefined) {
-    segs.push(el("span", {
-      class: "scopechip__seg",
-      title: scheme ? `${scheme} unitization — one unit per ${scheme}` : null,
-    }, el("span", { class: "data" }, fmtCount(unitCount)), " units"));
+    segs.push(
+      el(
+        "span",
+        {
+          class: "scopechip__seg",
+          title: scheme ? `${scheme} unitization — one unit per ${scheme}` : null,
+        },
+        el("span", { class: "data" }, fmtCount(unitCount)),
+        " units",
+      ),
+    );
   }
 
   /* what's excluded — nothing silently; junk is flagged, never dropped */
@@ -104,38 +128,63 @@ export function render({
       .filter(([, n]) => Number(n) > 0)
       .map(([kind, n]) => `${kind} ${fmtCount(n)}`)
       .join(" · ");
-    segs.push(el("span", {
-      class: "scopechip__seg",
-      title: total > 0
-        ? `${breakdown} — flagged at import and kept in the corpus; Concord never drops units — to remove them, clean the source file and re-import`
-        : "no units flagged as junk",
-    }, el("span", { class: "data" }, fmtCount(total)), " junk-flagged (included)"));
+    segs.push(
+      el(
+        "span",
+        {
+          class: "scopechip__seg",
+          title:
+            total > 0
+              ? `${breakdown} — flagged at import and kept in the corpus; Concord never drops units — to remove them, clean the source file and re-import`
+              : "no units flagged as junk",
+        },
+        el("span", { class: "data" }, fmtCount(total)),
+        " junk-flagged (included)",
+      ),
+    );
   }
 
   /* which metadata columns ride along — and whether ALL are considered */
-  const metaCount = Array.isArray(metaColumns) ? metaColumns.length
-    : (typeof metaColumns === "number" ? metaColumns : null);
+  const metaCount = Array.isArray(metaColumns)
+    ? metaColumns.length
+    : typeof metaColumns === "number"
+      ? metaColumns
+      : null;
   const metaNames = Array.isArray(metaColumns) ? metaColumns.join(", ") : null;
   if (metaCount !== null) {
-    segs.push(el("span", {
-      class: "scopechip__seg",
-      title: metaNames
-        ? (allMeta ? `All metadata columns are considered: ${metaNames}` : `Metadata columns: ${metaNames}`)
-        : null,
-    },
-      allMeta ? "all " : null,
-      el("span", { class: "data" }, fmtCount(metaCount)),
-      allMeta ? " metadata columns considered" : " metadata columns"));
+    segs.push(
+      el(
+        "span",
+        {
+          class: "scopechip__seg",
+          title: metaNames
+            ? allMeta
+              ? `All metadata columns are considered: ${metaNames}`
+              : `Metadata columns: ${metaNames}`
+            : null,
+        },
+        allMeta ? "all " : null,
+        el("span", { class: "data" }, fmtCount(metaCount)),
+        allMeta ? " metadata columns considered" : " metadata columns",
+      ),
+    );
   } else if (allMeta) {
     segs.push(el("span", { class: "scopechip__seg" }, "all metadata columns considered"));
   }
 
   /* provenance of a re-unitized corpus */
   if (derivedFrom) {
-    segs.push(el("span", {
-      class: "scopechip__seg",
-      title: "Re-unitized from another corpus; the original is kept unchanged",
-    }, "derived from ", el("span", { class: "data" }, String(derivedFrom))));
+    segs.push(
+      el(
+        "span",
+        {
+          class: "scopechip__seg",
+          title: "Re-unitized from another corpus; the original is kept unchanged",
+        },
+        "derived from ",
+        el("span", { class: "data" }, String(derivedFrom)),
+      ),
+    );
   }
 
   return el("p", { class: "scopechip", role: "note", aria: { label: "Analysis scope" } }, ...segs);

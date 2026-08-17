@@ -33,8 +33,8 @@ import { fmt } from "../../format.js";
 // Krippendorff's working α bands (.667 / .800) ride the same shape for ordinal
 // surfaces that headline α.
 const BANDS = {
-  "κ": { thresholds: [0.61, 0.81], ticks: [".61", ".81"] },
-  "α": { thresholds: [0.667, 0.8], ticks: [".67", ".80"] },
+  κ: { thresholds: [0.61, 0.81], ticks: [".61", ".81"] },
+  α: { thresholds: [0.667, 0.8], ticks: [".67", ".80"] },
 };
 
 /* ---- pure geometry --------------------------------------------------------
@@ -43,16 +43,19 @@ const BANDS = {
  * → { width, height, x0, x1, domain, ticks, bands, rows: [{ label, y,
  *     centerY, x, value, ci?: {x1,x2}, reference, kind, level }] }
  * ------------------------------------------------------------------------ */
-export function layoutForest(data, {
-  width = 600,
-  domain = [0, 1],
-  labelWidth = 150,
-  valueWidth = 84,
-  rowHeight = 26,
-  padTop = 10,
-  padBottom = 22,
-  stat = "κ",
-} = {}) {
+export function layoutForest(
+  data,
+  {
+    width = 600,
+    domain = [0, 1],
+    labelWidth = 150,
+    valueWidth = 84,
+    rowHeight = 26,
+    padTop = 10,
+    padBottom = 22,
+    stat = "κ",
+  } = {},
+) {
   const x0 = labelWidth + 10;
   const x1 = Math.max(x0 + 60, width - valueWidth);
   const [lo, hi] = domain;
@@ -64,7 +67,11 @@ export function layoutForest(data, {
     // three zones: [lo, t0) low · [t0, t1) mid · [t1, hi] high
     zones: [
       { kind: "low", x: scale(lo), w: scale(band.thresholds[0]) - scale(lo) },
-      { kind: "mid", x: scale(band.thresholds[0]), w: scale(band.thresholds[1]) - scale(band.thresholds[0]) },
+      {
+        kind: "mid",
+        x: scale(band.thresholds[0]),
+        w: scale(band.thresholds[1]) - scale(band.thresholds[0]),
+      },
       { kind: "high", x: scale(band.thresholds[1]), w: scale(hi) - scale(band.thresholds[1]) },
     ],
     tickLabels: band.ticks,
@@ -84,8 +91,18 @@ export function layoutForest(data, {
       level: d.level ?? null,
       ci: null,
     };
-    if (Array.isArray(d.ci) && d.ci.length === 2 && Number.isFinite(Number(d.ci[0])) && Number.isFinite(Number(d.ci[1]))) {
-      row.ci = { x1: scale(Number(d.ci[0])), x2: scale(Number(d.ci[1])), lo: Number(d.ci[0]), hi: Number(d.ci[1]) };
+    if (
+      Array.isArray(d.ci) &&
+      d.ci.length === 2 &&
+      Number.isFinite(Number(d.ci[0])) &&
+      Number.isFinite(Number(d.ci[1]))
+    ) {
+      row.ci = {
+        x1: scale(Number(d.ci[0])),
+        x2: scale(Number(d.ci[1])),
+        lo: Number(d.ci[0]),
+        hi: Number(d.ci[1]),
+      };
     }
     return row;
   });
@@ -93,7 +110,8 @@ export function layoutForest(data, {
   return {
     width,
     height: padTop + rows.length * rowHeight + padBottom,
-    x0, x1,
+    x0,
+    x1,
     domain: [lo, hi],
     ticks: scale.ticks(5).map((t) => ({ value: t, x: scale(t) })),
     bands,
@@ -102,23 +120,24 @@ export function layoutForest(data, {
 }
 
 /** Accessible twin: label · stat · 95% CI per row. */
-export function toTable(data, { stat = "κ", caption = "Reliability forest plot", format = (v) => fmt(v, 2) } = {}) {
-  return dataTable(caption,
+export function toTable(
+  data,
+  { stat = "κ", caption = "Reliability forest plot", format = (v) => fmt(v, 2) } = {},
+) {
+  return dataTable(
+    caption,
     ["", stat, "95% CI"],
     data.map((d) => [
       d.reference ? `${d.label} (reference)` : d.label,
       format(d.value),
       Array.isArray(d.ci) && d.ci.length === 2 ? `[${format(d.ci[0])}, ${format(d.ci[1])}]` : "—",
-    ]));
+    ]),
+  );
 }
 
 /** Mount the forest. */
 export function render(container, data, opts = {}) {
-  const {
-    caption = null,
-    stat = "κ",
-    format = (v) => fmt(v, 2),
-  } = opts;
+  const { caption = null, stat = "κ", format = (v) => fmt(v, 2) } = opts;
 
   const { figure, mount } = chartFigure({
     caption,
@@ -142,42 +161,78 @@ export function render(container, data, opts = {}) {
     const plotBottom = g.height - 16; // leave the bottom strip for axis ticks
     for (const z of g.bands.zones) {
       if (z.w <= 0) continue;
-      bandG.append(svgEl("rect", {
-        x: z.x, y: 0, width: z.w, height: plotBottom,
-        class: `forest__band forest__band--${z.kind}`,
-      }));
+      bandG.append(
+        svgEl("rect", {
+          x: z.x,
+          y: 0,
+          width: z.w,
+          height: plotBottom,
+          class: `forest__band forest__band--${z.kind}`,
+        }),
+      );
     }
     for (const t of g.bands.thresholds) {
-      bandG.append(svgEl("line", {
-        x1: t.x, y1: 2, x2: t.x, y2: g.height - 16, class: "forest__threshold",
-      }));
+      bandG.append(
+        svgEl("line", {
+          x1: t.x,
+          y1: 2,
+          x2: t.x,
+          y2: g.height - 16,
+          class: "forest__threshold",
+        }),
+      );
     }
     svg.append(bandG);
 
     // --- axis: baseline at domain start + ticks -----------------------------
     const axis = svgEl("g", { class: "chart__axis" });
-    axis.append(svgEl("line", { x1: g.x0, y1: 2, x2: g.x0, y2: g.height - 16, class: "chart__baseline" }));
+    axis.append(
+      svgEl("line", { x1: g.x0, y1: 2, x2: g.x0, y2: g.height - 16, class: "chart__baseline" }),
+    );
     for (const t of g.ticks) {
-      axis.append(svgEl("text", {
-        x: t.x, y: g.height - 4, class: "chart__tick", "text-anchor": "middle",
-      }, format(t.value)));
+      axis.append(
+        svgEl(
+          "text",
+          {
+            x: t.x,
+            y: g.height - 4,
+            class: "chart__tick",
+            "text-anchor": "middle",
+          },
+          format(t.value),
+        ),
+      );
     }
     // threshold tick labels (the .61/.81 benchmarks, just under the top edge —
     // position is the color-blind-safe reading of the bands)
     g.bands.thresholds.forEach((t, i) => {
-      axis.append(svgEl("text", {
-        x: t.x, y: 9, class: "forest__thresholdtick", "text-anchor": "middle",
-      }, g.bands.tickLabels[i]));
+      axis.append(
+        svgEl(
+          "text",
+          {
+            x: t.x,
+            y: 9,
+            class: "forest__thresholdtick",
+            "text-anchor": "middle",
+          },
+          g.bands.tickLabels[i],
+        ),
+      );
     });
     svg.append(axis);
 
     // --- reference guide lines (dashed verticals at each reference value) ----
     for (const row of g.rows) {
       if (row.reference && row.x !== null) {
-        svg.append(svgEl("line", {
-          x1: row.x, y1: 8, x2: row.x, y2: g.height - 16,
-          class: "forest__refline",
-        }));
+        svg.append(
+          svgEl("line", {
+            x1: row.x,
+            y1: 8,
+            x2: row.x,
+            y2: g.height - 16,
+            class: "forest__refline",
+          }),
+        );
       }
     }
 
@@ -189,7 +244,9 @@ export function render(container, data, opts = {}) {
         style: `--i:${i}`,
         ...(datum.evidence
           ? {
-              "data-evidence": Array.isArray(datum.evidence) ? datum.evidence.join(",") : datum.evidence,
+              "data-evidence": Array.isArray(datum.evidence)
+                ? datum.evidence.join(",")
+                : datum.evidence,
               ...(datum.evidenceTotal !== undefined && datum.evidenceTotal !== null
                 ? { "data-evidence-total": String(datum.evidenceTotal) }
                 : {}),
@@ -201,17 +258,44 @@ export function render(container, data, opts = {}) {
           : {}),
       });
 
-      rowG.append(svgEl("text", {
-        x: g.x0 - 10, y: row.centerY, class: "chart__rowlabel forest__rowlabel",
-        "text-anchor": "end", "dominant-baseline": "middle",
-      }, fitLabel(row.label, g.x0 - 16)));
+      rowG.append(
+        svgEl(
+          "text",
+          {
+            x: g.x0 - 10,
+            y: row.centerY,
+            class: "chart__rowlabel forest__rowlabel",
+            "text-anchor": "end",
+            "dominant-baseline": "middle",
+          },
+          fitLabel(row.label, g.x0 - 16),
+        ),
+      );
 
       // CI whisker (line + end caps)
       if (row.ci) {
         rowG.append(
-          svgEl("line", { x1: row.ci.x1, y1: row.centerY, x2: row.ci.x2, y2: row.centerY, class: "forest__ci" }),
-          svgEl("line", { x1: row.ci.x1, y1: row.centerY - 4, x2: row.ci.x1, y2: row.centerY + 4, class: "forest__ci" }),
-          svgEl("line", { x1: row.ci.x2, y1: row.centerY - 4, x2: row.ci.x2, y2: row.centerY + 4, class: "forest__ci" }),
+          svgEl("line", {
+            x1: row.ci.x1,
+            y1: row.centerY,
+            x2: row.ci.x2,
+            y2: row.centerY,
+            class: "forest__ci",
+          }),
+          svgEl("line", {
+            x1: row.ci.x1,
+            y1: row.centerY - 4,
+            x2: row.ci.x1,
+            y2: row.centerY + 4,
+            class: "forest__ci",
+          }),
+          svgEl("line", {
+            x1: row.ci.x2,
+            y1: row.centerY - 4,
+            x2: row.ci.x2,
+            y2: row.centerY + 4,
+            class: "forest__ci",
+          }),
         );
       }
 
@@ -219,23 +303,38 @@ export function render(container, data, opts = {}) {
       if (row.x !== null) {
         if (row.reference) {
           const r = 5;
-          rowG.append(svgEl("path", {
-            d: `M ${row.x} ${row.centerY - r} L ${row.x + r} ${row.centerY} L ${row.x} ${row.centerY + r} L ${row.x - r} ${row.centerY} Z`,
-            class: "forest__point forest__point--reference",
-          }));
+          rowG.append(
+            svgEl("path", {
+              d: `M ${row.x} ${row.centerY - r} L ${row.x + r} ${row.centerY} L ${row.x} ${row.centerY + r} L ${row.x - r} ${row.centerY} Z`,
+              class: "forest__point forest__point--reference",
+            }),
+          );
         } else {
-          rowG.append(svgEl("circle", {
-            cx: row.x, cy: row.centerY, r: 4.5, class: "forest__point",
-          }));
+          rowG.append(
+            svgEl("circle", {
+              cx: row.x,
+              cy: row.centerY,
+              r: 4.5,
+              class: "forest__point",
+            }),
+          );
         }
       }
 
       // value + ladder mark in the tail
       const markGlyph = row.level ? ` ${mark(row.level)}` : "";
-      rowG.append(svgEl("text", {
-        x: g.x1 + 8, y: row.centerY, class: "chart__value forest__value",
-        "dominant-baseline": "middle",
-      }, row.value === null ? "—" : `${format(row.value)}${markGlyph}`));
+      rowG.append(
+        svgEl(
+          "text",
+          {
+            x: g.x1 + 8,
+            y: row.centerY,
+            class: "chart__value forest__value",
+            "dominant-baseline": "middle",
+          },
+          row.value === null ? "—" : `${format(row.value)}${markGlyph}`,
+        ),
+      );
 
       svg.append(rowG);
     });
@@ -249,7 +348,9 @@ export function render(container, data, opts = {}) {
       current = nextData;
       mount.replaceChildren(draw(current, mount.clientWidth || 600, false));
       const twin = figure.querySelector(".chart__data table");
-      twin?.replaceWith(toTable(current, { stat, caption: caption ?? "Reliability forest plot", format }));
+      twin?.replaceWith(
+        toTable(current, { stat, caption: caption ?? "Reliability forest plot", format }),
+      );
     },
     destroy() {
       destroyResize();

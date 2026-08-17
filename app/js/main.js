@@ -18,7 +18,14 @@ import * as ladder from "./components/ladder.js";
 import * as pipeline from "./components/pipeline.js";
 import * as scopechip from "./components/scopechip.js";
 import { fixturesEnabled, installFixtures } from "./fixtures.js";
-import { openSheet, estimateChips, refreshProject, runDisplayName, goldsetDisplayName, truncate } from "./screens/_shared.js";
+import {
+  openSheet,
+  estimateChips,
+  refreshProject,
+  runDisplayName,
+  goldsetDisplayName,
+  truncate,
+} from "./screens/_shared.js";
 
 // the twelve (plus home and the dev index)
 import * as homeScreen from "./screens/home.js";
@@ -42,10 +49,21 @@ const $ = (id) => document.getElementById(id);
 /* ---- screens registry --------------------------------------------------------- */
 
 const SCREENS = [
-  homeScreen, importScreen, instantreadScreen, briefScreen, explorerScreen,
-  constructsScreen, instrumentsScreen, calibrationScreen, runsScreen,
-  workbenchScreen, disagreementScreen, reliabilityScreen, reportsScreen,
-  settingsScreen, devScreens,
+  homeScreen,
+  importScreen,
+  instantreadScreen,
+  briefScreen,
+  explorerScreen,
+  constructsScreen,
+  instrumentsScreen,
+  calibrationScreen,
+  runsScreen,
+  workbenchScreen,
+  disagreementScreen,
+  reliabilityScreen,
+  reportsScreen,
+  settingsScreen,
+  devScreens,
 ];
 
 function registerScreens() {
@@ -84,7 +102,11 @@ function appliedTheme() {
 function setTheme(theme) {
   if (theme === "dark") document.documentElement.setAttribute("data-theme", "dark");
   else document.documentElement.removeAttribute("data-theme");
-  try { localStorage.setItem("concord-theme", theme); } catch { /* private mode */ }
+  try {
+    localStorage.setItem("concord-theme", theme);
+  } catch {
+    /* private mode */
+  }
   store.set("ui.theme", theme);
   bus.emit("theme:changed", theme);
 }
@@ -114,42 +136,114 @@ function projectToSections(project) {
     ...extra,
   });
   return [
-    { id: "corpora", title: "Corpora", emptyHint: "Drop a file anywhere to begin.",
+    {
+      id: "corpora",
+      title: "Corpora",
+      emptyHint: "Drop a file anywhere to begin.",
       items: [
-        ...(project.corpora ?? []).map((c) => item(c, { count: c.unitCount, href: `/p/${slug}/corpus/${c.id}/instant` })),
+        ...(project.corpora ?? []).map((c) =>
+          item(c, { count: c.unitCount, href: `/p/${slug}/corpus/${c.id}/instant` }),
+        ),
         // always-open door for the next file — a project is rarely one corpus
-        { id: "corpora-import", label: "+ Import another file", humanTouched: true, href: `/p/${slug}/import` },
-      ] },
-    { id: "constructs", title: "Constructs", emptyHint: "What do you want to measure?",
-      items: (project.constructs ?? []).map((c) => item(c, { href: `/p/${slug}/constructs/${c.id}` })) },
-    { id: "instruments", title: "Instruments", emptyHint: "Compiled from constructs.",
-      items: (project.instruments ?? []).map((i) => item(i, { href: `/p/${slug}/instruments/${i.id}` })) },
-    { id: "goldsets", title: "Gold sets", emptyHint: "Hand-coded samples that instruments are checked against.",
+        {
+          id: "corpora-import",
+          label: "+ Import another file",
+          humanTouched: true,
+          href: `/p/${slug}/import`,
+        },
+      ],
+    },
+    {
+      id: "constructs",
+      title: "Constructs",
+      emptyHint: "What do you want to measure?",
+      items: (project.constructs ?? []).map((c) =>
+        item(c, { href: `/p/${slug}/constructs/${c.id}` }),
+      ),
+    },
+    {
+      id: "instruments",
+      title: "Instruments",
+      emptyHint: "Compiled from constructs.",
+      items: (project.instruments ?? []).map((i) =>
+        item(i, { href: `/p/${slug}/instruments/${i.id}` }),
+      ),
+    },
+    {
+      id: "goldsets",
+      title: "Gold sets",
+      emptyHint: "Hand-coded samples that instruments are checked against.",
       items: [
         // "Gold — <construct>" names; legacy sets derive the same shape
         ...(project.goldsets ?? []).map((g) => {
           const full = goldsetDisplayName(project, g);
-          return { id: g.id, label: truncate(full, 34), title: full, count: g.n, humanTouched: true, href: `/p/${slug}/goldsets/${g.id}` };
+          return {
+            id: g.id,
+            label: truncate(full, 34),
+            title: full,
+            count: g.n,
+            humanTouched: true,
+            href: `/p/${slug}/goldsets/${g.id}`,
+          };
         }),
         // creatable from where you need it — needs a construct to code against
         ...((project.constructs ?? []).length
-          ? [{ id: "goldsets-new", label: "+ New gold set…", humanTouched: true, action: "new-goldset" }]
+          ? [
+              {
+                id: "goldsets-new",
+                label: "+ New gold set…",
+                humanTouched: true,
+                action: "new-goldset",
+              },
+            ]
           : []),
-      ] },
-    { id: "runs", title: "Runs", emptyHint: "Nothing has been measured yet.",
+      ],
+    },
+    {
+      id: "runs",
+      title: "Runs",
+      emptyHint: "Nothing has been measured yet.",
       // "<instrument> · <corpus>" names; the title attribute carries the full text
       items: (project.runs ?? []).map((r) => {
         const full = runDisplayName(project, r);
-        return { id: r.id, label: truncate(full, 34), title: full, humanTouched: true, href: `/p/${slug}/runs/${r.id}` };
-      }) },
-    { id: "analyses", title: "Analyses", emptyHint: "Crosstabs, models, triangulation — corrected where gold exists.",
+        return {
+          id: r.id,
+          label: truncate(full, 34),
+          title: full,
+          humanTouched: true,
+          href: `/p/${slug}/runs/${r.id}`,
+        };
+      }),
+    },
+    {
+      id: "analyses",
+      title: "Analyses",
+      emptyHint: "Crosstabs, models, triangulation — corrected where gold exists.",
       items: [
         // the Workbench is the builder screen — findable before any analysis exists
-        { id: "analyses-workbench", label: "Open the Workbench", humanTouched: true, href: `/p/${slug}/analyses` },
-        ...(project.analyses ?? []).map((a) => item(a, { level: a.level, href: `/p/${slug}/analyses/${a.id}` })),
-      ] },
-    { id: "settings", title: "Project",
-      items: [{ id: "settings", label: "Settings — Director, privacy, budget", humanTouched: true, href: `/p/${slug}/settings` }] },
+        {
+          id: "analyses-workbench",
+          label: "Open the Workbench",
+          humanTouched: true,
+          href: `/p/${slug}/analyses`,
+        },
+        ...(project.analyses ?? []).map((a) =>
+          item(a, { level: a.level, href: `/p/${slug}/analyses/${a.id}` }),
+        ),
+      ],
+    },
+    {
+      id: "settings",
+      title: "Project",
+      items: [
+        {
+          id: "settings",
+          label: "Settings — Director, privacy, budget",
+          humanTouched: true,
+          href: `/p/${slug}/settings`,
+        },
+      ],
+    },
   ];
 }
 
@@ -173,7 +267,9 @@ function initRail() {
 
 function activeRailId() {
   const r = routerMod.current();
-  return r?.params?.id ?? r?.params?.cid ?? r?.params?.gid ?? r?.params?.runId ?? r?.params?.rid ?? null;
+  return (
+    r?.params?.id ?? r?.params?.cid ?? r?.params?.gid ?? r?.params?.runId ?? r?.params?.rid ?? null
+  );
 }
 
 /* The rail's "+ New gold set…" — pick a construct and a corpus, create, land
@@ -182,7 +278,9 @@ function newGoldsetSheet(project) {
   const constructs = project?.constructs ?? [];
   const corpora = project?.corpora ?? [];
   if (!project?.slug || !constructs.length) {
-    toast.info("Write a construct first.", { detail: "a gold set is hand-coding against one construct's codebook" });
+    toast.info("Write a construct first.", {
+      detail: "a gold set is hand-coding against one construct's codebook",
+    });
     return;
   }
   if (!corpora.length) {
@@ -195,34 +293,68 @@ function newGoldsetSheet(project) {
   let constructId = constructs[0].id;
   let corpusId = corpora.at(-1)?.id ?? null; // most recently created — same default as runs/previews
 
-  const constructSel = el("select", { class: "input", "aria-label": "Construct to code by hand" },
-    ...constructs.map((c) => el("option", { value: c.id, selected: c.id === constructId }, c.name)));
-  constructSel.addEventListener("change", () => { constructId = constructSel.value; });
-  const corpusSel = el("select", { class: "input", "aria-label": "Corpus to sample — picking a corpus picks the text column" },
-    ...corpora.map((c) => el("option", { value: c.id, selected: c.id === corpusId }, scopechip.optionLabel(c, project))));
-  corpusSel.addEventListener("change", () => { corpusId = corpusSel.value; });
+  const constructSel = el(
+    "select",
+    { class: "input", "aria-label": "Construct to code by hand" },
+    ...constructs.map((c) => el("option", { value: c.id, selected: c.id === constructId }, c.name)),
+  );
+  constructSel.addEventListener("change", () => {
+    constructId = constructSel.value;
+  });
+  const corpusSel = el(
+    "select",
+    { class: "input", "aria-label": "Corpus to sample — picking a corpus picks the text column" },
+    ...corpora.map((c) =>
+      el("option", { value: c.id, selected: c.id === corpusId }, scopechip.optionLabel(c, project)),
+    ),
+  );
+  corpusSel.addEventListener("change", () => {
+    corpusId = corpusSel.value;
+  });
 
   s.body.append(
-    el("p", {}, "A gold set is a sample you code by hand — the human standard that agreement statistics certify instruments against."),
-    el("label", { class: "field" }, el("span", { class: "field__label overline" }, "Construct"), constructSel),
-    el("label", { class: "field" }, el("span", { class: "field__label overline" }, "Corpus to sample"), corpusSel),
+    el(
+      "p",
+      {},
+      "A gold set is a sample you code by hand — the human standard that agreement statistics certify instruments against.",
+    ),
+    el(
+      "label",
+      { class: "field" },
+      el("span", { class: "field__label overline" }, "Construct"),
+      constructSel,
+    ),
+    el(
+      "label",
+      { class: "field" },
+      el("span", { class: "field__label overline" }, "Corpus to sample"),
+      corpusSel,
+    ),
   );
-  const createBtn = el("button", {
-    class: "btn btn--primary", type: "button",
-    onclick: async (e) => {
-      e.target.disabled = true;
-      try {
-        const created = await api.goldsets.create(project.slug, { constructId, corpusId });
-        toast.success("Gold set created.", { detail: "draw the sample, then code it blind", data: false });
-        await refreshProject(project.slug).catch(() => {});
-        s.close();
-        routerMod.navigate(`p/${project.slug}/goldsets/${created.id}`);
-      } catch (err) {
-        e.target.disabled = false;
-        toast.error("Could not create the gold set.", { detail: String(err.message ?? err) });
-      }
+  const createBtn = el(
+    "button",
+    {
+      class: "btn btn--primary",
+      type: "button",
+      onclick: async (e) => {
+        e.target.disabled = true;
+        try {
+          const created = await api.goldsets.create(project.slug, { constructId, corpusId });
+          toast.success("Gold set created.", {
+            detail: "draw the sample, then code it blind",
+            data: false,
+          });
+          await refreshProject(project.slug).catch(() => {});
+          s.close();
+          routerMod.navigate(`p/${project.slug}/goldsets/${created.id}`);
+        } catch (err) {
+          e.target.disabled = false;
+          toast.error("Could not create the gold set.", { detail: String(err.message ?? err) });
+        }
+      },
     },
-  }, "Create the gold set");
+    "Create the gold set",
+  );
   s.foot.append(
     el("button", { class: "btn btn--quiet", type: "button", onclick: () => s.close() }, "Cancel"),
     createBtn,
@@ -241,7 +373,10 @@ function initChips() {
   store.subscribe("ui.privacyMode", (mode) => {
     const chip = $("privacy-chip");
     if (!chip) return;
-    if (!mode) { chip.hidden = true; return; }
+    if (!mode) {
+      chip.hidden = true;
+      return;
+    }
     chip.hidden = false;
     chip.textContent = PRIVACY_LABEL[mode] ?? mode;
     chip.classList.toggle("topbar__chip--strict", mode === "strict");
@@ -284,12 +419,27 @@ function initGlobalDrop() {
   const showOverlay = () => {
     if (overlay) return;
     const project = store.get("project");
-    overlay = el("div", { class: "dropveil", role: "status" },
-      el("div", { class: "dropveil__card" },
+    overlay = el(
+      "div",
+      { class: "dropveil", role: "status" },
+      el(
+        "div",
+        { class: "dropveil__card" },
         el("p", { class: "dropveil__mark", aria: { hidden: "true" } }, "⇣"),
-        el("p", { class: "dropveil__line" },
-          project ? `Drop to import into “${project.name}”` : "Drop to import — a project sheet will follow"),
-        el("p", { class: "dropveil__hint faint" }, "CSV · XLSX · DOCX · PDF · TXT · VTT/SRT · JSON")));
+        el(
+          "p",
+          { class: "dropveil__line" },
+          project
+            ? `Drop to import into “${project.name}”`
+            : "Drop to import — a project sheet will follow",
+        ),
+        el(
+          "p",
+          { class: "dropveil__hint faint" },
+          "CSV · XLSX · DOCX · PDF · TXT · VTT/SRT · JSON",
+        ),
+      ),
+    );
     document.body.append(overlay);
     requestAnimationFrame(() => overlay?.classList.add("dropveil--in"));
   };
@@ -313,7 +463,10 @@ function initGlobalDrop() {
     if (depth === 0) hideOverlay();
   });
   document.addEventListener("drop", (e) => {
-    if (!e.dataTransfer?.files?.length) { hideOverlay(); return; }
+    if (!e.dataTransfer?.files?.length) {
+      hideOverlay();
+      return;
+    }
     e.preventDefault();
     const file = e.dataTransfer.files[0];
     hideOverlay();
@@ -329,7 +482,9 @@ function initGlobalDrop() {
       routerMod.navigate(`p/${project.slug}/import`);
       if (location.hash === before) window.dispatchEvent(new HashChangeEvent("hashchange"));
     } else {
-      toast.info(`“${file.name}” is ready to import.`, { detail: "open or create a project — the file follows you to its Import screen" });
+      toast.info(`“${file.name}” is ready to import.`, {
+        detail: "open or create a project — the file follows you to its Import screen",
+      });
       routerMod.navigate("");
     }
   });
@@ -344,7 +499,8 @@ function initQuestionBar() {
   document.addEventListener("keydown", (e) => {
     if (e.key !== "/" || e.ctrlKey || e.metaKey || e.altKey) return;
     const t = e.target;
-    const typing = t instanceof HTMLElement &&
+    const typing =
+      t instanceof HTMLElement &&
       (t.tagName === "INPUT" || t.tagName === "TEXTAREA" || t.isContentEditable);
     if (typing) return;
     e.preventDefault();
@@ -357,7 +513,9 @@ function initQuestionBar() {
     const question = input.value.trim();
     const project = store.get("project");
     if (!project?.slug) {
-      toast.info("Open a project first.", { detail: "the Question Bar compiles your question against a corpus" });
+      toast.info("Open a project first.", {
+        detail: "the Question Bar compiles your question against a corpus",
+      });
       return;
     }
     input.disabled = true;
@@ -377,11 +535,20 @@ function initQuestionBar() {
 // provider, model} — no name/kind. Render the construct's name with
 // workerClass/model chips (old name/kind shapes still tolerated).
 function planInstrumentRow(i) {
-  return el("li", { class: "plansheet__item" },
+  return el(
+    "li",
+    { class: "plansheet__item" },
     el("span", { class: "plansheet__name" }, i.constructName ?? i.name ?? i.model ?? "instrument"),
     i.workerClass ? el("span", { class: "chip chip--ghost" }, i.workerClass) : null,
     i.kind ? el("span", { class: "chip" }, i.kind) : null,
-    i.model ? el("span", { class: "chip", title: i.provider ? `${i.provider}/${i.model}` : i.model }, i.model) : null);
+    i.model
+      ? el(
+          "span",
+          { class: "chip", title: i.provider ? `${i.provider}/${i.model}` : i.model },
+          i.model,
+        )
+      : null,
+  );
 }
 
 // One readable line out of an analysis spec object ("pay × dept", "by dept",
@@ -392,7 +559,8 @@ function planSpecLine(spec) {
   if (typeof spec !== "object") return String(spec);
   if (spec.rowKey && spec.colKey) return `${spec.rowKey} × ${spec.colKey}`;
   if (spec.by) return `by ${spec.by}`;
-  if (Array.isArray(spec.x) && spec.x.length) return `${spec.positive ?? "label"} ~ ${spec.x.join(" + ")}`;
+  if (Array.isArray(spec.x) && spec.x.length)
+    return `${spec.positive ?? "label"} ~ ${spec.x.join(" + ")}`;
   if (Array.isArray(spec.instrumentIds)) return spec.instrumentIds.join(" vs ");
   const parts = Object.entries(spec)
     .filter(([, v]) => v !== null && v !== undefined && typeof v !== "object")
@@ -403,70 +571,105 @@ function planSpecLine(spec) {
 function planSheet(project, res, question) {
   const plan = res?.plan ?? {};
   const planId = res?.planId;
-  const s = openSheet({ title: "Review the plan before spending", overline: "From your question, the Director drafts constructs and instruments", wide: true });
+  const s = openSheet({
+    title: "Review the plan before spending",
+    overline: "From your question, the Director drafts constructs and instruments",
+    wide: true,
+  });
 
   const analysis = plan.analysis ?? {};
   const specLine = planSpecLine(analysis.spec);
 
   // frag() skips null children; NATIVE append would print them as "null"
-  s.body.append(frag(
-    el("p", { class: "plansheet__q" }, "“", plan.question ?? res?.question ?? question, "”"),
-    plan.summary ? el("p", { class: "plansheet__summary" }, plan.summary) : null,
+  s.body.append(
+    frag(
+      el("p", { class: "plansheet__q" }, "“", plan.question ?? res?.question ?? question, "”"),
+      plan.summary ? el("p", { class: "plansheet__summary" }, plan.summary) : null,
 
-    el("h3", { class: "overline screen__section-label" }, "Constructs it drafted"),
-    el("ul", { class: "plansheet__list", role: "list" },
-      ...(plan.constructs ?? []).map((c) =>
-        el("li", { class: "plansheet__item" },
-          el("span", { class: "plansheet__name" }, c.name, glyph.render({ authoredBy: "director", humanTouched: false })),
-          el("span", { class: "chip" }, c.type),
-          el("span", { class: "plansheet__def faint" }, c.definition)))),
+      el("h3", { class: "overline screen__section-label" }, "Constructs it drafted"),
+      el(
+        "ul",
+        { class: "plansheet__list", role: "list" },
+        ...(plan.constructs ?? []).map((c) =>
+          el(
+            "li",
+            { class: "plansheet__item" },
+            el(
+              "span",
+              { class: "plansheet__name" },
+              c.name,
+              glyph.render({ authoredBy: "director", humanTouched: false }),
+            ),
+            el("span", { class: "chip" }, c.type),
+            el("span", { class: "plansheet__def faint" }, c.definition),
+          ),
+        ),
+      ),
 
-    el("h3", { class: "overline screen__section-label" }, "Instruments it will compile"),
-    el("ul", { class: "plansheet__list", role: "list" },
-      ...(plan.instruments ?? []).map((i) => planInstrumentRow(i))),
+      el("h3", { class: "overline screen__section-label" }, "Instruments it will compile"),
+      el(
+        "ul",
+        { class: "plansheet__list", role: "list" },
+        ...(plan.instruments ?? []).map((i) => planInstrumentRow(i)),
+      ),
 
-    el("h3", { class: "overline screen__section-label" }, "What it will cost"),
-    el("p", { class: "plansheet__est" },
-      estimateChips(plan.estimate ?? {}),
-      plan.estimate?.note ? el("span", { class: "faint" }, " ", plan.estimate.note) : null),
-    (plan.instruments ?? []).length
-      ? el("p", { class: "plansheet__est faint" },
-          `Approving compiles ${fmtCount(plan.instruments.length)} instrument${plan.instruments.length === 1 ? "" : "s"} `
-          + `(${fmtCount(plan.instruments.length)} Director call${plan.instruments.length === 1 ? "" : "s"}, billed); `
-          + "the run cost above is spent only when you start each run.")
-      : null,
+      el("h3", { class: "overline screen__section-label" }, "What it will cost"),
+      el(
+        "p",
+        { class: "plansheet__est" },
+        estimateChips(plan.estimate ?? {}),
+        plan.estimate?.note ? el("span", { class: "faint" }, " ", plan.estimate.note) : null,
+      ),
+      (plan.instruments ?? []).length
+        ? el(
+            "p",
+            { class: "plansheet__est faint" },
+            `Approving compiles ${fmtCount(plan.instruments.length)} instrument${plan.instruments.length === 1 ? "" : "s"} ` +
+              `(${fmtCount(plan.instruments.length)} Director call${plan.instruments.length === 1 ? "" : "s"}, billed); ` +
+              "the run cost above is spent only when you start each run.",
+          )
+        : null,
 
-    el("h3", { class: "overline screen__section-label" }, "The analysis it recommends"),
-    el("p", { class: "plansheet__analysis" },
-      el("span", { class: "chip" }, analysis.kind ?? "analysis"),
-      specLine ? el("span", { class: "data" }, " ", specLine, " ") : " ",
-      (analysis.annotation ?? analysis.note)
-        ? el("span", { class: "faint" }, analysis.annotation ?? analysis.note)
-        : null),
-    el("p", { class: "faint" }, "Build it in the Workbench once the run completes."),
-  ));
+      el("h3", { class: "overline screen__section-label" }, "The analysis it recommends"),
+      el(
+        "p",
+        { class: "plansheet__analysis" },
+        el("span", { class: "chip" }, analysis.kind ?? "analysis"),
+        specLine ? el("span", { class: "data" }, " ", specLine, " ") : " ",
+        (analysis.annotation ?? analysis.note)
+          ? el("span", { class: "faint" }, analysis.annotation ?? analysis.note)
+          : null,
+      ),
+      el("p", { class: "faint" }, "Build it in the Workbench once the run completes."),
+    ),
+  );
 
   s.foot.append(
     el("button", { class: "btn btn--quiet", type: "button", onclick: () => s.close() }, "Dismiss"),
-    el("button", {
-      class: "btn btn--primary", type: "button",
-      onclick: async (e) => {
-        e.target.disabled = true;
-        try {
-          const approved = await api.questionbar.approve(project.slug, planId);
-          toast.success("Plan approved — constructs and instruments created.", {
-            detail: `${(approved?.constructIds ?? []).length} constructs · ${(approved?.instrumentIds ?? []).length} instruments`,
-            data: true,
-          });
-          // the rail must show the new artifacts before the sheet points at them
-          const fresh = await refreshProject(project.slug).catch(() => null);
-          deliveryView(s, fresh ?? project, plan, approved);
-        } catch (err) {
-          e.target.disabled = false;
-          toast.error("Approval failed.", { detail: String(err.message ?? err) });
-        }
+    el(
+      "button",
+      {
+        class: "btn btn--primary",
+        type: "button",
+        onclick: async (e) => {
+          e.target.disabled = true;
+          try {
+            const approved = await api.questionbar.approve(project.slug, planId);
+            toast.success("Plan approved — constructs and instruments created.", {
+              detail: `${(approved?.constructIds ?? []).length} constructs · ${(approved?.instrumentIds ?? []).length} instruments`,
+              data: true,
+            });
+            // the rail must show the new artifacts before the sheet points at them
+            const fresh = await refreshProject(project.slug).catch(() => null);
+            deliveryView(s, fresh ?? project, plan, approved);
+          } catch (err) {
+            e.target.disabled = false;
+            toast.error("Approval failed.", { detail: String(err.message ?? err) });
+          }
+        },
       },
-    }, "Approve the plan"),
+      "Approve the plan",
+    ),
   );
 }
 
@@ -500,50 +703,90 @@ function deliveryView(s, project, plan, approved) {
   const followLink = () => s.close(); // the sheet must not cover the artifact it points at
   const items = [
     ...constructIds.map((id, i) =>
-      el("li", { class: "plansheet__item" },
+      el(
+        "li",
+        { class: "plansheet__item" },
         el("span", { class: "chip" }, "construct"),
-        el("a", { class: "plansheet__name", href: `#/p/${slug}/constructs/${id}`, onclick: followLink }, constructName(id, i)),
-        el("span", { class: "faint" }, "→ opens in the codebook"))),
+        el(
+          "a",
+          { class: "plansheet__name", href: `#/p/${slug}/constructs/${id}`, onclick: followLink },
+          constructName(id, i),
+        ),
+        el("span", { class: "faint" }, "→ opens in the codebook"),
+      ),
+    ),
     ...instrumentIds.map((id, i) =>
-      el("li", { class: "plansheet__item" },
+      el(
+        "li",
+        { class: "plansheet__item" },
         el("span", { class: "chip" }, "instrument"),
-        el("a", { class: "plansheet__name", href: `#/p/${slug}/instruments/${id}`, onclick: followLink },
+        el(
+          "a",
+          { class: "plansheet__name", href: `#/p/${slug}/instruments/${id}`, onclick: followLink },
           instrumentName(id, i),
-          glyph.render({ authoredBy: "director", humanTouched: false })),
+          glyph.render({ authoredBy: "director", humanTouched: false }),
+        ),
         ladder.render({ level: "exploratory", size: "sm" }),
-        el("span", { class: "faint" }, "→ opens in its editor"))),
+        el("span", { class: "faint" }, "→ opens in its editor"),
+      ),
+    ),
     ...runIds.map((id) =>
-      el("li", { class: "plansheet__item" },
+      el(
+        "li",
+        { class: "plansheet__item" },
         el("span", { class: "chip" }, "run"),
-        el("a", { class: "plansheet__name data", href: `#/p/${slug}/runs/${id}`, onclick: followLink }, id),
-        el("span", { class: "faint" }, "— created, not started; you control when it reads the corpus and what it costs"))),
+        el(
+          "a",
+          { class: "plansheet__name data", href: `#/p/${slug}/runs/${id}`, onclick: followLink },
+          id,
+        ),
+        el(
+          "span",
+          { class: "faint" },
+          "— created, not started; you control when it reads the corpus and what it costs",
+        ),
+      ),
+    ),
   ];
 
-  clear(s.body).append(frag(
-    el("p", { class: "plansheet__q" },
-      `The plan is now ${fmtCount(total)} artifact${total === 1 ? "" : "s"} you can inspect and edit:`),
-    el("ul", { class: "plansheet__list", role: "list" }, ...items),
-    pipeline.render({ current: "run", states: { run: "next" } }),
-  ));
+  clear(s.body).append(
+    frag(
+      el(
+        "p",
+        { class: "plansheet__q" },
+        `The plan is now ${fmtCount(total)} artifact${total === 1 ? "" : "s"} you can inspect and edit:`,
+      ),
+      el("ul", { class: "plansheet__list", role: "list" }, ...items),
+      pipeline.render({ current: "run", states: { run: "next" } }),
+    ),
+  );
 
   const firstInstrument = instrumentIds[0];
-  clear(s.foot).append(frag(
-    el("button", { class: "btn btn--quiet", type: "button", onclick: () => s.close() }, "Done"),
-    firstInstrument
-      ? el("button", {
-          class: "btn btn--primary", type: "button",
-          onclick: () => {
-            s.close();
-            // navigate fires hashchange when the hash changes (it does here);
-            // only nudge a re-render when it would not, so the preflight does
-            // not resolve twice
-            const before = location.hash;
-            routerMod.navigate(`p/${slug}/runs?preflight=${firstInstrument}`);
-            if (location.hash === before) window.dispatchEvent(new HashChangeEvent("hashchange"));
-          },
-        }, "Preflight the first run →")
-      : null,
-  ));
+  clear(s.foot).append(
+    frag(
+      el("button", { class: "btn btn--quiet", type: "button", onclick: () => s.close() }, "Done"),
+      firstInstrument
+        ? el(
+            "button",
+            {
+              class: "btn btn--primary",
+              type: "button",
+              onclick: () => {
+                s.close();
+                // navigate fires hashchange when the hash changes (it does here);
+                // only nudge a re-render when it would not, so the preflight does
+                // not resolve twice
+                const before = location.hash;
+                routerMod.navigate(`p/${slug}/runs?preflight=${firstInstrument}`);
+                if (location.hash === before)
+                  window.dispatchEvent(new HashChangeEvent("hashchange"));
+              },
+            },
+            "Preflight the first run →",
+          )
+        : null,
+    ),
+  );
 }
 
 /* ---- inspector -------------------------------------------------------------------- */
@@ -563,7 +806,16 @@ function initInspector() {
 
   $("inspector-toggle")?.addEventListener("click", () => {
     if (inspector.isOpen()) inspector.close();
-    else inspector.open({ unit: { id: "—", text: "Click any number, bar, or cell marked with the evidence dot to read its supporting units here." } }, { title: "Evidence" });
+    else
+      inspector.open(
+        {
+          unit: {
+            id: "—",
+            text: "Click any number, bar, or cell marked with the evidence dot to read its supporting units here.",
+          },
+        },
+        { title: "Evidence" },
+      );
   });
 
   document.addEventListener("keydown", (e) => {
@@ -583,8 +835,13 @@ async function boot() {
       console.info("concord: fixtures mode — api resolves from app/fixtures/*.json");
       // a public/static deployment must say what it is: sample data, no
       // model calls, nothing saved
-      document.body.prepend(el("div", { class: "demobanner", role: "note" },
-        "Demo — sample data only. Nothing is saved and no model is called. Run Concord locally for real projects."));
+      document.body.prepend(
+        el(
+          "div",
+          { class: "demobanner", role: "note" },
+          "Demo — sample data only. Nothing is saved and no model is called. Run Concord locally for real projects.",
+        ),
+      );
     } catch (err) {
       console.error("fixtures failed to install", err);
       toast.error("Fixtures failed to load.", { detail: String(err.message ?? err) });

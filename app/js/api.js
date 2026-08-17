@@ -50,7 +50,11 @@ async function request(method, path, { body, query, multipart } = {}) {
   let envelope = null;
   const text = await res.text();
   if (text) {
-    try { envelope = JSON.parse(text); } catch { /* non-JSON body below */ }
+    try {
+      envelope = JSON.parse(text);
+    } catch {
+      /* non-JSON body below */
+    }
   }
   // standard envelope is {ok:true, data}; health responds {ok:true, version,
   // providers} with no data member — hand the whole body back in that case
@@ -59,11 +63,14 @@ async function request(method, path, { body, query, multipart } = {}) {
   }
   if (envelope && envelope.ok === false && envelope.error) {
     throw new ApiError(envelope.error.code || "ERROR", envelope.error.message || "Request failed", {
-      status: res.status, details: envelope.error,
+      status: res.status,
+      details: envelope.error,
     });
   }
   if (!res.ok) {
-    throw new ApiError("HTTP_" + res.status, `${method} ${path} → ${res.status}`, { status: res.status });
+    throw new ApiError("HTTP_" + res.status, `${method} ${path} → ${res.status}`, {
+      status: res.status,
+    });
   }
   return envelope ?? text; // tolerant of bare-JSON or text endpoints
 }
@@ -95,16 +102,25 @@ export function sseSubscribe(url, { method = "GET", body, onEvent, onDone, onErr
       }
       res = await fetch(baseUrl + url, init);
     } catch (err) {
-      if (!closed) onError?.(new ApiError("UNREACHABLE", `Stream unreachable (${err.message})`, { status: 0 }));
+      if (!closed)
+        onError?.(
+          new ApiError("UNREACHABLE", `Stream unreachable (${err.message})`, { status: 0 }),
+        );
       return;
     }
     if (!res.ok) {
       // mutating SSE routes report failures through the JSON envelope
-      let code = "HTTP_" + res.status, message = `${method} ${url} → ${res.status}`;
+      let code = "HTTP_" + res.status,
+        message = `${method} ${url} → ${res.status}`;
       try {
         const envelope = JSON.parse(await res.text());
-        if (envelope?.error) { code = envelope.error.code; message = envelope.error.message; }
-      } catch { /* keep the HTTP framing */ }
+        if (envelope?.error) {
+          code = envelope.error.code;
+          message = envelope.error.message;
+        }
+      } catch {
+        /* keep the HTTP framing */
+      }
       if (!closed) onError?.(new ApiError(code, message, { status: res.status }));
       return;
     }
@@ -117,14 +133,18 @@ export function sseSubscribe(url, { method = "GET", body, onEvent, onDone, onErr
       let event = "message";
       const data = [];
       for (const line of block.split(/\r?\n/)) {
-        if (line.startsWith(":")) continue;            // comment / keep-alive
+        if (line.startsWith(":")) continue; // comment / keep-alive
         if (line.startsWith("event:")) event = line.slice(6).trim();
         else if (line.startsWith("data:")) data.push(line.slice(5).replace(/^ /, ""));
       }
       if (data.length === 0) return;
       const rawData = data.join("\n");
       let parsed = rawData;
-      try { parsed = JSON.parse(rawData); } catch { /* plain-text data event */ }
+      try {
+        parsed = JSON.parse(rawData);
+      } catch {
+        /* plain-text data event */
+      }
       // Server convention (every Concord SSE route): a terminal failure inside
       // an open 200 stream arrives as `event: error` with {code, message}.
       // Surface it through onError CENTRALLY so no wrapper or screen can drop
@@ -132,8 +152,13 @@ export function sseSubscribe(url, { method = "GET", body, onEvent, onDone, onErr
       if (event === "error") {
         failed = true;
         if (!closed) {
-          onError?.(new ApiError(parsed?.code ?? "STREAM_ERROR",
-            parsed?.message ?? "the stream reported an error", { status: 200, details: parsed }));
+          onError?.(
+            new ApiError(
+              parsed?.code ?? "STREAM_ERROR",
+              parsed?.message ?? "the stream reported an error",
+              { status: 200, details: parsed },
+            ),
+          );
         }
         return;
       }
@@ -155,7 +180,10 @@ export function sseSubscribe(url, { method = "GET", body, onEvent, onDone, onErr
       if (buffer.trim()) dispatch(buffer);
       if (!closed && !failed) onDone?.();
     } catch (err) {
-      if (!closed && !failed) onError?.(new ApiError("STREAM_BROKEN", `Stream interrupted (${err.message})`, { status: 0 }));
+      if (!closed && !failed)
+        onError?.(
+          new ApiError("STREAM_BROKEN", `Stream interrupted (${err.message})`, { status: 0 }),
+        );
     }
   })();
 
@@ -187,12 +215,14 @@ export const imports = {
     for (const [k, v] of Object.entries(fields)) form.append(k, v);
     return request("POST", `${P(p)}/import`, { multipart: form });
   },
-  confirm: (p, { mapping, unitization }) => post(`${P(p)}/import/confirm`, { mapping, unitization }),
+  confirm: (p, { mapping, unitization }) =>
+    post(`${P(p)}/import/confirm`, { mapping, unitization }),
 };
 
 export const corpora = {
   /** Units page: { offset, limit, q, ...metaFilters } */
-  units: (p, c, params = {}) => get_(`${P(p)}/corpora/${encodeURIComponent(c)}/units`, { query: params }),
+  units: (p, c, params = {}) =>
+    get_(`${P(p)}/corpora/${encodeURIComponent(c)}/units`, { query: params }),
   instantRead: (p, c) => get_(`${P(p)}/corpora/${encodeURIComponent(c)}/instantread`),
   /**
    * The corpus's real metadata columns → {columns: [{name, role, distinct,
@@ -286,9 +316,12 @@ export const instruments = {
       onError: handlers.onError,
     });
   },
-  stability: (p, i, { k, n, corpusId } = {}) => post(`${P(p)}/instruments/${encodeURIComponent(i)}/stability`, { k, n, corpusId }),
-  freeze: (p, i, { goldsetId }) => post(`${P(p)}/instruments/${encodeURIComponent(i)}/freeze`, { goldsetId }),
-  preview: (p, i, { unitIds, corpusId } = {}) => post(`${P(p)}/instruments/${encodeURIComponent(i)}/preview`, { unitIds, corpusId }),
+  stability: (p, i, { k, n, corpusId } = {}) =>
+    post(`${P(p)}/instruments/${encodeURIComponent(i)}/stability`, { k, n, corpusId }),
+  freeze: (p, i, { goldsetId }) =>
+    post(`${P(p)}/instruments/${encodeURIComponent(i)}/freeze`, { goldsetId }),
+  preview: (p, i, { unitIds, corpusId } = {}) =>
+    post(`${P(p)}/instruments/${encodeURIComponent(i)}/preview`, { unitIds, corpusId }),
 };
 
 export const goldsets = {
@@ -299,15 +332,28 @@ export const goldsets = {
   /** Deleting a gold set with committed coding work answers 409 CONFIRM_REQUIRED
       (error.details = {labels, coders, adjudicated, excluded}) until {force: true}. */
   remove: (p, id, { force } = {}) =>
-    request("DELETE", `${P(p)}/goldsets/${encodeURIComponent(id)}`, force ? { query: { force: 1 } } : {}),
+    request(
+      "DELETE",
+      `${P(p)}/goldsets/${encodeURIComponent(id)}`,
+      force ? { query: { force: 1 } } : {},
+    ),
   /** Same guard on resampling: committed work → 409 CONFIRM_REQUIRED unless
       force: true, which discards that work before drawing the new sample. */
-  sample: (p, g, { design, n, strata, force } = {}) => post(`${P(p)}/goldsets/${encodeURIComponent(g)}/sample`, { design, n, strata, force }),
+  sample: (p, g, { design, n, strata, force } = {}) =>
+    post(`${P(p)}/goldsets/${encodeURIComponent(g)}/sample`, { design, n, strata, force }),
   /** Next unit for a blind coder. */
-  next: (p, g, coder) => get_(`${P(p)}/goldsets/${encodeURIComponent(g)}/next`, { query: { coder } }),
+  next: (p, g, coder) =>
+    get_(`${P(p)}/goldsets/${encodeURIComponent(g)}/next`, { query: { coder } }),
   /** A blind verdict: {label} codes the unit; {uncodable: true} (no label) marks it can't-code. */
   label: (p, g, { coder, unitId, label, memo, flag, uncodable } = {}) =>
-    post(`${P(p)}/goldsets/${encodeURIComponent(g)}/label`, { coder, unitId, label, memo, flag, uncodable }),
+    post(`${P(p)}/goldsets/${encodeURIComponent(g)}/label`, {
+      coder,
+      unitId,
+      label,
+      memo,
+      flag,
+      uncodable,
+    }),
   agreement: (p, g) => get_(`${P(p)}/goldsets/${encodeURIComponent(g)}/agreement`),
   /** The final human word: {label} adopts a gold label; {exclude: true} drops the unit from gold permanently. */
   adjudicate: (p, g, { unitId, label, exclude } = {}) =>
@@ -317,15 +363,22 @@ export const goldsets = {
   /** Start (or reuse) the same-process blind coder listener → {url, lanUrl?, port, coderId}.
       {share: true} is the researcher's explicit opt-in to bind all interfaces (LAN). */
   coderSession: (p, g, coderId, { share } = {}) =>
-    post(`${P(p)}/goldsets/${encodeURIComponent(g)}/coder-session`, { coderId, ...(share ? { share: true } : {}) }),
+    post(`${P(p)}/goldsets/${encodeURIComponent(g)}/coder-session`, {
+      coderId,
+      ...(share ? { share: true } : {}),
+    }),
   /** Close coder listeners for this gold set (one coder, or all when omitted) → {closed}. */
   endCoderSession: (p, g, coderId) =>
-    request("DELETE", `${P(p)}/goldsets/${encodeURIComponent(g)}/coder-session`, { query: { coderId } }),
+    request("DELETE", `${P(p)}/goldsets/${encodeURIComponent(g)}/coder-session`, {
+      query: { coderId },
+    }),
 };
 
 export const runs = {
-  preflight: (p, { instrumentId, corpusId } = {}) => post(`${P(p)}/runs/preflight`, { instrumentId, corpusId }),
-  start: (p, { instrumentId, corpusId, capUSD } = {}) => post(`${P(p)}/runs`, { instrumentId, corpusId, capUSD }),
+  preflight: (p, { instrumentId, corpusId } = {}) =>
+    post(`${P(p)}/runs/preflight`, { instrumentId, corpusId }),
+  start: (p, { instrumentId, corpusId, capUSD } = {}) =>
+    post(`${P(p)}/runs`, { instrumentId, corpusId, capUSD }),
   /** Rename a run (runs are auto-named "<instrument> · <corpus>" at creation). */
   rename: (p, r, name) => put(`${P(p)}/runs/${encodeURIComponent(r)}`, { name }),
   /**
@@ -433,8 +486,23 @@ export const settings = {
 export const health = () => get_("/api/health");
 
 export const api = {
-  projects, imports, corpora, brief, questionbar, constructs, instruments,
-  goldsets, runs, analyses, evidence, reliability, report, exports, catalog, settings, health,
+  projects,
+  imports,
+  corpora,
+  brief,
+  questionbar,
+  constructs,
+  instruments,
+  goldsets,
+  runs,
+  analyses,
+  evidence,
+  reliability,
+  report,
+  exports,
+  catalog,
+  settings,
+  health,
 };
 
 export default api;

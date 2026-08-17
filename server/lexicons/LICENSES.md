@@ -11,8 +11,8 @@ wherever a lexicon is offered.
 
 - Source: <https://github.com/cjhutto/vaderSentiment>
   (`vaderSentiment/vader_lexicon.txt`), fetched by `tools/fetch-lexicons.js`.
-- Attribution: Hutto, C.J. & Gilbert, E.E. (2014). *VADER: A Parsimonious
-  Rule-based Model for Sentiment Analysis of Social Media Text.* Eighth
+- Attribution: Hutto, C.J. & Gilbert, E.E. (2014). _VADER: A Parsimonious
+  Rule-based Model for Sentiment Analysis of Social Media Text._ Eighth
   International Conference on Weblogs and Social Media (ICWSM-14).
 - Modification: emoticon/symbol entries containing no word characters were
   dropped at fetch time (count recorded in the file header) because Concord's
@@ -45,7 +45,7 @@ SOFTWARE.
 Original Concord starter lexicons, authored for this project and dedicated to
 the public domain under CC0 1.0 Universal
 (<https://creativecommons.org/publicdomain/zero/1.0/>). Term lists were
-written from scratch in a workplace-survey register; the category *names*
+written from scratch in a workplace-survey register; the category _names_
 follow standard conventions (Plutchik's eight emotions; moral-foundations
 labels), but the term lists are not copied from NRC EmoLex, the Moral
 Foundations Dictionary, LIWC, or any other licensed instrument. Use, modify,

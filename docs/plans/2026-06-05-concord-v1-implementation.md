@@ -16,12 +16,12 @@
 
 ## Execution schedule (waves)
 
-| Wave | Tasks in parallel | Task list IDs |
-|---|---|---|
-| 1 | A Foundation · B Stats · C Ingestion · D Providers · E Dictionary | #1 #2 #3 #4 #5 |
-| 2 | F Orchestration+Runs · G Reporting · H1 UI design system/shell | #6 #9 #8(part) |
-| 3 | I API routes · H2 UI screens | #7 #8(part) |
-| 4 | J Demo corpus + E2E + perf · polish | #10 |
+| Wave | Tasks in parallel                                                 | Task list IDs  |
+| ---- | ----------------------------------------------------------------- | -------------- |
+| 1    | A Foundation · B Stats · C Ingestion · D Providers · E Dictionary | #1 #2 #3 #4 #5 |
+| 2    | F Orchestration+Runs · G Reporting · H1 UI design system/shell    | #6 #9 #8(part) |
+| 3    | I API routes · H2 UI screens                                      | #7 #8(part)    |
+| 4    | J Demo corpus + E2E + perf · polish                               | #10            |
 
 File ownership is disjoint per task — no two tasks edit the same file. Shared contracts live in this document. Wave-2+ tasks import Wave-1 modules; if an interface proves wrong, fix the consumer or flag — do not unilaterally change a Wave-1 export signature.
 
@@ -194,6 +194,7 @@ Coder profile: server started with `--coder <goldsetId>:<coderId>` serves ONLY `
 ## Contract amendments after Wave-1 review (AUTHORITATIVE — supersedes anything above that conflicts)
 
 **core:**
+
 - `store.updateProject(slug, mutatorFn)` is THE way routes mutate projects (per-slug lock; mutator edits in place or returns a replacement). `saveProject` exists but raw read-modify-write is forbidden in routes.
 - `loadProject` re-seals frozen instruments (`rehydrateProject`); `createInstrument` REJECTS `frozen: true` input. `versionInstrument` on the unfrozen path resets `level → "exploratory"` and drops `stability`/`silver`/`certificate`.
 - `ConcordError(code, message, details, {status, cause})`; router status map: NOT_FOUND 404 · TOO_LARGE 413 · PRIVACY_BLOCKED 403 · RATE_LIMITED_EXHAUSTED 503 · default 400; explicit `status` wins.
@@ -206,12 +207,14 @@ Coder profile: server started with `--coder <goldsetId>:<coderId>` serves ONLY `
 `project.created` · `privacy.mode_changed` · `privacy.override` · `corpus.imported` · `corpus.unitized` · `construct.created` · `construct.edited` · `construct.deleted` · `instrument.created` · `instrument.versioned` · `instrument.compiled` · `instrument.silver_tuned` · `instrument.stability` · `instrument.frozen` · `instrument.deleted` · `goldset.created` · `goldset.sampled` (also one per human-queued unit, payload `{queuedUnit}`) · `goldset.resampled` (forced redraw over committed work; meta `{discarded: {labels, coders, adjudicated, excluded}}`) · `goldset.label` (one per submitted label) · `goldset.agreement` · `goldset.adjudicated` · `goldset.completed` · `goldset.deleted` · `brief.generated` · `plan.compiled` · `plan.approved` · `run.preflight` · `run.started` · `run.completed` · `run.aborted` · `run.escalation_summary` · `analysis.created` · `export.methods` · `export.replication`. Actor convention: generation = `director`, mechanical = `system`, acceptance/user action = `human`. `pii.pseudonymized` (refs `{corpusId}`, meta `{counts, tokenCount}`) fires on import-confirm pseudonymize AND on reunitize over a pseudonymized source; `corpus.imported` meta carries `pii: {mode, counts}` for every mode (`off|scan|pseudonymize`, default `scan`); reunitize's `corpus.unitized` payload is `{textColumn, derivedFrom, unitCount, skipped, pii}` — the derived corpus RE-RUNS the source's pii mode (absent record → `scan`).
 
 **providers:**
+
 - `registry.getAdapter` memoizes adapter instances (mock oracle state survives across calls); privacy gates still evaluated on EVERY call; `clearAdapterCache()` on settings change.
 - Pool retries `PROVIDER_UNREACHABLE` 3× (idempotent calls); run engine treats a still-failing unit as RESUMABLE, not quarantined. Schema failures (SCHEMA_INVALID after repairs) quarantine.
 - `completeWithRepair` returns `{…, repairs}` (repairs > 0 feeds the escalation predicate). OpenAI refusal → `PROVIDER_REFUSAL`; length-truncation with schema → `TRUNCATED`; neither enters the repair loop.
 - Mock honors `req.seed` — stability checks MUST pass distinct seeds per rerun; `mock.setHandler(name, fn)` fires when the system message contains `[[handler:name]]` (Director scripting in tests/keyless mode).
 
 **stats:**
+
 - String-label ordinal/weighted statistics REQUIRE `{order: [...]}` (constructs' declared category order); pass it through from routes. `gwetAC2(data, {weights, order})` exists. `ppiMean` supports `lambda: "auto"` with overlap-correct variance (gold ⊂ corpus). `bootstrapCI` → `{lo, hi, method}`. `crosstab` → includes `minExpected`. `descriptives.timeTrend(rows, {dateKey, valueKey?, bucket})` exists. Coefficient rows report `z: null, p: null, note` when se = 0. Agreement functions reject `""`/NaN values and duplicate (unitId, coder) rows.
 
 **dictionary:** `parseDic` → `{payload, warnings}` (LIWC conditional lines skipped with warnings). Misplaced `*` throws. Categories named `empty`/`NOT_*` rejected. `compile` memoizes raw payloads. Count mode sums every hit; percentOfWords dedupes token positions.
@@ -225,6 +228,7 @@ Coder profile: server started with `--coder <goldsetId>:<coderId>` serves ONLY `
 **Files:** `package.json`, `start.bat`, `server/index.js`, `server/router.js`, `server/core/{ids,errors,store,ledger,objects,cache}.js`, `tests/unit/core.test.js`
 
 Steps (TDD, commit after each green):
+
 1. `package.json` — `{"type":"module","scripts":{"start":"node server/index.js","test":"node --test tests/"}}`, deps pinned: `xlsx@^0.18`, `mammoth@^1.8`, `pdfjs-dist@^4`, `busboy@^1.6`, `fflate@^0.8`. `npm install` must succeed with zero build output.
 2. Tests then impl for `ids.js`: `canonical` sorts keys recursively (`canonical({b:1,a:{d:2,c:3}}) === '{"a":{"c":3,"d":2},"b":1}'`); `sha256("abc")` = `"ba7816bf8f01cfea414140de5dae2223b00361a396177a9cb410ff61f20015ad"`; `unitId` deterministic.
 3. `store.js`: `loadProject(slug)`, `saveProject(project)` (atomic: tmp+rename), `appendNdjson(path, obj)`, `readNdjson(path, {offset, limit, filter})` (streamed, never full-file for reads with limit), `listProjects()`. Test: write→crash-sim (leave .tmp)→load ignores tmp; append 10k lines then read offset 9990 limit 10.
@@ -238,6 +242,7 @@ Steps (TDD, commit after each green):
 **Files:** `server/stats/{agreement,boot,correction,models,descriptives,distributions}.js`, `tests/unit/{agreement,correction,models}.test.js`, `tests/sim/dsl.sim.test.js`
 
 **Signatures:**
+
 ```js
 // agreement.js — data: array of {unitId, coder, value}; handles missing (absent rows)
 percentAgreement(data) ; cohenKappa(data, {weighted?: "linear"|"quadratic"})
@@ -260,6 +265,7 @@ normQuantile(p) ; chi2Cdf(x, df) ; tCdf(x, df) ; bhQValues(ps)
 ```
 
 **Golden numbers (hand-derived — assert to 1e-9 unless noted):**
+
 - κ: 2 coders, 20 units, counts yes-yes 8, no-no 7, AB-disagree 3, BA-disagree 2 → po=0.75, pe=0.50, **κ = 0.5** exactly.
 - AC1 on the same table: π̄=0.525, pe=0.49875, **AC1 = 0.25125/0.50125 ≈ 0.5012468828**.
 - α nominal: 2 coders, 4 units (AA, AA, BB, AB) → **α = 8/15 = 0.5333333333**.
@@ -346,4 +352,5 @@ Implement the route table verbatim over Tasks A–G modules. Every mutating rout
 - Perf assertions per design §10. README: what Concord is, double-click quickstart, keyless demo walkthrough, adding real keys, privacy modes, repo map, test commands.
 
 ## Wave-4 polish checklist
+
 Dark mode pass on every screen · print.css for methods/report · keyboard map overlay (?) · ARIA labels + chart tables · empty states for every screen · `npm test` green · manual preview verification of the First Five Minutes against budgets · final code-review subagent pass (superpowers:requesting-code-review) · commit.

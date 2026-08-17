@@ -33,7 +33,13 @@ import * as engineMod from "../../server/runs/engine.js";
 import runsRoutes from "../../server/routes/runs.js";
 import { DEFAULT_TEMPLATE } from "../../server/instruments/judge.js";
 import { createProject, createConstruct, createInstrument } from "../../server/core/objects.js";
-import { saveProject, loadProject, updateProject, readNdjson, projectDir } from "../../server/core/store.js";
+import {
+  saveProject,
+  loadProject,
+  updateProject,
+  readNdjson,
+  projectDir,
+} from "../../server/core/store.js";
 import { getAdapter } from "../../server/providers/registry.js";
 import { ConcordError } from "../../server/core/errors.js";
 
@@ -71,13 +77,25 @@ function scriptedAdapter(script) {
       calls.push(req);
       const step = script[Math.min(calls.length - 1, script.length - 1)];
       if (step.boom) throw step.boom();
-      return { text: step.text, usage: { inputTokens: 10, outputTokens: 5 }, finishReason: "stop", raw: {} };
+      return {
+        text: step.text,
+        usage: { inputTokens: 10, outputTokens: 5 },
+        finishReason: "stop",
+        raw: {},
+      };
     },
   };
 }
 
-const req = { model: "m", messages: [{ role: "user", content: "judge it" }], schema, temperature: 0, maxTokens: 64 };
-const truncated = () => new ConcordError("TRUNCATED", "structured output truncated at the token limit", {});
+const req = {
+  model: "m",
+  messages: [{ role: "user", content: "judge it" }],
+  schema,
+  temperature: 0,
+  maxTokens: 64,
+};
+const truncated = () =>
+  new ConcordError("TRUNCATED", "structured output truncated at the token limit", {});
 
 // ================================================================ item 1: base.js
 
@@ -92,9 +110,16 @@ test("completeWithRepair: attemptsUsage totals every returned attempt; usage sta
   const repaired = scriptedAdapter([{ text: INVALID }, { text: VALID }]);
   const r2 = await completeWithRepair(repaired, req);
   assert.equal(r2.repairs, 1);
-  assert.deepEqual(r2.usage, { inputTokens: 10, outputTokens: 5 }, "usage stays the FINAL attempt's usage");
-  assert.deepEqual(r2.attemptsUsage, { inputTokens: 20, outputTokens: 10, attempts: 2 },
-    "the failed attempt's tokens are in the additive totals");
+  assert.deepEqual(
+    r2.usage,
+    { inputTokens: 10, outputTokens: 5 },
+    "usage stays the FINAL attempt's usage",
+  );
+  assert.deepEqual(
+    r2.attemptsUsage,
+    { inputTokens: 20, outputTokens: 10, attempts: 2 },
+    "the failed attempt's tokens are in the additive totals",
+  );
 });
 
 test("completeWithRepair: exhausted repairs (SCHEMA_INVALID) carry attemptsUsage on the error — quarantined spend is visible", async () => {
@@ -103,7 +128,11 @@ test("completeWithRepair: exhausted repairs (SCHEMA_INVALID) carry attemptsUsage
     completeWithRepair(adapter, req), // default maxRepairs = 2 → 3 attempts
     (err) => {
       assert.equal(err.code, "SCHEMA_INVALID");
-      assert.deepEqual(err.details.attemptsUsage, { inputTokens: 30, outputTokens: 15, attempts: 3 });
+      assert.deepEqual(err.details.attemptsUsage, {
+        inputTokens: 30,
+        outputTokens: 15,
+        attempts: 3,
+      });
       return true;
     },
   );
@@ -112,15 +141,15 @@ test("completeWithRepair: exhausted repairs (SCHEMA_INVALID) carry attemptsUsage
 test("completeWithRepair: a throwing attempt is unmeterable (no usage object), but prior returned attempts still ride the error", async () => {
   // attempt 1 returns (bills), attempt 2 throws TRUNCATED (no usage object)
   const adapter = scriptedAdapter([{ text: INVALID }, { boom: truncated }]);
-  await assert.rejects(
-    completeWithRepair(adapter, req),
-    (err) => {
-      assert.equal(err.code, "TRUNCATED");
-      assert.deepEqual(err.details.attemptsUsage, { inputTokens: 10, outputTokens: 5, attempts: 1 },
-        "only the RETURNED attempt is meterable; the throwing attempt carries no usage");
-      return true;
-    },
-  );
+  await assert.rejects(completeWithRepair(adapter, req), (err) => {
+    assert.equal(err.code, "TRUNCATED");
+    assert.deepEqual(
+      err.details.attemptsUsage,
+      { inputTokens: 10, outputTokens: 5, attempts: 1 },
+      "only the RETURNED attempt is meterable; the throwing attempt carries no usage",
+    );
+    return true;
+  });
 
   // a first-attempt throw has nothing meterable: no attemptsUsage stamped
   const firstThrow = scriptedAdapter([{ boom: truncated }]);
@@ -137,18 +166,32 @@ test("withTruncationRetry: attemptsUsage merges across the doubled-budget retry 
     (budget) => completeWithRepair(adapter, { ...req, maxTokens: budget }),
     { maxTokens: 64 },
   );
-  assert.deepEqual(res.attemptsUsage, { inputTokens: 20, outputTokens: 10, attempts: 2 },
-    "the first pass's returned attempt merges into the retry's totals");
+  assert.deepEqual(
+    res.attemptsUsage,
+    { inputTokens: 20, outputTokens: 10, attempts: 2 },
+    "the first pass's returned attempt merges into the retry's totals",
+  );
   assert.equal(adapter.calls.length, 3);
   assert.equal(adapter.calls[2].maxTokens, 128);
 
   // both passes truncate: the propagated error totals every returned attempt
-  const adapter2 = scriptedAdapter([{ text: INVALID }, { boom: truncated }, { text: INVALID }, { boom: truncated }]);
+  const adapter2 = scriptedAdapter([
+    { text: INVALID },
+    { boom: truncated },
+    { text: INVALID },
+    { boom: truncated },
+  ]);
   await assert.rejects(
-    withTruncationRetry((budget) => completeWithRepair(adapter2, { ...req, maxTokens: budget }), { maxTokens: 64 }),
+    withTruncationRetry((budget) => completeWithRepair(adapter2, { ...req, maxTokens: budget }), {
+      maxTokens: 64,
+    }),
     (err) => {
       assert.equal(err.code, "TRUNCATED");
-      assert.deepEqual(err.details.attemptsUsage, { inputTokens: 20, outputTokens: 10, attempts: 2 });
+      assert.deepEqual(err.details.attemptsUsage, {
+        inputTokens: 20,
+        outputTokens: 10,
+        attempts: 2,
+      });
       return true;
     },
   );
@@ -163,12 +206,21 @@ function fixUsage(t, inputTokens = 100, outputTokens = 10) {
     const res = await proto.complete.call(this, r);
     return { ...res, usage: { inputTokens, outputTokens } };
   };
-  t.after(() => { delete mock.complete; });
+  t.after(() => {
+    delete mock.complete;
+  });
 }
 
-const directorSlot = (handler) => ({ provider: "mock", model: "mock-1", snapshot: "mock-1", systemSuffix: `[[handler:${handler}]]` });
+const directorSlot = (handler) => ({
+  provider: "mock",
+  model: "mock-1",
+  snapshot: "mock-1",
+  systemSuffix: `[[handler:${handler}]]`,
+});
 const okSchema = {
-  type: "object", additionalProperties: false, required: ["ok"],
+  type: "object",
+  additionalProperties: false,
+  required: ["ok"],
   properties: { ok: { type: "string" } },
 };
 
@@ -181,13 +233,24 @@ test("callDirector: repair attempts meter EXACTLY once — attemptsUsage is the 
   });
   t.after(() => mock.handlers.delete("meter-d-repair"));
 
-  const project = { id: "p_meterdirrep001", slug: "meter-dir-repair", privacyMode: "open", director: directorSlot("meter-d-repair") };
-  const res = await callDirector(project, { messages: [{ role: "user", content: "go" }], schema: okSchema });
+  const project = {
+    id: "p_meterdirrep001",
+    slug: "meter-dir-repair",
+    privacyMode: "open",
+    director: directorSlot("meter-d-repair"),
+  };
+  const res = await callDirector(project, {
+    messages: [{ role: "user", content: "go" }],
+    schema: okSchema,
+  });
   assert.equal(res.repairs, 1);
   const costs = directorCosts(project);
   assert.equal(costs.calls, 1, "one logical Director call");
-  assert.equal(costs.inputTokens, 200,
-    "two attempts metered once each — 300/400 would mean the final attempt or the totals were double-counted");
+  assert.equal(
+    costs.inputTokens,
+    200,
+    "two attempts metered once each — 300/400 would mean the final attempt or the totals were double-counted",
+  );
   assert.equal(costs.outputTokens, 20);
 });
 
@@ -196,7 +259,12 @@ test("callDirector: a Director call that exhausts repairs still bills — every 
   mock.setHandler("meter-d-fail", () => ({ wrong: true }));
   t.after(() => mock.handlers.delete("meter-d-fail"));
 
-  const project = { id: "p_meterdirfail01", slug: "meter-dir-fail", privacyMode: "open", director: directorSlot("meter-d-fail") };
+  const project = {
+    id: "p_meterdirfail01",
+    slug: "meter-dir-fail",
+    privacyMode: "open",
+    director: directorSlot("meter-d-fail"),
+  };
   await assert.rejects(
     callDirector(project, { messages: [{ role: "user", content: "go" }], schema: okSchema }),
     (e) => e.code === "SCHEMA_INVALID",
@@ -211,21 +279,33 @@ test("callDirector: a Director call that exhausts repairs still bills — every 
 
 const binaryConstruct = () =>
   createConstruct({
-    id: "c_bin", name: "Pay mention", type: "binary",
+    id: "c_bin",
+    name: "Pay mention",
+    type: "binary",
     definition: "The unit mentions pay or salary.",
     criteria: { include: ["mentions pay"], exclude: [] },
   });
 
 const judgePayload = (extra = {}) => ({
-  provider: "mock", model: "mock-1", snapshot: "mock-1",
+  provider: "mock",
+  model: "mock-1",
+  snapshot: "mock-1",
   params: { temperature: 0, maxTokens: 64 },
   promptTemplate: DEFAULT_TEMPLATE,
-  rationaleFirst: true, workerClass: "frontier",
+  rationaleFirst: true,
+  workerClass: "frontier",
   ...extra,
 });
 
 const judgeInstrument = (extra = {}, payloadExtra = {}) =>
-  createInstrument({ id: "inst_j", constructId: "c_bin", kind: "judge", name: "judge", payload: judgePayload(payloadExtra), ...extra });
+  createInstrument({
+    id: "inst_j",
+    constructId: "c_bin",
+    kind: "judge",
+    name: "judge",
+    payload: judgePayload(payloadExtra),
+    ...extra,
+  });
 
 function makeUnits(n, { isPay = (i) => i % 3 === 0, len = 60 } = {}) {
   return Array.from({ length: n }, (_, i) => {
@@ -255,9 +335,18 @@ async function setup(slug, { units, instruments = [] }) {
 function patchPricing(t, inUSDper1M = 1000, outUSDper1M = 1000) {
   const orig = mock.catalog;
   mock.catalog = async () => [
-    { id: "mock-1", name: "Mock", family: "mock", ctx: 128_000, pricing: { inUSDper1M, outUSDper1M }, snapshot: "mock-1" },
+    {
+      id: "mock-1",
+      name: "Mock",
+      family: "mock",
+      ctx: 128_000,
+      pricing: { inUSDper1M, outUSDper1M },
+      snapshot: "mock-1",
+    },
   ];
-  t.after(() => { mock.catalog = orig; });
+  t.after(() => {
+    mock.catalog = orig;
+  });
 }
 
 const outputsFile = (slug, runId) => path.join(projectDir(slug), "runs", runId, "outputs.ndjson");
@@ -267,7 +356,10 @@ test("executeRun: quarantined units' attempts reach run.cost; successful units m
   const N = 6;
   const units = makeUnits(N);
   const poison = units[2];
-  const inst = judgeInstrument({}, { promptTemplate: `[[handler:meter-poison]]\n${DEFAULT_TEMPLATE}` });
+  const inst = judgeInstrument(
+    {},
+    { promptTemplate: `[[handler:meter-poison]]\n${DEFAULT_TEMPLATE}` },
+  );
   const project = await setup(slug, { units, instruments: [inst] });
   mock.setAccuracy(1.0);
   mock.setOracle(ORACLE);
@@ -290,9 +382,17 @@ test("executeRun: quarantined units' attempts reach run.cost; successful units m
   // 5 clean units × 1 attempt + 1 quarantined unit × 3 attempts = 8 attempts.
   // An exact pin catches BOTH failure modes: 500 = quarantined spend invisible
   // (the old behavior), 1300 = attempts metered twice (wrapper + final usage).
-  assert.equal(done.cost.inputTokens, 800, "every returned attempt bills, including the quarantined unit's three");
+  assert.equal(
+    done.cost.inputTokens,
+    800,
+    "every returned attempt bills, including the quarantined unit's three",
+  );
   assert.equal(done.cost.outputTokens, 80);
-  assert.equal(done.cost.actualUSD, 0.88, "quarantined spend reaches run.cost.actualUSD (8 attempts × $0.11)");
+  assert.equal(
+    done.cost.actualUSD,
+    0.88,
+    "quarantined spend reaches run.cost.actualUSD (8 attempts × $0.11)",
+  );
 });
 
 // ================================================================ item 2: resume budget re-check
@@ -319,7 +419,10 @@ test("resume re-checks the budget over the REMAINING units: refused under a lowe
   const paused = await engineMod.executeRun(slug, run.id, {
     concurrency: 1,
     shouldStop: () => control,
-    onTick: () => { ticks += 1; if (ticks === N / 2) control = "pause"; },
+    onTick: () => {
+      ticks += 1;
+      if (ticks === N / 2) control = "pause";
+    },
   });
   assert.equal(paused.status, "paused");
   const doneIds = new Set((await readNdjson(outputsFile(slug, run.id))).map((o) => o.unitId));
@@ -337,24 +440,31 @@ test("resume re-checks the budget over the REMAINING units: refused under a lowe
   const resume = routeHandler(runsRoutes, "POST", "/api/projects/:p/runs/:r/resume");
 
   // cap below spent + remaining estimate → refused with the start gate's shape
-  await updateProject(slug, (p) => { p.budget = { capUSD: spent + estRemaining * 0.5, spentUSD: spent }; });
-  await assert.rejects(
-    resume({}, null, { p: slug, r: run.id }),
-    (err) => {
-      assert.equal(err.code, "BUDGET_EXCEEDED");
-      assert.match(err.message, /budget cap/);
-      assert.equal(typeof err.details.spentUSD, "number");
-      assert.equal(typeof err.details.capUSD, "number");
-      return true;
-    },
+  await updateProject(slug, (p) => {
+    p.budget = { capUSD: spent + estRemaining * 0.5, spentUSD: spent };
+  });
+  await assert.rejects(resume({}, null, { p: slug, r: run.id }), (err) => {
+    assert.equal(err.code, "BUDGET_EXCEEDED");
+    assert.match(err.message, /budget cap/);
+    assert.equal(typeof err.details.spentUSD, "number");
+    assert.equal(typeof err.details.capUSD, "number");
+    return true;
+  });
+  assert.equal(
+    (await loadProject(slug)).runs[0].status,
+    "paused",
+    "a refused resume mutates nothing — the run stays paused",
   );
-  assert.equal((await loadProject(slug)).runs[0].status, "paused",
-    "a refused resume mutates nothing — the run stays paused");
 
   // cap between the REMAINING estimate and the full estimate → resumes:
   // proves the gate estimates total-minus-done, not the whole corpus again
-  await updateProject(slug, (p) => { p.budget = { capUSD: spent + estRemaining * 1.5, spentUSD: spent }; });
-  assert.ok(spent + estRemaining * 1.5 < spent + estTotal, "this cap WOULD refuse a full-corpus re-estimate");
+  await updateProject(slug, (p) => {
+    p.budget = { capUSD: spent + estRemaining * 1.5, spentUSD: spent };
+  });
+  assert.ok(
+    spent + estRemaining * 1.5 < spent + estTotal,
+    "this cap WOULD refuse a full-corpus re-estimate",
+  );
   const out = await resume({}, null, { p: slug, r: run.id });
   assert.equal(out.status, "running");
   assert.equal(out.resumed, true);
@@ -384,7 +494,10 @@ test("resume with no project cap stays ungated", async (t) => {
   await engineMod.executeRun(slug, run.id, {
     concurrency: 1,
     shouldStop: () => control,
-    onTick: () => { ticks += 1; if (ticks === 3) control = "pause"; },
+    onTick: () => {
+      ticks += 1;
+      if (ticks === 3) control = "pause";
+    },
   });
 
   const resume = routeHandler(runsRoutes, "POST", "/api/projects/:p/runs/:r/resume");

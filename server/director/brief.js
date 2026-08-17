@@ -44,7 +44,10 @@ export function stratifiedSample(units, corpusId, target) {
       const v = String(u.meta?.[catCol] ?? "");
       counts.set(v, (counts.get(v) ?? 0) + 1);
     }
-    const top = [...counts.entries()].sort((a, b) => b[1] - a[1]).slice(0, 5).map(([v]) => v);
+    const top = [...counts.entries()]
+      .sort((a, b) => b[1] - a[1])
+      .slice(0, 5)
+      .map(([v]) => v);
     const topSet = new Set(top);
     cellOf = (u) => {
       const v = String(u.meta?.[catCol] ?? "");
@@ -121,10 +124,13 @@ const BRIEF_TICK_MS = 2000;
 // itself cannot be cancelled without an abortable callDirector; that is the
 // known limit of the cooperative approach and is documented in the route.)
 export async function generateBrief(project, corpusId, { onParagraph, onStage, signal } = {}) {
-  const stage = (event, data) => { onStage?.(event, data); };
+  const stage = (event, data) => {
+    onStage?.(event, data);
+  };
   const aborted = () => Boolean(signal?.aborted);
   const stopIfAborted = () => {
-    if (aborted()) throw new ConcordError("ABORTED", "brief generation aborted — the client disconnected", {});
+    if (aborted())
+      throw new ConcordError("ABORTED", "brief generation aborted — the client disconnected", {});
   };
   const { meta, units } = await readCorpusUnits(project, corpusId);
   stopIfAborted();
@@ -162,10 +168,16 @@ export async function generateBrief(project, corpusId, { onParagraph, onStage, s
   // call — stop here rather than spend it (anything already persisted is
   // nothing yet; the brief is written only after the call returns).
   stopIfAborted();
-  stage("director-called", { provider: project?.director?.provider ?? null, model: project?.director?.model ?? null });
+  stage("director-called", {
+    provider: project?.director?.provider ?? null,
+    model: project?.director?.model ?? null,
+  });
   const calledAt = Date.now();
   const ticker = onStage
-    ? setInterval(() => stage("tick", { elapsed: Math.round((Date.now() - calledAt) / 1000) }), BRIEF_TICK_MS)
+    ? setInterval(
+        () => stage("tick", { elapsed: Math.round((Date.now() - calledAt) / 1000) }),
+        BRIEF_TICK_MS,
+      )
     : null;
   let res;
   try {
@@ -191,13 +203,20 @@ export async function generateBrief(project, corpusId, { onParagraph, onStage, s
   // Evidence validation: every ref must point at a unit the Director saw.
   stage("validating", { sampleN: sample.length });
   const dropped = { n: 0 };
-  const paragraphs = (out.paragraphs ?? []).map((p) => ({ md: p.md, refs: filterRefs(p.refs, validIds, dropped) }));
+  const paragraphs = (out.paragraphs ?? []).map((p) => ({
+    md: p.md,
+    refs: filterRefs(p.refs, validIds, dropped),
+  }));
   const themes = (out.themes ?? []).map((t) => ({
     name: t.name,
     definition: t.definition,
     quoteRefs: filterRefs(t.quoteRefs, validIds, dropped),
   }));
-  const redFlags = (out.redFlags ?? []).map((f) => ({ kind: f.kind, detail: f.detail, refs: filterRefs(f.refs, validIds, dropped) }));
+  const redFlags = (out.redFlags ?? []).map((f) => ({
+    kind: f.kind,
+    detail: f.detail,
+    refs: filterRefs(f.refs, validIds, dropped),
+  }));
 
   const brief = {
     id: newId("brief"),
@@ -212,7 +231,13 @@ export async function generateBrief(project, corpusId, { onParagraph, onStage, s
     themes,
     redFlags,
     suggestedQuestions: out.suggestedQuestions ?? [],
-    sample: { n: sample.length, design: "length-terciles × meta cells", strataColumn, strata, unitIds: sample.map((u) => u.id) },
+    sample: {
+      n: sample.length,
+      design: "length-terciles × meta cells",
+      strataColumn,
+      strata,
+      unitIds: sample.map((u) => u.id),
+    },
     issues: { invalidRefs: dropped.n },
   };
 
@@ -232,12 +257,18 @@ export async function generateBrief(project, corpusId, { onParagraph, onStage, s
       themes: themes.length,
     });
   });
-  await ledger.append(pdir, "director", "brief.generated", { briefId: brief.id, corpusId }, {
-    sampleN: sample.length,
-    paragraphs: paragraphs.length,
-    themes: themes.length,
-    redFlags: redFlags.length,
-    invalidRefs: dropped.n,
-  });
+  await ledger.append(
+    pdir,
+    "director",
+    "brief.generated",
+    { briefId: brief.id, corpusId },
+    {
+      sampleN: sample.length,
+      paragraphs: paragraphs.length,
+      themes: themes.length,
+      redFlags: redFlags.length,
+      invalidRefs: dropped.n,
+    },
+  );
   return brief;
 }

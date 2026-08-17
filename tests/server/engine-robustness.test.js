@@ -35,7 +35,13 @@ import evidenceRoutes from "../../server/routes/evidence.js";
 import analysesRoutes from "../../server/routes/analyses.js";
 import { DEFAULT_TEMPLATE } from "../../server/instruments/judge.js";
 import { createProject, createConstruct, createInstrument } from "../../server/core/objects.js";
-import { saveProject, loadProject, updateProject, readNdjson, projectDir } from "../../server/core/store.js";
+import {
+  saveProject,
+  loadProject,
+  updateProject,
+  readNdjson,
+  projectDir,
+} from "../../server/core/store.js";
 import { ConcordError } from "../../server/core/errors.js";
 import { getAdapter } from "../../server/providers/registry.js";
 
@@ -76,7 +82,14 @@ const judgePayload = (extra = {}) => ({
 });
 
 const judgeInstrument = (extra = {}, payloadExtra = {}) =>
-  createInstrument({ id: "inst_j", constructId: "c_bin", kind: "judge", name: "judge", payload: judgePayload(payloadExtra), ...extra });
+  createInstrument({
+    id: "inst_j",
+    constructId: "c_bin",
+    kind: "judge",
+    name: "judge",
+    payload: judgePayload(payloadExtra),
+    ...extra,
+  });
 
 // Equal-length unit texts: the p99-length escalation predicate stays quiet.
 function makeUnits(n, { isPay = (i) => i % 3 === 0, len = 60 } = {}) {
@@ -91,7 +104,10 @@ function makeUnits(n, { isPay = (i) => i % 3 === 0, len = 60 } = {}) {
   });
 }
 
-async function setup(slug, { units, instruments = [], constructs = [binaryConstruct()], director = null } = {}) {
+async function setup(
+  slug,
+  { units, instruments = [], constructs = [binaryConstruct()], director = null } = {},
+) {
   const project = createProject({ name: slug, slug, privacyMode: "open" });
   project.director = director;
   project.corpora.push({ id: "c1", name: "corpus" });
@@ -100,7 +116,11 @@ async function setup(slug, { units, instruments = [], constructs = [binaryConstr
   await saveProject(project);
   const file = path.join(projectDir(slug), "corpora", "c1", "units.ndjson");
   await mkdir(path.dirname(file), { recursive: true });
-  await writeFile(file, units.length ? units.map((u) => JSON.stringify(u)).join("\n") + "\n" : "", "utf8");
+  await writeFile(
+    file,
+    units.length ? units.map((u) => JSON.stringify(u)).join("\n") + "\n" : "",
+    "utf8",
+  );
   return { project, pdir: projectDir(slug) };
 }
 
@@ -147,10 +167,16 @@ test("fix 1: a concurrent rename mid-run survives the engine's next checkpoint (
   // engine-owned fields advanced…
   assert.equal(onDisk.status, "complete", "the engine still drove status to terminal");
   assert.equal(onDisk.checkpoint.done, N, "the engine still advanced the checkpoint");
-  assert.ok(onDisk.labelDist && Object.keys(onDisk.labelDist).length > 0, "engine still persisted labelDist");
+  assert.ok(
+    onDisk.labelDist && Object.keys(onDisk.labelDist).length > 0,
+    "engine still persisted labelDist",
+  );
   // …and the route-owned field the engine does NOT own survived every checkpoint
-  assert.equal(onDisk.name, "RENAMED MID RUN",
-    "a concurrent rename of a route-owned field is NOT reverted by the engine's checkpoint/terminal writes");
+  assert.equal(
+    onDisk.name,
+    "RENAMED MID RUN",
+    "a concurrent rename of a route-owned field is NOT reverted by the engine's checkpoint/terminal writes",
+  );
 });
 
 test("fix 1: route-owned fields set after createRun (pinned/capUSD) survive a full run untouched", async () => {
@@ -186,32 +212,42 @@ test("fix 1: route-owned fields set after createRun (pinned/capUSD) survive a fu
 // =============================================================================
 
 test("fix 2: the shared transient-error retry helper retries EPERM/EBUSY/EACCES and rethrows others", async () => {
-  assert.equal(typeof store.retryTransient, "function",
-    "store exports a shared transient-error retry helper (extracted from renameWithRetry)");
+  assert.equal(
+    typeof store.retryTransient,
+    "function",
+    "store exports a shared transient-error retry helper (extracted from renameWithRetry)",
+  );
 
   // a one-shot EPERM is retried and the operation ultimately succeeds
   let calls = 0;
-  const out = await store.retryTransient(async () => {
-    calls += 1;
-    if (calls === 1) {
-      const err = new Error("EPERM: operation not permitted");
-      err.code = "EPERM";
-      throw err;
-    }
-    return "ok";
-  }, { baseMs: 1 });
+  const out = await store.retryTransient(
+    async () => {
+      calls += 1;
+      if (calls === 1) {
+        const err = new Error("EPERM: operation not permitted");
+        err.code = "EPERM";
+        throw err;
+      }
+      return "ok";
+    },
+    { baseMs: 1 },
+  );
   assert.equal(out, "ok");
   assert.equal(calls, 2, "retried exactly once after the transient fault");
 
   // a non-transient error is NOT retried — it propagates on the first throw
   let calls2 = 0;
   await assert.rejects(
-    () => store.retryTransient(async () => {
-      calls2 += 1;
-      const err = new Error("ENOSPC: no space left on device");
-      err.code = "ENOSPC";
-      throw err;
-    }, { baseMs: 1 }),
+    () =>
+      store.retryTransient(
+        async () => {
+          calls2 += 1;
+          const err = new Error("ENOSPC: no space left on device");
+          err.code = "ENOSPC";
+          throw err;
+        },
+        { baseMs: 1 },
+      ),
     (e) => e.code === "ENOSPC",
   );
   assert.equal(calls2, 1, "a non-transient fault is not retried");
@@ -219,12 +255,16 @@ test("fix 2: the shared transient-error retry helper retries EPERM/EBUSY/EACCES 
   // a persistent transient fault eventually gives up after `attempts`
   let calls3 = 0;
   await assert.rejects(
-    () => store.retryTransient(async () => {
-      calls3 += 1;
-      const err = new Error("EBUSY: resource busy");
-      err.code = "EBUSY";
-      throw err;
-    }, { attempts: 3, baseMs: 1 }),
+    () =>
+      store.retryTransient(
+        async () => {
+          calls3 += 1;
+          const err = new Error("EBUSY: resource busy");
+          err.code = "EBUSY";
+          throw err;
+        },
+        { attempts: 3, baseMs: 1 },
+      ),
     (e) => e.code === "EBUSY",
   );
   assert.equal(calls3, 3, "gave up after exactly `attempts` tries");
@@ -241,8 +281,11 @@ test("fix 2: appendNdjson retries a one-shot transient append fault and still wr
   // Inject a one-shot EPERM into the next append attempt via the minimal
   // fault-injection seam the fix adds. Without a retry this EPERM escapes and
   // crashes the run; with the retry the second attempt succeeds.
-  assert.equal(typeof store.__setAppendFaultInjector, "function",
-    "store exposes a minimal append fault-injection seam for the retry test");
+  assert.equal(
+    typeof store.__setAppendFaultInjector,
+    "function",
+    "store exposes a minimal append fault-injection seam for the retry test",
+  );
   let fired = false;
   store.__setAppendFaultInjector(() => {
     if (fired) return;
@@ -258,8 +301,15 @@ test("fix 2: appendNdjson retries a one-shot transient append fault and still wr
   assert.ok(res && typeof res.size === "number", "append returned its size after retrying");
 
   const lines = await readNdjson(file);
-  assert.equal(lines.length, 2, "both lines are on disk — the transient fault was retried, not fatal");
-  assert.deepEqual(lines.map((l) => l.unitId), ["u0", "u1"]);
+  assert.equal(
+    lines.length,
+    2,
+    "both lines are on disk — the transient fault was retried, not fatal",
+  );
+  assert.deepEqual(
+    lines.map((l) => l.unitId),
+    ["u0", "u1"],
+  );
 });
 
 // =============================================================================
@@ -287,7 +337,10 @@ test("fix 3: a corrupt run outputs file does NOT silently vanish from the dossie
   await writeFile(file, corrupt, "utf8");
 
   // sanity: the raw reader really throws on this file
-  await assert.rejects(() => readNdjson(file), (e) => e.code === "BAD_NDJSON");
+  await assert.rejects(
+    () => readNdjson(file),
+    (e) => e.code === "BAD_NDJSON",
+  );
 
   const handler = routeHandler(evidenceRoutes, "GET", "/api/projects/:p/evidence/:unitId");
   let threw = null;
@@ -300,15 +353,23 @@ test("fix 3: a corrupt run outputs file does NOT silently vanish from the dossie
 
   if (threw) {
     // acceptable: the corruption propagates as an error instead of vanishing
-    assert.ok(threw.code === "BAD_NDJSON" || /NDJSON|corrupt/i.test(threw.message ?? ""),
-      `the dossier surfaces the corruption as an error (got ${threw.code}: ${threw.message})`);
+    assert.ok(
+      threw.code === "BAD_NDJSON" || /NDJSON|corrupt/i.test(threw.message ?? ""),
+      `the dossier surfaces the corruption as an error (got ${threw.code}: ${threw.message})`,
+    );
   } else {
     // also acceptable: a dossier-level warning that does NOT pretend the run
     // simply had no outputs for this unit. The bug was a SILENT empty.
     const run0 = result.outputs.find((o) => o.runId === run.id);
-    const warned = Array.isArray(result.warnings) && result.warnings.some((w) => w.runId === run.id || /NDJSON|corrupt/i.test(String(w.message ?? w)));
-    assert.ok(warned || run0,
-      "a corrupt outputs file must NOT silently read as 'no outputs for this unit' — it errors or surfaces a warning");
+    const warned =
+      Array.isArray(result.warnings) &&
+      result.warnings.some(
+        (w) => w.runId === run.id || /NDJSON|corrupt/i.test(String(w.message ?? w)),
+      );
+    assert.ok(
+      warned || run0,
+      "a corrupt outputs file must NOT silently read as 'no outputs for this unit' — it errors or surfaces a warning",
+    );
   }
 });
 
@@ -330,11 +391,16 @@ test("fix 4 (pin): a corrupt panel outputs file surfaces from the analysis inste
   const slug = "panel-corrupt";
   const N = 9;
   const units = makeUnits(N);
-  const jurors = [judgePayload({ params: { temperature: 0, maxTokens: 64, seed: "j1" } }),
-                  judgePayload({ params: { temperature: 0, maxTokens: 64, seed: "j2" } }),
-                  judgePayload({ params: { temperature: 0, maxTokens: 64, seed: "j3" } })];
+  const jurors = [
+    judgePayload({ params: { temperature: 0, maxTokens: 64, seed: "j1" } }),
+    judgePayload({ params: { temperature: 0, maxTokens: 64, seed: "j2" } }),
+    judgePayload({ params: { temperature: 0, maxTokens: 64, seed: "j3" } }),
+  ];
   const panel = createInstrument({
-    id: "inst_p", constructId: "c_bin", kind: "panel", name: "panel",
+    id: "inst_p",
+    constructId: "c_bin",
+    kind: "panel",
+    name: "panel",
     payload: { jurors, aggregation: "majority" },
   });
   const { project } = await setup(slug, { units, instruments: [panel] });
@@ -349,7 +415,10 @@ test("fix 4 (pin): a corrupt panel outputs file surfaces from the analysis inste
   const good = (await readFile(file, "utf8")).trimEnd().split("\n");
   const corrupt = [good[0], "{ broken juror line", ...good.slice(1)].join("\n") + "\n";
   await writeFile(file, corrupt, "utf8");
-  await assert.rejects(() => readNdjson(file), (e) => e.code === "BAD_NDJSON");
+  await assert.rejects(
+    () => readNdjson(file),
+    (e) => e.code === "BAD_NDJSON",
+  );
 
   const post = routeHandler(analysesRoutes, "POST", "/api/projects/:p/analyses");
   await assert.rejects(
@@ -385,8 +454,11 @@ test("fix 5: two overlapping launches for one run do not poison the registry (ru
   // neither throws RUN_ACTIVE out to the client
   for (const settled of [a, b]) {
     if (settled.status === "rejected") {
-      assert.notEqual(settled.reason?.code, "RUN_ACTIVE",
-        "RUN_ACTIVE must never escape to the client — the backstop owns it, it is not a failure");
+      assert.notEqual(
+        settled.reason?.code,
+        "RUN_ACTIVE",
+        "RUN_ACTIVE must never escape to the client — the backstop owns it, it is not a failure",
+      );
     }
   }
 
@@ -397,8 +469,11 @@ test("fix 5: two overlapping launches for one run do not poison the registry (ru
     if (onDisk.status === "complete" || onDisk.status === "failed") break;
     await sleep(50);
   }
-  assert.equal(onDisk.status, "complete",
-    "the run completes — the RUN_ACTIVE loser must NOT flip the genuinely-running record to failed");
+  assert.equal(
+    onDisk.status,
+    "complete",
+    "the run completes — the RUN_ACTIVE loser must NOT flip the genuinely-running record to failed",
+  );
   assert.equal(onDisk.error, undefined, "no error stamped on the record");
 
   const lines = await readNdjson(outputsFile(slug, run.id));

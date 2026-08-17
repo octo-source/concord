@@ -1,83 +1,112 @@
 <!doctype html>
 <html lang="en">
-<head>
-  <meta charset="utf-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1">
-  <meta name="color-scheme" content="light dark">
-  <title>Concord</title>
-  <link rel="stylesheet" href="css/tokens.css">
-  <link rel="stylesheet" href="css/base.css">
-  <link rel="stylesheet" href="css/components.css">
-  <link rel="stylesheet" href="css/screens.css">
-  <link rel="stylesheet" href="css/print.css">
-  <script>
-    // theme boots before first paint: stored choice, else the system's
-    (function () {
-      try {
-        var t = localStorage.getItem("concord-theme");
-        if (t === "dark" || (t !== "light" && matchMedia("(prefers-color-scheme: dark)").matches)) {
-          document.documentElement.setAttribute("data-theme", "dark");
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <meta name="color-scheme" content="light dark" />
+    <title>Concord</title>
+    <link rel="stylesheet" href="css/tokens.css" />
+    <link rel="stylesheet" href="css/base.css" />
+    <link rel="stylesheet" href="css/components.css" />
+    <link rel="stylesheet" href="css/screens.css" />
+    <link rel="stylesheet" href="css/print.css" />
+    <script>
+      // theme boots before first paint: stored choice, else the system's
+      (function () {
+        try {
+          var t = localStorage.getItem("concord-theme");
+          if (
+            t === "dark" ||
+            (t !== "light" && matchMedia("(prefers-color-scheme: dark)").matches)
+          ) {
+            document.documentElement.setAttribute("data-theme", "dark");
+          }
+        } catch (e) {
+          /* storage unavailable — stay on paper */
         }
-      } catch (e) { /* storage unavailable — stay on paper */ }
-    })();
-  </script>
-</head>
-<body>
-  <a class="skip-link" href="#workspace">Skip to workspace</a>
+      })();
+    </script>
+  </head>
+  <body>
+    <a class="skip-link" href="#workspace">Skip to workspace</a>
 
-  <div class="app" id="app" data-inspector="closed">
+    <div class="app" id="app" data-inspector="closed">
+      <!-- ============ top bar ============ -->
+      <header class="app-topbar">
+        <a class="wordmark" href="#/" aria-label="Concord home">
+          Concord<span class="wordmark__glyph" aria-hidden="true">◉</span>
+        </a>
 
-    <!-- ============ top bar ============ -->
-    <header class="app-topbar">
-      <a class="wordmark" href="#/" aria-label="Concord home">
-        Concord<span class="wordmark__glyph" aria-hidden="true">◉</span>
-      </a>
-
-      <!-- the Question Bar: element + styling now; behavior arrives with screens -->
-      <div class="qbar" role="search">
-        <div class="qbar__field">
-          <span class="qbar__sigil" aria-hidden="true">?</span>
-          <input
-            id="questionbar"
-            class="qbar__input"
-            type="text"
-            autocomplete="off"
-            spellcheck="false"
-            placeholder="Ask your data a question…"
-            aria-label="Ask your data a question. The answer is compiled into constructs, instruments, and an analysis plan for your approval."
-          >
-          <kbd class="qbar__key" aria-hidden="true">/</kbd>
+        <!-- the Question Bar: element + styling now; behavior arrives with screens -->
+        <div class="qbar" role="search">
+          <div class="qbar__field">
+            <span class="qbar__sigil" aria-hidden="true">?</span>
+            <input
+              id="questionbar"
+              class="qbar__input"
+              type="text"
+              autocomplete="off"
+              spellcheck="false"
+              placeholder="Ask your data a question…"
+              aria-label="Ask your data a question. The answer is compiled into constructs, instruments, and an analysis plan for your approval."
+            />
+            <kbd class="qbar__key" aria-hidden="true">/</kbd>
+          </div>
         </div>
-      </div>
 
-      <div class="topbar__cluster">
-        <span id="privacy-chip" class="chip topbar__chip" hidden title="Privacy mode governs which model backends may see your data">—</span>
-        <span id="cost-chip" class="chip topbar__chip data" title="Running model spend this session">$0.00</span>
-        <span id="server-dot" class="status-dot" role="status" aria-label="Server status: checking"></span>
-        <button id="theme-toggle" class="theme-toggle" type="button" aria-label="Switch theme">◐</button>
-        <button id="inspector-toggle" class="theme-toggle" type="button" aria-label="Toggle evidence inspector" title="Evidence inspector">⌕</button>
-      </div>
-    </header>
+        <div class="topbar__cluster">
+          <span
+            id="privacy-chip"
+            class="chip topbar__chip"
+            hidden
+            title="Privacy mode governs which model backends may see your data"
+            >—</span
+          >
+          <span
+            id="cost-chip"
+            class="chip topbar__chip data"
+            title="Running model spend this session"
+            >$0.00</span
+          >
+          <span
+            id="server-dot"
+            class="status-dot"
+            role="status"
+            aria-label="Server status: checking"
+          ></span>
+          <button id="theme-toggle" class="theme-toggle" type="button" aria-label="Switch theme">
+            ◐
+          </button>
+          <button
+            id="inspector-toggle"
+            class="theme-toggle"
+            type="button"
+            aria-label="Toggle evidence inspector"
+            title="Evidence inspector"
+          >
+            ⌕
+          </button>
+        </div>
+      </header>
 
-    <!-- ============ left rail ============ -->
-    <aside class="app-rail" aria-label="Project navigation">
-      <div id="rail-mount"></div>
-      <div class="rail__footer">
-        <span id="rail-status-dot" class="status-dot" aria-hidden="true"></span>
-        <span id="rail-status">looking for the server…</span>
-      </div>
-    </aside>
+      <!-- ============ left rail ============ -->
+      <aside class="app-rail" aria-label="Project navigation">
+        <div id="rail-mount"></div>
+        <div class="rail__footer">
+          <span id="rail-status-dot" class="status-dot" aria-hidden="true"></span>
+          <span id="rail-status">looking for the server…</span>
+        </div>
+      </aside>
 
-    <!-- ============ center workspace ============ -->
-    <main class="app-work" id="workspace-scroll">
-      <div class="work-page" id="workspace" tabindex="-1"></div>
-    </main>
+      <!-- ============ center workspace ============ -->
+      <main class="app-work" id="workspace-scroll">
+        <div class="work-page" id="workspace" tabindex="-1"></div>
+      </main>
 
-    <!-- ============ right inspector ============ -->
-    <aside class="app-inspector" id="inspector"></aside>
+      <!-- ============ right inspector ============ -->
+      <aside class="app-inspector" id="inspector"></aside>
+    </div>
 
-  </div>
-
-  <script type="module" src="js/main.js"></script>
-</body>
+    <script type="module" src="js/main.js"></script>
+  </body>
 </html>

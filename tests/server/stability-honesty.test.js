@@ -75,7 +75,11 @@ async function call(method, p, body) {
   const res = await fetch(base + p, init);
   const text = await res.text();
   let json = null;
-  try { json = JSON.parse(text); } catch { /* non-JSON */ }
+  try {
+    json = JSON.parse(text);
+  } catch {
+    /* non-JSON */
+  }
   return { status: res.status, json, text };
 }
 
@@ -91,7 +95,11 @@ async function upload(p, filename, content) {
   form.append("file", new Blob([content]), filename);
   const res = await fetch(base + p, { method: "POST", body: form });
   const json = JSON.parse(await res.text());
-  assert.equal(res.status, 200, `upload ${p} → ${res.status}: ${JSON.stringify(json).slice(0, 300)}`);
+  assert.equal(
+    res.status,
+    200,
+    `upload ${p} → ${res.status}: ${JSON.stringify(json).slice(0, 300)}`,
+  );
   assert.equal(json.ok, true);
   return json.data;
 }
@@ -103,9 +111,11 @@ async function upload(p, filename, content) {
 function makeCsv(rows, tag) {
   const lines = ["respondent_id,dept,response"];
   for (let i = 0; i < rows; i++) {
-    const text = (i % 2 === 0
-      ? `the salary is too low for this ${tag} work and it never improves (${i})`
-      : `the office is comfortable and the ${tag} team is genuinely kind (${i})`).padEnd(100, ".");
+    const text = (
+      i % 2 === 0
+        ? `the salary is too low for this ${tag} work and it never improves (${i})`
+        : `the office is comfortable and the ${tag} team is genuinely kind (${i})`
+    ).padEnd(100, ".");
     lines.push(`r${i},${i % 2 ? "sales" : "ops"},${text}`);
   }
   return lines.join("\n") + "\n";
@@ -128,9 +138,9 @@ const S = {
   slug: null,
   corpusA: null,
   constructId: null,
-  instId: null,      // the silver-promotion + staleness instrument ("Pay judge")
-  inst2Id: null,     // the frozen instrument ("Frozen judge")
-  checkHash: null,   // instId's versionHash at stability-check time
+  instId: null, // the silver-promotion + staleness instrument ("Pay judge")
+  inst2Id: null, // the frozen instrument ("Frozen judge")
+  checkHash: null, // instId's versionHash at stability-check time
 };
 
 const K = 3;
@@ -140,7 +150,8 @@ const ALT = { provider: "mock", model: "mock-gamma" };
 
 const artifactFile = (instId) => path.join(projectDir(S.slug), "stability", `${instId}.json`);
 const stabilityUrl = (instId) => `/api/projects/${S.slug}/instruments/${instId}/stability`;
-const reliabilityUrl = () => `/api/projects/${S.slug}/reliability/${S.constructId}?corpusId=${S.corpusA}`;
+const reliabilityUrl = () =>
+  `/api/projects/${S.slug}/reliability/${S.constructId}?corpusId=${S.corpusA}`;
 
 const STALE_NOTE = (name) =>
   `The stability check for ${name} ran on an earlier version of the instrument — rerun it to refresh.`;
@@ -165,7 +176,10 @@ test("stability: never-silver-tuned judge passes → response {alpha, pass, leve
     name: "Pay complaint",
     type: "binary",
     definition: "The unit complains about compensation.",
-    categories: [{ value: "yes", label: "Yes" }, { value: "no", label: "No" }],
+    categories: [
+      { value: "yes", label: "Yes" },
+      { value: "no", label: "No" },
+    ],
   });
   S.constructId = construct.id;
 
@@ -178,12 +192,18 @@ test("stability: never-silver-tuned judge passes → response {alpha, pass, leve
   S.instId = inst.id;
 
   const r = await ok("POST", stabilityUrl(S.instId), { k: K, n: N, corpusId: S.corpusA });
-  assert.deepEqual(Object.keys(r).sort(), ["alpha", "level", "pass"],
-    "response shape: {alpha, level, pass} and nothing else");
+  assert.deepEqual(
+    Object.keys(r).sort(),
+    ["alpha", "level", "pass"],
+    "response shape: {alpha, level, pass} and nothing else",
+  );
   assert.equal(r.alpha, 1, "accuracy-1.0 oracle is perfectly stable");
   assert.equal(r.pass, true);
-  assert.equal(r.level, "exploratory",
-    "a passing check WITHOUT silver evidence must not claim promotion — the route promotes only when inst.silver exists");
+  assert.equal(
+    r.level,
+    "exploratory",
+    "a passing check WITHOUT silver evidence must not claim promotion — the route promotes only when inst.silver exists",
+  );
 
   const p = await ok("GET", `/api/projects/${S.slug}`);
   const persisted = p.instruments.find((i) => i.id === S.instId);
@@ -193,7 +213,11 @@ test("stability: never-silver-tuned judge passes → response {alpha, pass, leve
 
   // fix 9a: the artifact records the compiled prompt the check actually ran
   const art = JSON.parse(await readFile(artifactFile(S.instId), "utf8"));
-  assert.equal(art.versionHash, persisted.versionHash, "artifact.versionHash is the instrument's hash at check time");
+  assert.equal(
+    art.versionHash,
+    persisted.versionHash,
+    "artifact.versionHash is the instrument's hash at check time",
+  );
   S.checkHash = art.versionHash;
 });
 
@@ -208,17 +232,32 @@ test("stability: once silver evidence exists, a passing check promotes → respo
     const inst = p.instruments.find((x) => x.id === S.instId);
     inst.silver = {
       goldsetId: "gs_planted",
-      iterations: [{ versionHash: inst.versionHash, agreement: 0.95, kappa: 0.9, alpha: 0.9, note: "planted" }],
+      iterations: [
+        { versionHash: inst.versionHash, agreement: 0.95, kappa: 0.9, alpha: 0.9, note: "planted" },
+      ],
     };
   });
 
-  const r = await ok("POST", stabilityUrl(S.instId), { k: K, n: N, corpusId: S.corpusA, models: [ALT] });
+  const r = await ok("POST", stabilityUrl(S.instId), {
+    k: K,
+    n: N,
+    corpusId: S.corpusA,
+    models: [ALT],
+  });
   assert.equal(r.pass, true);
   assert.equal(r.level, "stabilized", "silver evidence + passing check together mark ◑");
-  assert.deepEqual(r.alts, [{ provider: "mock", model: "mock-gamma", n: N }], "the alternate labeled the sample");
+  assert.deepEqual(
+    r.alts,
+    [{ provider: "mock", model: "mock-gamma", n: N }],
+    "the alternate labeled the sample",
+  );
 
   const p = await ok("GET", `/api/projects/${S.slug}`);
-  assert.equal(p.instruments.find((i) => i.id === S.instId).level, "stabilized", "promotion persisted");
+  assert.equal(
+    p.instruments.find((i) => i.id === S.instId).level,
+    "stabilized",
+    "promotion persisted",
+  );
 });
 
 // =========================================================================
@@ -240,14 +279,20 @@ test("stability: frozen instrument → response level is the unchanged level; no
     inst.frozen = true;
     inst.level = "calibrated";
     inst.certificate = {
-      frozenAt: new Date().toISOString(), goldsetId: "gs_planted",
-      versionHash: inst.versionHash, modelPinned: true,
+      frozenAt: new Date().toISOString(),
+      goldsetId: "gs_planted",
+      versionHash: inst.versionHash,
+      modelPinned: true,
     };
   });
 
   const r = await ok("POST", stabilityUrl(S.inst2Id), { k: K, n: N, corpusId: S.corpusA });
   assert.equal(r.pass, true);
-  assert.equal(r.level, "calibrated", "frozen instruments report their unchanged level — never a ◑ claim");
+  assert.equal(
+    r.level,
+    "calibrated",
+    "frozen instruments report their unchanged level — never a ◑ claim",
+  );
 
   const p = await ok("GET", `/api/projects/${S.slug}`);
   const persisted = p.instruments.find((i) => i.id === S.inst2Id);
@@ -255,7 +300,11 @@ test("stability: frozen instrument → response level is the unchanged level; no
   assert.equal(persisted.stability, undefined, "frozen instruments skip the summary persistence");
 
   const art = JSON.parse(await readFile(artifactFile(S.inst2Id), "utf8"));
-  assert.equal(art.versionHash, persisted.versionHash, "the artifact is still written (reliability reads it)");
+  assert.equal(
+    art.versionHash,
+    persisted.versionHash,
+    "the artifact is still written (reliability reads it)",
+  );
 });
 
 // =========================================================================
@@ -264,7 +313,9 @@ test("stability: frozen instrument → response level is the unchanged level; no
 
 test("reliability: instrument edited after its stability check → retest AND alt labels carry ' (earlier version)', exactly one rerun-to-refresh note; corpusId query returns the rows", async () => {
   const v2 = await ok("PUT", `/api/projects/${S.slug}/instruments/${S.instId}`, {
-    payload: judgePayload("Edited after the check. {{definition}} {{criteria}} {{examples}} {{unit}}"),
+    payload: judgePayload(
+      "Edited after the check. {{definition}} {{criteria}} {{examples}} {{unit}}",
+    ),
   });
   assert.notEqual(v2.versionHash, S.checkHash, "the edit re-versioned the instrument");
 
@@ -275,23 +326,35 @@ test("reliability: instrument edited after its stability check → retest AND al
   for (let i = 1; i <= K; i++) {
     const src = rel.sources.find((s) => s.key === `retest:${S.instId}:${i}`);
     assert.ok(src, `retest:${S.instId}:${i} present for the queried corpus`);
-    assert.equal(src.label, `Pay judge — rerun ${i} of ${K} (earlier version)`,
-      "stale rerun rows say which version they measured");
+    assert.equal(
+      src.label,
+      `Pay judge — rerun ${i} of ${K} (earlier version)`,
+      "stale rerun rows say which version they measured",
+    );
   }
   const altSrc = rel.sources.find((s) => s.key === `alt:${S.instId}:mock/mock-gamma`);
   assert.ok(altSrc, "the alt source from the same artifact is present");
-  assert.equal(altSrc.label, "Pay judge — alt judge mock-gamma (earlier version)",
-    "stale alt rows carry the same marker");
+  assert.equal(
+    altSrc.label,
+    "Pay judge — alt judge mock-gamma (earlier version)",
+    "stale alt rows carry the same marker",
+  );
 
   const staleNotes = rel.notes.filter((n) => n === STALE_NOTE("Pay judge"));
-  assert.equal(staleNotes.length, 1,
-    `exactly ONE note per stale artifact (got ${JSON.stringify(rel.notes)})`);
+  assert.equal(
+    staleNotes.length,
+    1,
+    `exactly ONE note per stale artifact (got ${JSON.stringify(rel.notes)})`,
+  );
 
   // the frozen instrument was NOT edited — its rows stay unmarked
   const frozenRerun = rel.sources.find((s) => s.key === `retest:${S.inst2Id}:1`);
   assert.ok(frozenRerun, "the frozen instrument's reruns are sources too");
-  assert.equal(frozenRerun.label, `Frozen judge — rerun 1 of ${K}`,
-    "a matching versionHash gets no marker");
+  assert.equal(
+    frozenRerun.label,
+    `Frozen judge — rerun 1 of ${K}`,
+    "a matching versionHash gets no marker",
+  );
   assert.ok(!rel.notes.includes(STALE_NOTE("Frozen judge")), "and no note");
 });
 
@@ -308,9 +371,17 @@ test("reliability: pre-versionHash artifact (field absent) → no marker, no not
   const rel = await ok("GET", reliabilityUrl());
   const r1 = rel.sources.find((s) => s.key === `retest:${S.instId}:1`);
   assert.ok(r1, "the rows still show");
-  assert.equal(r1.label, `Pay judge — rerun 1 of ${K}`, "no false staleness alarm on old artifacts");
-  assert.ok(!rel.sources.some((s) => String(s.label).includes("(earlier version)")),
-    "no source anywhere carries the marker");
-  assert.ok(!rel.notes.some((n) => n.includes("earlier version")),
-    `no rerun-to-refresh note (got ${JSON.stringify(rel.notes)})`);
+  assert.equal(
+    r1.label,
+    `Pay judge — rerun 1 of ${K}`,
+    "no false staleness alarm on old artifacts",
+  );
+  assert.ok(
+    !rel.sources.some((s) => String(s.label).includes("(earlier version)")),
+    "no source anywhere carries the marker",
+  );
+  assert.ok(
+    !rel.notes.some((n) => n.includes("earlier version")),
+    `no rerun-to-refresh note (got ${JSON.stringify(rel.notes)})`,
+  );
 });

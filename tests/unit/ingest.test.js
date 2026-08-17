@@ -63,7 +63,10 @@ test("csv: tab delimiter sniffed", async () => {
   const p = join(dir, "t.tsv");
   writeFileSync(p, "a\tb\n1\tx y\n2\tz\n");
   const { rows } = await csv.parse(p);
-  assert.deepEqual(rows, [{ a: "1", b: "x y" }, { a: "2", b: "z" }]);
+  assert.deepEqual(rows, [
+    { a: "1", b: "x y" },
+    { a: "2", b: "z" },
+  ]);
   rmSync(dir, { recursive: true, force: true });
 });
 
@@ -247,7 +250,7 @@ test("text: malformed numeric entity survives as literal, no throw", () => {
 
 test("text: named entities mdash/ndash/quotes/hellip decode", () => {
   const paras = text.htmlToParas(
-    "<p>em&mdash;dash en&ndash;dash &lsquo;l&rsquo; &ldquo;d&rdquo; wait&hellip; it&apos;s</p>"
+    "<p>em&mdash;dash en&ndash;dash &lsquo;l&rsquo; &ldquo;d&rdquo; wait&hellip; it&apos;s</p>",
   );
   assert.equal(paras[0], "em—dash en–dash ‘l’ “d” wait… it's");
 });
@@ -286,7 +289,7 @@ test("transcript: consecutive anonymous cues stay separate turns", async () => {
   const p = join(dir, "anon.vtt");
   writeFileSync(
     p,
-    "WEBVTT\n\n00:00:01.000 --> 00:00:02.000\nfirst anonymous line\n\n00:00:02.500 --> 00:00:03.500\nsecond anonymous line\n"
+    "WEBVTT\n\n00:00:01.000 --> 00:00:02.000\nfirst anonymous line\n\n00:00:02.500 --> 00:00:03.500\nsecond anonymous line\n",
   );
   const { turns } = await transcript.parse(p);
   assert.equal(turns.length, 2);
@@ -320,7 +323,12 @@ test("zoom json: speakers, times, merge", async () => {
 test("zoom json: Otter/Rev words arrays join into text, not [object Object]", () => {
   const raw = JSON.stringify({
     segments: [
-      { speaker: "Eve", start: 0, end: 2.5, words: [{ text: "Deep" }, { word: "work" }, "matters", { text: "here" }] },
+      {
+        speaker: "Eve",
+        start: 0,
+        end: 2.5,
+        words: [{ text: "Deep" }, { word: "work" }, "matters", { text: "here" }],
+      },
       { speaker: "Frank", start: 3, end: 5, words: [{ text: "Agreed" }, { word: "fully" }] },
     ],
   });
@@ -446,8 +454,14 @@ test("unitize sentence: more abbreviation cases", () => {
     ["One! Two? Three.", 3],
   ];
   for (const [textIn, n] of cases) {
-    const units = unitize(CORPUS, { rows: [{ t: textIn }], issues: [] }, "sentence", { textColumn: "t" });
-    assert.equal(units.length, n, `"${textIn}" -> expected ${n}, got ${units.map((u) => JSON.stringify(u.text))}`);
+    const units = unitize(CORPUS, { rows: [{ t: textIn }], issues: [] }, "sentence", {
+      textColumn: "t",
+    });
+    assert.equal(
+      units.length,
+      n,
+      `"${textIn}" -> expected ${n}, got ${units.map((u) => JSON.stringify(u.text))}`,
+    );
   }
 });
 
@@ -460,7 +474,9 @@ test("unitize sentence: Unicode capitals (Ž, Cyrillic, Ý) open sentences; × d
     ["lower case start. no split here.", 1], // lowercase sentence starts intentionally do not split
   ];
   for (const [textIn, n] of cases) {
-    const units = unitize(CORPUS, { rows: [{ t: textIn }], issues: [] }, "sentence", { textColumn: "t" });
+    const units = unitize(CORPUS, { rows: [{ t: textIn }], issues: [] }, "sentence", {
+      textColumn: "t",
+    });
     assert.equal(units.length, n, `"${textIn}" -> got ${JSON.stringify(units.map((u) => u.text))}`);
   }
 });
@@ -608,14 +624,20 @@ test("unitize sentence: ids anchored to source row, unchanged when earlier empty
   assert.equal(a.length, 2);
   assert.equal(b.length, 4);
   // row 1's sentence ids do not depend on whether row 0 was empty
-  assert.deepEqual(a.map((u) => u.id), b.slice(2).map((u) => u.id));
+  assert.deepEqual(
+    a.map((u) => u.id),
+    b.slice(2).map((u) => u.id),
+  );
   // id = unitId(corpusId, "<sourceRowIndex>:<sentenceIndexWithinRow>", text)
   assert.equal(a[0].id, unitId(CORPUS, "1:0", "Stable point."));
   assert.equal(a[1].id, unitId(CORPUS, "1:1", "Another point."));
 });
 
 test("unitize: re-running on identical parsed input yields identical ids (all schemes)", () => {
-  const rows = { rows: [{ t: "One thing. Two things." }, { t: "" }, { t: "Three things." }], issues: [] };
+  const rows = {
+    rows: [{ t: "One thing. Two things." }, { t: "" }, { t: "Three things." }],
+    issues: [],
+  };
   const docs = { docs: [{ name: "a.txt", paras: ["P one.", "", "P two."] }], issues: [] };
   const turns = {
     turns: [
@@ -645,7 +667,7 @@ test("unitize: re-running on identical parsed input yields identical ids (all sc
 test("unitize: scheme/source mismatch throws ConcordError", () => {
   assert.throws(
     () => unitize(CORPUS, { rows: [{ t: "x" }], issues: [] }, "turn", { textColumn: "t" }),
-    (e) => e.name === "ConcordError" && e.code === "BAD_SCHEME"
+    (e) => e.name === "ConcordError" && e.code === "BAD_SCHEME",
   );
 });
 
@@ -705,7 +727,10 @@ test("junk: scan does not flag 'no'/'nope'/row-letter words as na", () => {
 });
 
 test("junk: short flag when corpus median is long", () => {
-  const long = Array.from({ length: 8 }, (_, i) => `A long enough answer number ${i} with many words.`);
+  const long = Array.from(
+    { length: 8 },
+    (_, i) => `A long enough answer number ${i} with many words.`,
+  );
   const units = mkUnits([...long, "too short"]);
   const { flagged } = junk.scan(units);
   const f = flagged.find((x) => x.kind === "short");
@@ -757,7 +782,14 @@ test("junk: bot — three identical non-trivial texts all flagged", () => {
 
 test("junk: two identical texts are dup not bot; trivial repeats not bot", () => {
   const t = "This repeated answer has at least six tokens in it.";
-  const units = mkUnits([t, t, "yes", "yes", "yes", "A unique long answer with lots of words inside."]);
+  const units = mkUnits([
+    t,
+    t,
+    "yes",
+    "yes",
+    "yes",
+    "A unique long answer with lots of words inside.",
+  ]);
   const { flagged } = junk.scan(units);
   assert.ok(!flagged.some((f) => f.kind === "bot"), "no bot flags expected");
   const dupF = flagged.filter((f) => f.kind === "dup");
@@ -811,7 +843,10 @@ test("pii: scan finds emails, phones, ssn, user-urls, names", () => {
   // the email regex — the longer url_user span must suppress that email span
   assert.ok(!kinds(units[3]).includes("email"), "embedded email span suppressed by url_user");
   const urlSpan = byId[units[3].id].find((s) => s.kind === "url_user");
-  assert.equal(units[3].text.slice(urlSpan.start, urlSpan.end), "https://user:pw@internal.example.org/path");
+  assert.equal(
+    units[3].text.slice(urlSpan.start, urlSpan.end),
+    "https://user:pw@internal.example.org/path",
+  );
   assert.ok(kinds(units[4]).includes("phone"));
   assert.equal(byId[units[5].id], undefined);
 });
@@ -838,8 +873,14 @@ test("pii: real phone formats still detected", () => {
   ]);
   const { findings, counts } = pii.scan(units);
   assert.equal(counts.phone, 6, JSON.stringify(findings.map((f) => f.spans)));
-  const texts = findings.flatMap((f) => f.spans).filter((s) => s.kind === "phone").map((s) => s.text);
-  assert.ok(texts.includes("(555) 867-5309"), `parens format detected, got ${JSON.stringify(texts)}`);
+  const texts = findings
+    .flatMap((f) => f.spans)
+    .filter((s) => s.kind === "phone")
+    .map((s) => s.text);
+  assert.ok(
+    texts.includes("(555) 867-5309"),
+    `parens format detected, got ${JSON.stringify(texts)}`,
+  );
   assert.ok(texts.includes("+44 20 7946 0958"));
 });
 
@@ -914,7 +955,10 @@ test("pii: pseudonymize -> reidentify roundtrip, stable tokens, vault written", 
   assert.ok(vault.counts.email >= 2);
 
   const restored = await pii.reidentify(masked, vaultPath);
-  assert.deepEqual(restored.map((u) => u.text), originals);
+  assert.deepEqual(
+    restored.map((u) => u.text),
+    originals,
+  );
   rmSync(dir, { recursive: true, force: true });
 });
 
@@ -949,7 +993,10 @@ test("pii: pseudonymize re-run on already-masked text is a no-op", async () => {
   const vaultPath = join(dir, "vault.json");
   const units = mkPiiUnits(["Reach jane.doe@example.com or 555-867-5309 soon."]);
   const { units: masked } = await pii.pseudonymize(units, vaultPath);
-  assert.ok(masked[0].text.includes("[EMAIL_1]") && masked[0].text.includes("[PHONE_1]"), masked[0].text);
+  assert.ok(
+    masked[0].text.includes("[EMAIL_1]") && masked[0].text.includes("[PHONE_1]"),
+    masked[0].text,
+  );
   const vaultBefore = JSON.parse(readFileSync(vaultPath, "utf8"));
 
   const { units: again } = await pii.pseudonymize(masked, vaultPath);
@@ -971,7 +1018,7 @@ test("pii: pseudonymize refuses to remap an existing token (VAULT_CONFLICT)", as
   const tainted = mkPiiUnits(["Old export said [EMAIL_2] but new mail is beta@two.com."]);
   await assert.rejects(
     () => pii.pseudonymize(tainted, vaultPath),
-    (e) => e.name === "ConcordError" && e.code === "VAULT_CONFLICT"
+    (e) => e.name === "ConcordError" && e.code === "VAULT_CONFLICT",
   );
   // the failed run must not have damaged the existing vault
   const v = JSON.parse(readFileSync(vaultPath, "utf8"));
@@ -982,7 +1029,10 @@ test("pii: pseudonymize refuses to remap an existing token (VAULT_CONFLICT)", as
 test("pii: scan on clean units returns empty findings", () => {
   const { findings, counts } = pii.scan(mkPiiUnits(["just a plain sentence about work."]));
   assert.deepEqual(findings, []);
-  assert.equal(Object.values(counts).reduce((a, b) => a + b, 0), 0);
+  assert.equal(
+    Object.values(counts).reduce((a, b) => a + b, 0),
+    0,
+  );
 });
 
 // Identifiers do not only live in unit text: survey exports carry emails and
@@ -1005,7 +1055,10 @@ test("pii: scan covers metadata column values — counts, flags, per-column find
   assert.equal(counts.phone, 1);
 
   // clean text + dirty meta: the unit is still flagged, the finding names the column
-  assert.ok(units[0].flags?.pii?.includes("email"), `unit 0 flags: ${JSON.stringify(units[0].flags)}`);
+  assert.ok(
+    units[0].flags?.pii?.includes("email"),
+    `unit 0 flags: ${JSON.stringify(units[0].flags)}`,
+  );
   const f0 = findings.find((f) => f.unitId === units[0].id);
   assert.ok(f0, "finding exists for a unit whose only PII is in metadata");
   assert.deepEqual(f0.spans, [], "no text spans on a clean-text unit");
@@ -1044,7 +1097,10 @@ test("pii: pseudonymize masks metadata values — same vault, shared tokens, typ
   assert.ok(masked[1].flags?.pii?.includes("email"));
   assert.ok(masked[1].flags?.pii?.includes("phone"));
   // the input units (and their meta objects) are never mutated
-  assert.deepEqual(units.map((u) => u.meta), originalMeta);
+  assert.deepEqual(
+    units.map((u) => u.meta),
+    originalMeta,
+  );
   assert.equal(units[0].meta.contact, "jane.doe@example.com");
   // batch counts include the meta occurrences
   assert.equal(vault.counts.email, 3, JSON.stringify(vault.counts));
@@ -1058,7 +1114,10 @@ test("pii: pseudonymize masks metadata values — same vault, shared tokens, typ
   // reidentify restores text AND metadata exactly
   const restored = await pii.reidentify(masked, vaultPath);
   assert.equal(restored[0].text, "wrote to jane.doe@example.com about the rota.");
-  assert.deepEqual(restored.map((u) => u.meta), originalMeta);
+  assert.deepEqual(
+    restored.map((u) => u.meta),
+    originalMeta,
+  );
   rmSync(dir, { recursive: true, force: true });
 });
 
@@ -1072,9 +1131,17 @@ test("pii: pseudonymize re-run over masked metadata is a no-op", async () => {
   const vaultBefore = JSON.parse(readFileSync(vaultPath, "utf8"));
 
   const { units: again } = await pii.pseudonymize(masked, vaultPath);
-  assert.equal(again[0].meta.contact, "[EMAIL_1]", "vault-known token in a meta value is protected");
+  assert.equal(
+    again[0].meta.contact,
+    "[EMAIL_1]",
+    "vault-known token in a meta value is protected",
+  );
   const vaultAfter = JSON.parse(readFileSync(vaultPath, "utf8"));
-  assert.deepEqual(vaultAfter.tokens, vaultBefore.tokens, "vault tokens must survive a meta re-run");
+  assert.deepEqual(
+    vaultAfter.tokens,
+    vaultBefore.tokens,
+    "vault tokens must survive a meta re-run",
+  );
   rmSync(dir, { recursive: true, force: true });
 });
 
@@ -1088,7 +1155,7 @@ test("pii: unknown pseudonym token in a metadata value → VAULT_CONFLICT, vault
   tainted[0].meta = { contact: "[EMAIL_9]" };
   await assert.rejects(
     () => pii.pseudonymize(tainted, vaultPath),
-    (e) => e.name === "ConcordError" && e.code === "VAULT_CONFLICT"
+    (e) => e.name === "ConcordError" && e.code === "VAULT_CONFLICT",
   );
   const v = JSON.parse(readFileSync(vaultPath, "utf8"));
   assert.deepEqual(v.tokens, { "[EMAIL_1]": "alpha@one.com" });
@@ -1101,9 +1168,23 @@ test("perf: 10k-row CSV full pipeline < 10s", async () => {
   const dir = tempDir();
   const p = join(dir, "big.csv");
   const rand = mulberry32(42);
-  const subjects = ["The manager", "My team", "Senior leadership", "The new policy", "Our schedule", "The pay structure"];
+  const subjects = [
+    "The manager",
+    "My team",
+    "Senior leadership",
+    "The new policy",
+    "Our schedule",
+    "The pay structure",
+  ];
   const verbs = ["ignored", "improved", "ruined", "supported", "changed", "complicated"];
-  const objects = ["our morale", "the workload", "every deadline", "my growth path", "the review process", "team flexibility"];
+  const objects = [
+    "our morale",
+    "the workload",
+    "every deadline",
+    "my growth path",
+    "the review process",
+    "team flexibility",
+  ];
   const tails = [
     "and nobody explained why it happened.",
     "which made the quarter much harder than it needed to be.",
@@ -1116,7 +1197,8 @@ test("perf: 10k-row CSV full pipeline < 10s", async () => {
   const depts = ["sales", "eng", "support", "hr"];
   for (let i = 0; i < 10000; i++) {
     let resp = `${subjects[randInt(rand, 6)]} ${verbs[randInt(rand, 6)]} ${objects[randInt(rand, 6)]} ${tails[randInt(rand, 6)]}`;
-    if (rand() < 0.4) resp += ` ${subjects[randInt(rand, 6)]} ${verbs[randInt(rand, 6)]} ${objects[randInt(rand, 6)]} ${tails[randInt(rand, 6)]}`;
+    if (rand() < 0.4)
+      resp += ` ${subjects[randInt(rand, 6)]} ${verbs[randInt(rand, 6)]} ${objects[randInt(rand, 6)]} ${tails[randInt(rand, 6)]}`;
     lines.push(`e${i},${depts[randInt(rand, 4)]},${1 + randInt(rand, 20)},"${resp}"`);
   }
   writeFileSync(p, lines.join("\n") + "\n");

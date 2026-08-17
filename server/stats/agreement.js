@@ -69,7 +69,7 @@ function resolveScale(keySet, order, needScale) {
     throw bad(
       "ordinal/weighted statistics need numeric category codes or an explicit `order`; " +
         `got non-numeric categories: ${nonNumeric.join(", ")}`,
-      { nonNumeric }
+      { nonNumeric },
     );
   }
   return sortKeys(keys);

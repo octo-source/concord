@@ -44,7 +44,12 @@ export function toCsv(rows) {
 // ------------------------------------------------------------------ helpers
 
 function safeName(name) {
-  return String(name ?? "outcome").toLowerCase().replace(/[^a-z0-9]+/g, "_").replace(/^_+|_+$/g, "") || "outcome";
+  return (
+    String(name ?? "outcome")
+      .toLowerCase()
+      .replace(/[^a-z0-9]+/g, "_")
+      .replace(/^_+|_+$/g, "") || "outcome"
+  );
 }
 
 async function loadUnitsMap(projectDir, corpusIds) {
@@ -82,8 +87,12 @@ function dslPlan(analysis, run) {
   const corpusId = analysis.spec?.corpusId ?? run?.corpusId;
   if (!runId || !goldsetId || !corpusId) return null;
   const groupBy = r.groupBy ?? analysis.spec?.cols ?? null;
-  const positive = r.positive != null ? String(r.positive)
-    : analysis.spec?.positive != null ? String(analysis.spec.positive) : null;
+  const positive =
+    r.positive != null
+      ? String(r.positive)
+      : analysis.spec?.positive != null
+        ? String(analysis.spec.positive)
+        : null;
   return {
     id: analysis.id,
     outcome: safeName(r.outcome ?? analysis.spec?.rows),
@@ -93,10 +102,18 @@ function dslPlan(analysis, run) {
     runId,
     goldsetId,
     corpusId,
-    cells: r.cells.map((c) => ({ group: String(c.group), est: c.est, se: c.se, ciLo: c.ciLo, ciHi: c.ciHi, naive: c.naive ?? null })),
-    diff: r.diff && typeof r.diff.est === "number"
-      ? { a: String(r.diff.a), b: String(r.diff.b), est: r.diff.est, se: r.diff.se }
-      : null,
+    cells: r.cells.map((c) => ({
+      group: String(c.group),
+      est: c.est,
+      se: c.se,
+      ciLo: c.ciLo,
+      ciHi: c.ciHi,
+      naive: c.naive ?? null,
+    })),
+    diff:
+      r.diff && typeof r.diff.est === "number"
+        ? { a: String(r.diff.a), b: String(r.diff.b), est: r.diff.est, se: r.diff.se }
+        : null,
   };
 }
 
@@ -114,24 +131,42 @@ function dslPlan(analysis, run) {
 function regPlan(analysis, run, unitsMap) {
   const r = analysis.results ?? {};
   const estimator = String(r.estimator ?? analysis.spec?.estimator ?? "");
-  if (analysis.level !== "corrected" || (estimator !== "dslOLS" && estimator !== "dslLogit")) return null;
+  if (analysis.level !== "corrected" || (estimator !== "dslOLS" && estimator !== "dslLogit"))
+    return null;
   const coef = Array.isArray(r.coef) ? r.coef : null;
   if (!coef || coef.length < 2) return null;
-  if (coef.some((c) => !c || typeof c.est !== "number" || !Number.isFinite(c.est) || typeof c.se !== "number" || !Number.isFinite(c.se))) return null;
+  if (
+    coef.some(
+      (c) =>
+        !c ||
+        typeof c.est !== "number" ||
+        !Number.isFinite(c.est) ||
+        typeof c.se !== "number" ||
+        !Number.isFinite(c.se),
+    )
+  )
+    return null;
   const xKeys = Array.isArray(analysis.spec?.x) ? analysis.spec.x.map(String) : null;
   if (!xKeys || xKeys.length === 0 || coef.length !== xKeys.length + 1) return null;
   const runId = analysis.spec?.runId ?? run?.id;
   const goldsetId = analysis.spec?.goldsetId;
   const corpusId = analysis.spec?.corpusId ?? run?.corpusId;
   if (!runId || !goldsetId || !corpusId) return null;
-  const fromOutcome = typeof r.outcome === "string" ? r.outcome.match(/^machine label == "(.*)"$/) : null;
-  const positive = analysis.spec?.positive != null ? String(analysis.spec.positive)
-    : fromOutcome ? fromOutcome[1] : null;
+  const fromOutcome =
+    typeof r.outcome === "string" ? r.outcome.match(/^machine label == "(.*)"$/) : null;
+  const positive =
+    analysis.spec?.positive != null
+      ? String(analysis.spec.positive)
+      : fromOutcome
+        ? fromOutcome[1]
+        : null;
   if (positive == null) return null;
   // every covariate must exist as a meta column of the archived corpus —
   // otherwise the emitted code could not run against this zip
   const metaKeys = new Set(
-    [...unitsMap.values()].filter((u) => u.corpusId === corpusId).flatMap((u) => Object.keys(u.meta ?? {})),
+    [...unitsMap.values()]
+      .filter((u) => u.corpusId === corpusId)
+      .flatMap((u) => Object.keys(u.meta ?? {})),
   );
   if (!xKeys.every((k) => metaKeys.has(k))) return null;
   return {
@@ -182,13 +217,18 @@ function readmeMd(project, analyses, includeGoldText, uncovered = [], regPlans =
   }
   lines.push("");
   if (uncovered.length > 0) {
-    lines.push("Coverage: proportion cells and corrected regression (dslOLS/dslLogit) analyses are script-verified.");
-    lines.push("The analyses below are NOT script-covered; their estimates ship as stored values in analyses/<id>.json:");
-    for (const u of uncovered) lines.push(`- \`analyses/${u.id}.json\` (estimator ${u.estimator}).`);
+    lines.push(
+      "Coverage: proportion cells and corrected regression (dslOLS/dslLogit) analyses are script-verified.",
+    );
+    lines.push(
+      "The analyses below are NOT script-covered; their estimates ship as stored values in analyses/<id>.json:",
+    );
+    for (const u of uncovered)
+      lines.push(`- \`analyses/${u.id}.json\` (estimator ${u.estimator}).`);
     lines.push("");
   }
   lines.push("Panel runs: `outputs/<runId>.csv` then carries a `juror` column with one row");
-  lines.push("per juror per unit PLUS one row with juror == \"aggregate\" — the panel's");
+  lines.push('per juror per unit PLUS one row with juror == "aggregate" — the panel\'s');
   lines.push("aggregated verdict, which is the label Concord analyzes. Both reproduce");
   lines.push("scripts filter to the aggregate rows before merging; do the same in your own");
   lines.push("reanalysis or every unit will be duplicated.");
@@ -207,14 +247,27 @@ function readmeMd(project, analyses, includeGoldText, uncovered = [], regPlans =
   lines.push("  snapshots at instrument freeze are not yet taken).");
   lines.push("- `instruments/<id>.json` — frozen instrument versions, full payloads and prompts.");
   lines.push("- `dictionaries/<id>.json` — dictionary instruments with complete term lists.");
-  lines.push("- `gold/<goldsetId>.csv` — designed sample: unitId, pi, per-coder labels, adjudicated" + (includeGoldText ? ", unit text." : ". Unit text was withheld at export (includeGoldText: false)."));
-  lines.push("- `outputs/<runId>.csv` — machine labels: unitId, label, confidence, escalated, cacheHit");
+  lines.push(
+    "- `gold/<goldsetId>.csv` — designed sample: unitId, pi, per-coder labels, adjudicated" +
+      (includeGoldText
+        ? ", unit text."
+        : ". Unit text was withheld at export (includeGoldText: false)."),
+  );
+  lines.push(
+    "- `outputs/<runId>.csv` — machine labels: unitId, label, confidence, escalated, cacheHit",
+  );
   lines.push("  (+ a `juror` column for panel runs; see the panel note above).");
   lines.push("- `units/<corpusId>.csv` — unit metadata (grouping variables for the analyses; no");
   lines.push("  text). Meta columns carry the `meta_` prefix.");
-  lines.push("- `agreement.json` — calibration certificates: machine-vs-gold and human-vs-human agreement.");
-  lines.push("- `analyses/<id>.json` — analysis spec, stored results, evidence links, ladder level.");
-  lines.push("- `MANIFEST.json` — sha256 of every member (excluding itself); verify before trusting.");
+  lines.push(
+    "- `agreement.json` — calibration certificates: machine-vs-gold and human-vs-human agreement.",
+  );
+  lines.push(
+    "- `analyses/<id>.json` — analysis spec, stored results, evidence links, ladder level.",
+  );
+  lines.push(
+    "- `MANIFEST.json` — sha256 of every member (excluding itself); verify before trusting.",
+  );
   lines.push("");
   lines.push("## Provenance");
   lines.push("");
@@ -234,7 +287,9 @@ function codebookMd(project) {
     lines.push("");
     lines.push(c.definition || "(no definition recorded)");
     lines.push("");
-    lines.push(`Authored by: ${c.authoredBy}${c.humanTouched ? " (human-reviewed)" : " (not human-reviewed)"}`);
+    lines.push(
+      `Authored by: ${c.authoredBy}${c.humanTouched ? " (human-reviewed)" : " (not human-reviewed)"}`,
+    );
     lines.push("");
     if (c.criteria?.include?.length) {
       lines.push("Include:");
@@ -253,7 +308,8 @@ function codebookMd(project) {
     }
     if (c.examples?.length) {
       lines.push("Worked examples:");
-      for (const ex of c.examples) lines.push(`- [${ex.kind}] label=${csvField(ex.label)} — ${ex.text.replace(/\s+/g, " ")}`);
+      for (const ex of c.examples)
+        lines.push(`- [${ex.kind}] label=${csvField(ex.label)} — ${ex.text.replace(/\s+/g, " ")}`);
       lines.push("");
     }
   }
@@ -306,8 +362,12 @@ function unitsCsv(unitsMap, corpusId) {
 // Shared script-coverage comment lines (R and python both prefix with "#").
 function coverageComment(uncovered) {
   const lines = [];
-  lines.push("# COVERAGE NOTE: proportion cells and corrected regression (dslOLS/dslLogit) analyses are script-verified.");
-  lines.push("# The analyses below are NOT script-covered; their estimates ship as stored values in analyses/<id>.json:");
+  lines.push(
+    "# COVERAGE NOTE: proportion cells and corrected regression (dslOLS/dslLogit) analyses are script-verified.",
+  );
+  lines.push(
+    "# The analyses below are NOT script-covered; their estimates ship as stored values in analyses/<id>.json:",
+  );
   for (const u of uncovered) lines.push(`#   - analyses/${u.id}.json (estimator ${u.estimator})`);
   return lines;
 }
@@ -345,25 +405,34 @@ function rScript(plans, project, uncovered = [], regPlans = []) {
   L.push("# on tiny gold samples. A cross-check failure does NOT invalidate the");
   L.push("# stopifnot verification above it.");
   L.push(`# Project: ${project.name} (${project.id})`);
-  L.push("#   install.packages(\"dsl\")");
+  L.push('#   install.packages("dsl")');
   L.push("");
   if (uncovered.length > 0) {
     L.push(...coverageComment(uncovered));
     L.push("");
   }
   if (plans.length === 0 && regPlans.length === 0) {
-    L.push(uncovered.length === 0
-      ? "# No DSL-corrected analyses were included in this archive; nothing to refit."
-      : "# No script-coverable analyses in this archive; the corrected");
-    if (uncovered.length > 0) L.push("# estimates above ship as stored values in analyses/<id>.json.");
+    L.push(
+      uncovered.length === 0
+        ? "# No DSL-corrected analyses were included in this archive; nothing to refit."
+        : "# No script-coverable analyses in this archive; the corrected",
+    );
+    if (uncovered.length > 0)
+      L.push("# estimates above ship as stored values in analyses/<id>.json.");
     return L.join("\n") + "\n";
   }
   for (const p of plans) {
     const col = p.groupBy ? `meta_${p.groupBy}` : null;
-    L.push(`# ---- analysis ${p.id}: DSL-corrected proportion of ${p.outcome}${p.groupBy ? ` by ${p.groupBy}` : ""} ----`);
+    L.push(
+      `# ---- analysis ${p.id}: DSL-corrected proportion of ${p.outcome}${p.groupBy ? ` by ${p.groupBy}` : ""} ----`,
+    );
     L.push(`outputs <- read.csv("outputs/${p.runId}.csv", check.names = FALSE)  # machine labels`);
-    L.push(`units   <- read.csv("units/${p.corpusId}.csv", check.names = FALSE) # unit meta (meta_ prefixed)`);
-    L.push(`gold    <- read.csv("gold/${p.goldsetId}.csv", check.names = FALSE) # designed gold subsample with pi`);
+    L.push(
+      `units   <- read.csv("units/${p.corpusId}.csv", check.names = FALSE) # unit meta (meta_ prefixed)`,
+    );
+    L.push(
+      `gold    <- read.csv("gold/${p.goldsetId}.csv", check.names = FALSE) # designed gold subsample with pi`,
+    );
     L.push(`# Panel runs write one row per juror per unit PLUS one row with juror ==`);
     L.push(`# "aggregate" — the panel's aggregated verdict, which is the label Concord`);
     L.push(`# analyzes. Keep only aggregate rows, or the merges below duplicate units.`);
@@ -400,14 +469,18 @@ function rScript(plans, project, uncovered = [], regPlans = []) {
         L.push(`  (as.integer(gold_lab[on_gold] == ${lbl}) - yhat_${k}[on_gold]) / d$pi[on_gold]`);
         L.push(`est_${k} <- mean(pseudo_${k})`);
         L.push(`se_${k} <- sqrt(mean((pseudo_${k} - est_${k})^2) / length(pseudo_${k}))`);
-        L.push(`stopifnot(abs(est_${k} - ${String(c.est)}) < 1e-6, abs(se_${k} - ${String(c.se)}) < 1e-6)`);
+        L.push(
+          `stopifnot(abs(est_${k} - ${String(c.est)}) < 1e-6, abs(se_${k} - ${String(c.se)}) < 1e-6)`,
+        );
       });
     } else {
       if (p.mode === "positive") {
         L.push("# Concord's cells are proportions of indicator(label == positive): binarize");
         L.push("# the machine and gold labels with the positive value recorded for this");
         L.push("# analysis (results.positive). Labels compare as strings.");
-        L.push(`positive <- ${JSON.stringify(p.positive)}  # recorded by Concord for this analysis`);
+        L.push(
+          `positive <- ${JSON.stringify(p.positive)}  # recorded by Concord for this analysis`,
+        );
         L.push(`d$yhat <- as.integer(as.character(d$label) == positive)`);
         L.push(`gold_lab <- as.character(d$adjudicated)`);
         L.push(`on_gold <- !is.na(d$pi) & !is.na(gold_lab) & gold_lab != ""`);
@@ -425,15 +498,21 @@ function rScript(plans, project, uncovered = [], regPlans = []) {
       L.push("");
       L.push("# inline pseudo-outcome estimator + verification");
       L.push(`d$pseudo <- as.numeric(d$yhat)`);
-      L.push(`d$pseudo[on_gold] <- d$yhat[on_gold] + (d$y[on_gold] - d$yhat[on_gold]) / d$pi[on_gold]`);
+      L.push(
+        `d$pseudo[on_gold] <- d$yhat[on_gold] + (d$y[on_gold] - d$yhat[on_gold]) / d$pi[on_gold]`,
+      );
       p.cells.forEach((c, i) => {
         const k = i + 1;
-        L.push(col
-          ? `ps <- d$pseudo[as.character(d[["${col}"]]) == ${JSON.stringify(c.group)}]`
-          : "ps <- d$pseudo");
+        L.push(
+          col
+            ? `ps <- d$pseudo[as.character(d[["${col}"]]) == ${JSON.stringify(c.group)}]`
+            : "ps <- d$pseudo",
+        );
         L.push(`est_${k} <- mean(ps)`);
         L.push(`se_${k} <- sqrt(mean((ps - est_${k})^2) / length(ps))`);
-        L.push(`stopifnot(abs(est_${k} - ${String(c.est)}) < 1e-6, abs(se_${k} - ${String(c.se)}) < 1e-6)`);
+        L.push(
+          `stopifnot(abs(est_${k} - ${String(c.est)}) < 1e-6, abs(se_${k} - ${String(c.se)}) < 1e-6)`,
+        );
       });
     }
     if (p.diff) {
@@ -443,16 +522,22 @@ function rScript(plans, project, uncovered = [], regPlans = []) {
         L.push(`# corrected difference ${p.diff.a} - ${p.diff.b} (independent groups)`);
         L.push(`est_diff <- est_${ia} - est_${ib}`);
         L.push(`se_diff <- sqrt(se_${ia}^2 + se_${ib}^2)`);
-        L.push(`stopifnot(abs(est_diff - ${String(p.diff.est)}) < 1e-6, abs(se_diff - ${String(p.diff.se)}) < 1e-6)`);
+        L.push(
+          `stopifnot(abs(est_diff - ${String(p.diff.est)}) < 1e-6, abs(se_diff - ${String(p.diff.se)}) < 1e-6)`,
+        );
       }
     }
     L.push(`cat("OK: analysis ${p.id} reproduced Concord's stored numbers to 1e-6\\n")`);
     L.push("# Concord stored (DSL pseudo-outcome mean, HC0 sandwich SE):");
     for (const c of p.cells) {
-      L.push(`#   ${p.groupBy ?? (p.mode === "perCell" ? "label" : "all")}=${c.group}: est = ${c.est.toFixed(6)}, se = ${c.se.toFixed(6)}, 95% CI [${c.ciLo.toFixed(6)}, ${c.ciHi.toFixed(6)}]`);
+      L.push(
+        `#   ${p.groupBy ?? (p.mode === "perCell" ? "label" : "all")}=${c.group}: est = ${c.est.toFixed(6)}, se = ${c.se.toFixed(6)}, 95% CI [${c.ciLo.toFixed(6)}, ${c.ciHi.toFixed(6)}]`,
+      );
     }
     if (p.diff) {
-      L.push(`#   difference ${p.diff.a} - ${p.diff.b}: est = ${p.diff.est.toFixed(6)}, se = ${p.diff.se.toFixed(6)}`);
+      L.push(
+        `#   difference ${p.diff.a} - ${p.diff.b}: est = ${p.diff.est.toFixed(6)}, se = ${p.diff.se.toFixed(6)}`,
+      );
     }
     L.push("");
     if (p.mode === "perCell") {
@@ -477,10 +562,14 @@ function rScript(plans, project, uncovered = [], regPlans = []) {
       const ref = [...p.cells.map((c) => c.group)].sort()[0];
       if (p.diff && p.cells.length === 2) {
         const flips = ref === p.diff.a;
-        L.push(`# relative to the ${p.diff.a} - ${p.diff.b} contrast: here the reference is "${ref}",`);
-        L.push(flips
-          ? `# so the treatment-coded slope estimates ${p.diff.b} - ${p.diff.a} — the NEGATIVE of`
-          : `# so the treatment-coded slope estimates ${p.diff.a} - ${p.diff.b} — the same sign as`);
+        L.push(
+          `# relative to the ${p.diff.a} - ${p.diff.b} contrast: here the reference is "${ref}",`,
+        );
+        L.push(
+          flips
+            ? `# so the treatment-coded slope estimates ${p.diff.b} - ${p.diff.a} — the NEGATIVE of`
+            : `# so the treatment-coded slope estimates ${p.diff.a} - ${p.diff.b} — the same sign as`,
+        );
         L.push("# the difference verified above.");
       } else {
         L.push(`# relative to a reported contrast (the reference here would be "${ref}").`);
@@ -503,7 +592,7 @@ function rScript(plans, project, uncovered = [], regPlans = []) {
     L.push("cross_check <- tryCatch({");
     L.push("  library(dsl)");
     L.push("  set.seed(20231201)");
-    L.push("  fit <- dsl(model = \"lm\",");
+    L.push('  fit <- dsl(model = "lm",');
     L.push(`             formula = ${formula},`);
     L.push(`             predicted_var = "${p.outcome}",`);
     L.push(`             prediction = "${p.outcome}_pred",`);
@@ -515,10 +604,16 @@ function rScript(plans, project, uncovered = [], regPlans = []) {
   }
   for (const q of regPlans) {
     const kindName = q.family === "linear" ? "linear (OLS)" : "logistic";
-    L.push(`# ---- analysis ${q.id}: DSL-corrected ${kindName} regression of indicator(label == ${JSON.stringify(q.positive)}) on ${q.xKeys.join(", ")} ----`);
+    L.push(
+      `# ---- analysis ${q.id}: DSL-corrected ${kindName} regression of indicator(label == ${JSON.stringify(q.positive)}) on ${q.xKeys.join(", ")} ----`,
+    );
     L.push(`outputs <- read.csv("outputs/${q.runId}.csv", check.names = FALSE)  # machine labels`);
-    L.push(`units   <- read.csv("units/${q.corpusId}.csv", check.names = FALSE) # unit meta (meta_ prefixed)`);
-    L.push(`gold    <- read.csv("gold/${q.goldsetId}.csv", check.names = FALSE) # designed gold subsample with pi`);
+    L.push(
+      `units   <- read.csv("units/${q.corpusId}.csv", check.names = FALSE) # unit meta (meta_ prefixed)`,
+    );
+    L.push(
+      `gold    <- read.csv("gold/${q.goldsetId}.csv", check.names = FALSE) # designed gold subsample with pi`,
+    );
     L.push(`# Panel runs: keep only juror == "aggregate" rows (the analyzed labels),`);
     L.push(`# and drop empty-label rows (flagged no-consensus aggregates).`);
     L.push(`if ("juror" %in% names(outputs)) outputs <- subset(outputs, juror == "aggregate")`);
@@ -529,9 +624,13 @@ function rScript(plans, project, uncovered = [], regPlans = []) {
     L.push("# all numeric — replicate it (non-numeric or empty covariate cells drop");
     L.push("# the row before anything is fit).");
     q.xKeys.forEach((k, j) => {
-      L.push(`d$x${j + 1} <- suppressWarnings(as.numeric(as.character(d[[${JSON.stringify(`meta_${k}`)}]])))`);
+      L.push(
+        `d$x${j + 1} <- suppressWarnings(as.numeric(as.character(d[[${JSON.stringify(`meta_${k}`)}]])))`,
+      );
     });
-    L.push(`d <- d[${q.xKeys.map((_, j) => `is.finite(d$x${j + 1})`).join(" & ")}, , drop = FALSE]`);
+    L.push(
+      `d <- d[${q.xKeys.map((_, j) => `is.finite(d$x${j + 1})`).join(" & ")}, , drop = FALSE]`,
+    );
     L.push(`positive <- ${JSON.stringify(q.positive)}  # recorded by Concord for this analysis`);
     L.push(`d$yhat <- as.integer(as.character(d$label) == positive)`);
     L.push(`gold_lab <- as.character(d$adjudicated)`);
@@ -542,8 +641,12 @@ function rScript(plans, project, uncovered = [], regPlans = []) {
     L.push(`d$y[on_gold] <- as.integer(gold_lab[on_gold] == positive)`);
     L.push(`# DSL pseudo-outcome: yhat + (y - yhat)/pi on gold rows, else yhat`);
     L.push(`d$pseudo <- as.numeric(d$yhat)`);
-    L.push(`d$pseudo[on_gold] <- d$yhat[on_gold] + (d$y[on_gold] - d$yhat[on_gold]) / d$pi[on_gold]`);
-    L.push(`X <- cbind(1${q.xKeys.map((_, j) => `, d$x${j + 1}`).join("")})  # intercept prepended; columns in spec order`);
+    L.push(
+      `d$pseudo[on_gold] <- d$yhat[on_gold] + (d$y[on_gold] - d$yhat[on_gold]) / d$pi[on_gold]`,
+    );
+    L.push(
+      `X <- cbind(1${q.xKeys.map((_, j) => `, d$x${j + 1}`).join("")})  # intercept prepended; columns in spec order`,
+    );
     if (q.family === "linear") {
       L.push("# DSL OLS: regress the pseudo-outcome on X. Variance = the DSL sandwich");
       L.push("# A^-1 B A^-1 = (X'X)^-1 (X' diag(e^2) X) (X'X)^-1 — HC0 on the pseudo");
@@ -586,9 +689,13 @@ function rScript(plans, project, uncovered = [], regPlans = []) {
       L.push("se <- sqrt(pmax(diag(V), 0))");
     }
     q.coef.forEach((c, j) => {
-      L.push(`stopifnot(abs(beta[${j + 1}] - (${String(c.est)})) < 1e-6, abs(se[${j + 1}] - (${String(c.se)})) < 1e-6)`);
+      L.push(
+        `stopifnot(abs(beta[${j + 1}] - (${String(c.est)})) < 1e-6, abs(se[${j + 1}] - (${String(c.se)})) < 1e-6)`,
+      );
     });
-    L.push(`cat("OK: analysis ${q.id} regression reproduced Concord's stored coefficients to 1e-6\\n")`);
+    L.push(
+      `cat("OK: analysis ${q.id} regression reproduced Concord's stored coefficients to 1e-6\\n")`,
+    );
     L.push("# Concord stored (DSL fit on pseudo-outcomes, sandwich SE):");
     for (const c of q.coef) {
       L.push(`#   ${c.name}: est = ${c.est.toFixed(6)}, se = ${c.se.toFixed(6)}`);
@@ -655,19 +762,23 @@ function pyScript(plans, project, uncovered = [], regPlans = []) {
   L.push("");
   L.push("def label_text(series):");
   L.push('    """Labels compare as strings; whole-number floats normalize (1.0 -> "1")."""');
-  L.push('    s = series.astype(str).str.strip()');
+  L.push("    s = series.astype(str).str.strip()");
   L.push('    return s.str.replace(r"\\.0$", "", regex=True)');
   L.push("");
   L.push("");
   L.push("def check(name, got, want, tol=1e-6):");
-  L.push('    assert abs(got - want) < tol, f"{name}: recomputed {got!r} != Concord stored {want!r}"');
+  L.push(
+    '    assert abs(got - want) < tol, f"{name}: recomputed {got!r} != Concord stored {want!r}"',
+  );
   L.push('    print(f"  OK {name}: {got:.10f} == {want:.10f} (tol {tol})")');
   L.push("");
   L.push("");
   if (regPlans.length > 0) {
     L.push("def reg_design(d, x_cols):");
     L.push('    """Design matrix with the intercept prepended; columns in the spec\'s order."""');
-    L.push("    return np.column_stack([np.ones(len(d))] + [d[c].to_numpy(dtype=float) for c in x_cols])");
+    L.push(
+      "    return np.column_stack([np.ones(len(d))] + [d[c].to_numpy(dtype=float) for c in x_cols])",
+    );
     L.push("");
     L.push("");
     L.push("def dsl_ols_fit(X, pseudo):");
@@ -704,7 +815,9 @@ function pyScript(plans, project, uncovered = [], regPlans = []) {
     L.push("        if np.max(np.abs(step)) < 1e-10:");
     L.push("            converged = True");
     L.push("            break");
-    L.push('    assert converged, "logistic estimating equation did not converge; Concord converged when it stored these results"');
+    L.push(
+      '    assert converged, "logistic estimating equation did not converge; Concord converged when it stored these results"',
+    );
     L.push("    eta = np.clip(X @ beta, -30.0, 30.0)");
     L.push("    p = 1.0 / (1.0 + np.exp(-eta))");
     L.push("    w = np.maximum(p * (1.0 - p), 1e-10)");
@@ -721,13 +834,17 @@ function pyScript(plans, project, uncovered = [], regPlans = []) {
     L.push("");
   }
   if (plans.length === 0 && regPlans.length === 0) {
-    L.push(uncovered.length === 0
-      ? 'print("No DSL-corrected analyses in this archive; nothing to verify.")'
-      : 'print("No script-coverable analyses; corrected estimates ship as stored values in analyses/<id>.json.")');
+    L.push(
+      uncovered.length === 0
+        ? 'print("No DSL-corrected analyses in this archive; nothing to verify.")'
+        : 'print("No script-coverable analyses; corrected estimates ship as stored values in analyses/<id>.json.")',
+    );
     return L.join("\n") + "\n";
   }
   for (const p of plans) {
-    L.push(`# ---- analysis ${p.id}: corrected proportion of ${p.outcome}${p.groupBy ? ` by ${p.groupBy}` : ""} ----`);
+    L.push(
+      `# ---- analysis ${p.id}: corrected proportion of ${p.outcome}${p.groupBy ? ` by ${p.groupBy}` : ""} ----`,
+    );
     L.push(`print("analysis ${p.id}")`);
     L.push(`outputs = pd.read_csv("outputs/${p.runId}.csv")`);
     L.push("# Panel runs write one row per juror per unit PLUS one row with");
@@ -753,14 +870,20 @@ function pyScript(plans, project, uncovered = [], regPlans = []) {
       L.push("# the design-based unbiasedness guarantee does not apply to these estimates.");
     }
     if (p.mode === "positive") {
-      L.push(`positive = ${JSON.stringify(p.positive)}  # recorded by Concord for this analysis (results.positive)`);
+      L.push(
+        `positive = ${JSON.stringify(p.positive)}  # recorded by Concord for this analysis (results.positive)`,
+      );
       L.push('d["yhat"] = (label_text(d["label"]) == positive).astype(float)');
-      L.push('d["y"] = np.where(on_gold, (label_text(d["adjudicated"]) == positive).astype(float), np.nan)');
+      L.push(
+        'd["y"] = np.where(on_gold, (label_text(d["adjudicated"]) == positive).astype(float), np.nan)',
+      );
     } else if (p.mode === "numeric") {
       L.push("# No positive label value was recorded for this analysis (older archive);");
       L.push("# the machine and gold labels are used directly as numeric 0/1 outcomes.");
       L.push('d["yhat"] = pd.to_numeric(d["label"], errors="coerce")');
-      L.push('d["y"] = np.where(on_gold, pd.to_numeric(d["adjudicated"], errors="coerce"), np.nan)');
+      L.push(
+        'd["y"] = np.where(on_gold, pd.to_numeric(d["adjudicated"], errors="coerce"), np.nan)',
+      );
     } else {
       L.push("# Descriptive corrected analysis: one corrected proportion PER LABEL VALUE");
       L.push("# over ALL units — each cell binarizes against its own label below.");
@@ -774,7 +897,9 @@ function pyScript(plans, project, uncovered = [], regPlans = []) {
     if (p.mode === "perCell") {
       L.push("    # each cell's label value is its own positive: binarize per cell");
       L.push('    yhat = (label_text(d["label"]) == group).astype(float)');
-      L.push('    y = np.where(on_gold, (label_text(d["adjudicated"]) == group).astype(float), np.nan)');
+      L.push(
+        '    y = np.where(on_gold, (label_text(d["adjudicated"]) == group).astype(float), np.nan)',
+      );
       L.push('    est, se = dsl_proportion(yhat, y, d["pi"])');
     } else {
       if (p.groupBy) {
@@ -791,7 +916,9 @@ function pyScript(plans, project, uncovered = [], regPlans = []) {
     if (p.diff) {
       L.push(`# corrected difference ${p.diff.a} - ${p.diff.b} (independent groups)`);
       L.push(`est = cells[${JSON.stringify(p.diff.a)}][0] - cells[${JSON.stringify(p.diff.b)}][0]`);
-      L.push(`se = math.sqrt(cells[${JSON.stringify(p.diff.a)}][1] ** 2 + cells[${JSON.stringify(p.diff.b)}][1] ** 2)`);
+      L.push(
+        `se = math.sqrt(cells[${JSON.stringify(p.diff.a)}][1] ** 2 + cells[${JSON.stringify(p.diff.b)}][1] ** 2)`,
+      );
       L.push(`check("diff ${p.diff.a}-${p.diff.b} est", est, ${String(p.diff.est)})`);
       L.push(`check("diff ${p.diff.a}-${p.diff.b} se", se, ${String(p.diff.se)})`);
     }
@@ -799,7 +926,9 @@ function pyScript(plans, project, uncovered = [], regPlans = []) {
   }
   for (const q of regPlans) {
     const kindName = q.family === "linear" ? "linear (OLS)" : "logistic";
-    L.push(`# ---- analysis ${q.id}: DSL-corrected ${kindName} regression of indicator(label == ${JSON.stringify(q.positive)}) on ${q.xKeys.join(", ")} ----`);
+    L.push(
+      `# ---- analysis ${q.id}: DSL-corrected ${kindName} regression of indicator(label == ${JSON.stringify(q.positive)}) on ${q.xKeys.join(", ")} ----`,
+    );
     L.push(`print("analysis ${q.id}")`);
     L.push(`outputs = pd.read_csv("outputs/${q.runId}.csv")`);
     L.push("# Panel runs: keep only the aggregate rows (the analyzed labels), and drop");
@@ -823,14 +952,20 @@ function pyScript(plans, project, uncovered = [], regPlans = []) {
     L.push("# Gold rows need BOTH a recorded gold label AND a recorded design pi:");
     L.push("# hand-queued units (empty pi) stay out, exactly as in Concord.");
     L.push('on_gold = d["adjudicated"].notna() & d["pi"].notna()');
-    L.push('y = np.where(on_gold, (label_text(d["adjudicated"]) == positive).astype(float), np.nan)');
+    L.push(
+      'y = np.where(on_gold, (label_text(d["adjudicated"]) == positive).astype(float), np.nan)',
+    );
     L.push('pi_col = d["pi"].to_numpy(dtype=float)');
     L.push("# DSL pseudo-outcome: yhat + (y - yhat)/pi on gold rows, else yhat");
     L.push("pseudo = yhat.copy()");
     L.push("g = ~np.isnan(y)");
     L.push("pseudo[g] = yhat[g] + (y[g] - yhat[g]) / pi_col[g]");
     L.push("X = reg_design(d, x_cols)");
-    L.push(q.family === "linear" ? "beta, se = dsl_ols_fit(X, pseudo)" : "beta, se = dsl_logit_fit(X, pseudo)");
+    L.push(
+      q.family === "linear"
+        ? "beta, se = dsl_ols_fit(X, pseudo)"
+        : "beta, se = dsl_logit_fit(X, pseudo)",
+    );
     L.push("for j, name, want_est, want_se in [");
     q.coef.forEach((c, j) => {
       L.push(`    (${j}, ${JSON.stringify(c.name)}, ${String(c.est)}, ${String(c.se)}),`);
@@ -853,8 +988,13 @@ function pyScript(plans, project, uncovered = [], regPlans = []) {
 // -------------------------------------------------------------------- build
 
 export async function build(project, analysisIds, { projectDir, includeGoldText = true } = {}) {
-  if (!project || typeof project !== "object" || !project.id) fail("build requires a project object");
-  if (!Array.isArray(analysisIds) || analysisIds.length === 0 || analysisIds.some((a) => typeof a !== "string" || !a)) {
+  if (!project || typeof project !== "object" || !project.id)
+    fail("build requires a project object");
+  if (
+    !Array.isArray(analysisIds) ||
+    analysisIds.length === 0 ||
+    analysisIds.some((a) => typeof a !== "string" || !a)
+  ) {
     fail("build requires a non-empty array of analysis ids", { analysisIds });
   }
   if (typeof projectDir !== "string" || !projectDir) fail("build requires options.projectDir");
@@ -871,10 +1011,12 @@ export async function build(project, analysisIds, { projectDir, includeGoldText 
       if (run) runs.set(runId, run);
     }
   }
-  const corpusIds = [...new Set([
-    ...analyses.map((a) => a.spec?.corpusId).filter(Boolean),
-    ...[...runs.values()].map((r) => r.corpusId).filter(Boolean),
-  ])];
+  const corpusIds = [
+    ...new Set([
+      ...analyses.map((a) => a.spec?.corpusId).filter(Boolean),
+      ...[...runs.values()].map((r) => r.corpusId).filter(Boolean),
+    ]),
+  ];
   const unitsMap = await loadUnitsMap(projectDir, corpusIds);
   const goldsets = [];
   for (const meta of project.goldsets ?? []) {
@@ -890,7 +1032,13 @@ export async function build(project, analysisIds, { projectDir, includeGoldText 
     const gs = goldsets.find((g) => g.id === plan.goldsetId);
     // uniform-pi check over RECORDED pi only: hand-queued rows carry pi null
     // and must not break (or fake) the uniform fill the cross-check uses
-    const pis = [...new Set((gs?.sample ?? []).map((x) => x.pi).filter((p) => typeof p === "number" && Number.isFinite(p)))];
+    const pis = [
+      ...new Set(
+        (gs?.sample ?? [])
+          .map((x) => x.pi)
+          .filter((p) => typeof p === "number" && Number.isFinite(p)),
+      ),
+    ];
     plan.uniformPi = pis.length === 1 ? pis[0] : null;
     plan.design = gs?.design ?? null;
     plans.push(plan);
@@ -919,22 +1067,42 @@ export async function build(project, analysisIds, { projectDir, includeGoldText 
   members.set("README.md", readmeMd(project, analyses, includeGoldText, uncovered, regPlans));
   members.set("codebook.md", codebookMd(project));
   for (const inst of project.instruments ?? []) {
-    const member = inst.kind === "dictionary" ? `dictionaries/${inst.id}.json` : `instruments/${inst.id}.json`;
+    const member =
+      inst.kind === "dictionary" ? `dictionaries/${inst.id}.json` : `instruments/${inst.id}.json`;
     members.set(member, JSON.stringify(inst, null, 2) + "\n");
   }
   for (const g of goldsets) members.set(`gold/${g.id}.csv`, goldCsv(g, unitsMap, includeGoldText));
-  for (const runId of runs.keys()) members.set(`outputs/${runId}.csv`, await outputsCsv(projectDir, runId));
-  for (const corpusId of corpusIds) members.set(`units/${corpusId}.csv`, unitsCsv(unitsMap, corpusId));
-  members.set("agreement.json", JSON.stringify({
-    instruments: (project.instruments ?? []).map((i) => ({
-      id: i.id, name: i.name, kind: i.kind, level: i.level, versionHash: i.versionHash,
-      frozen: i.frozen ?? false, stability: i.stability ?? null, certificate: i.certificate ?? null,
-    })),
-    goldsets: goldsets.map((g) => ({
-      id: g.id, tier: g.tier, design: g.design, status: g.status,
-      n: g.sample?.length ?? 0, humanAgreement: g.humanAgreement ?? null,
-    })),
-  }, null, 2) + "\n");
+  for (const runId of runs.keys())
+    members.set(`outputs/${runId}.csv`, await outputsCsv(projectDir, runId));
+  for (const corpusId of corpusIds)
+    members.set(`units/${corpusId}.csv`, unitsCsv(unitsMap, corpusId));
+  members.set(
+    "agreement.json",
+    JSON.stringify(
+      {
+        instruments: (project.instruments ?? []).map((i) => ({
+          id: i.id,
+          name: i.name,
+          kind: i.kind,
+          level: i.level,
+          versionHash: i.versionHash,
+          frozen: i.frozen ?? false,
+          stability: i.stability ?? null,
+          certificate: i.certificate ?? null,
+        })),
+        goldsets: goldsets.map((g) => ({
+          id: g.id,
+          tier: g.tier,
+          design: g.design,
+          status: g.status,
+          n: g.sample?.length ?? 0,
+          humanAgreement: g.humanAgreement ?? null,
+        })),
+      },
+      null,
+      2,
+    ) + "\n",
+  );
   for (const a of analyses) members.set(`analyses/${a.id}.json`, JSON.stringify(a, null, 2) + "\n");
   members.set("reproduce.R", rScript(plans, project, uncovered, regPlans));
   members.set("reproduce.py", pyScript(plans, project, uncovered, regPlans));
@@ -958,17 +1126,24 @@ export async function build(project, analysisIds, { projectDir, includeGoldText 
 
   // ---- deterministic zip: sorted paths, mtime from project.createdAt
   let mtime = new Date(project.createdAt ?? "2000-01-01T00:00:00.000Z");
-  if (Number.isNaN(mtime.getTime()) || mtime.getFullYear() < 1980) mtime = new Date("2000-01-01T00:00:00.000Z");
+  if (Number.isNaN(mtime.getTime()) || mtime.getFullYear() < 1980)
+    mtime = new Date("2000-01-01T00:00:00.000Z");
   const zippable = {};
   for (const p of [...members.keys()].sort()) zippable[p] = strToU8(members.get(p));
   const zipBuffer = Buffer.from(zipSync(zippable, { level: 6, mtime }));
 
-  await ledger.append(projectDir, "system", "export.replication", { projectId: project.id }, {
-    manifestHash: sha256(manifestStr),
-    analyses: analysisIds,
-    files: members.size,
-    includesGoldText: includeGoldText,
-  });
+  await ledger.append(
+    projectDir,
+    "system",
+    "export.replication",
+    { projectId: project.id },
+    {
+      manifestHash: sha256(manifestStr),
+      analyses: analysisIds,
+      files: members.size,
+      includesGoldText: includeGoldText,
+    },
+  );
 
   return { zipBuffer, manifest };
 }

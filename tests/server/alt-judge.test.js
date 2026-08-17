@@ -76,7 +76,11 @@ async function call(method, p, body) {
   const res = await fetch(base + p, init);
   const text = await res.text();
   let json = null;
-  try { json = JSON.parse(text); } catch { /* non-JSON */ }
+  try {
+    json = JSON.parse(text);
+  } catch {
+    /* non-JSON */
+  }
   return { status: res.status, json, text };
 }
 
@@ -89,9 +93,14 @@ async function ok(method, p, body) {
 
 async function fail(method, p, body, status, code) {
   const r = await call(method, p, body);
-  assert.equal(r.status, status, `${method} ${p} expected ${status}, got ${r.status}: ${r.text?.slice(0, 300)}`);
+  assert.equal(
+    r.status,
+    status,
+    `${method} ${p} expected ${status}, got ${r.status}: ${r.text?.slice(0, 300)}`,
+  );
   assert.equal(r.json?.ok, false);
-  if (code) assert.equal(r.json.error.code, code, `expected error code ${code}, got ${r.json.error.code}`);
+  if (code)
+    assert.equal(r.json.error.code, code, `expected error code ${code}, got ${r.json.error.code}`);
   return r.json.error;
 }
 
@@ -100,7 +109,11 @@ async function upload(p, filename, content) {
   form.append("file", new Blob([content]), filename);
   const res = await fetch(base + p, { method: "POST", body: form });
   const json = JSON.parse(await res.text());
-  assert.equal(res.status, 200, `upload ${p} → ${res.status}: ${JSON.stringify(json).slice(0, 300)}`);
+  assert.equal(
+    res.status,
+    200,
+    `upload ${p} → ${res.status}: ${JSON.stringify(json).slice(0, 300)}`,
+  );
   assert.equal(json.ok, true);
   return json.data;
 }
@@ -130,9 +143,11 @@ async function readSse(p) {
 function makeCsv(rows, tag) {
   const lines = ["respondent_id,dept,response"];
   for (let i = 0; i < rows; i++) {
-    const text = (i % 2 === 0
-      ? `the salary is too low for this ${tag} work and it never improves (${i})`
-      : `the office is comfortable and the ${tag} team is genuinely kind (${i})`).padEnd(100, ".");
+    const text = (
+      i % 2 === 0
+        ? `the salary is too low for this ${tag} work and it never improves (${i})`
+        : `the office is comfortable and the ${tag} team is genuinely kind (${i})`
+    ).padEnd(100, ".");
     lines.push(`r${i},${i % 2 ? "sales" : "ops"},${text}`);
   }
   return lines.join("\n") + "\n";
@@ -153,14 +168,14 @@ const judgePayload = () => ({
 
 const S = {
   slug: null,
-  corpusA: null,   // the stability corpus (also has a complete run → inst: source)
-  corpusB: null,   // a different corpus — alt rows must NOT leak onto it
+  corpusA: null, // the stability corpus (also has a complete run → inst: source)
+  corpusB: null, // a different corpus — alt rows must NOT leak onto it
   constructId: null,
   instId: null,
-  dictId: null,    // a dictionary instrument — alternates must be refused
+  dictId: null, // a dictionary instrument — alternates must be refused
   baseAlpha: null, // no-alts run results, pinned for the with-alts comparison
   baseReruns: null,
-  unitIds: null,   // the sampled unit ids from the artifact
+  unitIds: null, // the sampled unit ids from the artifact
 };
 
 const K = 3;
@@ -193,7 +208,10 @@ test("stability without models: response is exactly {alpha, pass}; artifact carr
     name: "Pay complaint",
     type: "binary",
     definition: "The unit complains about compensation.",
-    categories: [{ value: "yes", label: "Yes" }, { value: "no", label: "No" }],
+    categories: [
+      { value: "yes", label: "Yes" },
+      { value: "no", label: "No" },
+    ],
   });
   S.constructId = construct.id;
 
@@ -207,7 +225,8 @@ test("stability without models: response is exactly {alpha, pass}; artifact carr
 
   // a complete run on corpus A → the inst: source alt rows pair with
   const started = await ok("POST", `/api/projects/${S.slug}/runs`, {
-    instrumentId: S.instId, corpusId: S.corpusA,
+    instrumentId: S.instId,
+    corpusId: S.corpusA,
   });
   const { events } = await readSse(`/api/projects/${S.slug}/runs/${started.runId}/monitor`);
   assert.equal(events.find((e) => e.event === "done")?.data.status, "complete", "run completes");
@@ -216,7 +235,11 @@ test("stability without models: response is exactly {alpha, pass}; artifact carr
   // the response grew the additive `level` field (the instrument's level
   // AFTER the check — tests/server/stability-honesty.test.js pins it);
   // otherwise the wave-1 shape stands
-  assert.deepEqual(Object.keys(r).sort(), ["alpha", "level", "pass"], "response shape: {alpha, level, pass} and nothing else");
+  assert.deepEqual(
+    Object.keys(r).sort(),
+    ["alpha", "level", "pass"],
+    "response shape: {alpha, level, pass} and nothing else",
+  );
   assert.equal(r.alpha, 1, "accuracy-1.0 oracle is perfectly stable");
   assert.equal(r.pass, true);
   assert.equal(r.level, "exploratory", "a pass without silver evidence never promotes");
@@ -236,14 +259,21 @@ test("stability without models: response is exactly {alpha, pass}; artifact carr
 
 test("stability with two alternates: artifact alts label the same sampled units; reruns and alpha identical to the no-alts run; response lists {provider, model, n}", async () => {
   const r = await ok("POST", stabilityUrl(), {
-    k: K, n: N, corpusId: S.corpusA, models: [ALT_A, ALT_B],
+    k: K,
+    n: N,
+    corpusId: S.corpusA,
+    models: [ALT_A, ALT_B],
   });
   assert.equal(r.alpha, S.baseAlpha, "alpha is own-model reruns only — alternates never move it");
   assert.equal(r.pass, true);
-  assert.deepEqual(r.alts, [
-    { provider: "mock", model: "mock-alpha", n: N },
-    { provider: "mock", model: "mock-beta", n: N },
-  ], "response alts carry the label count per alternate");
+  assert.deepEqual(
+    r.alts,
+    [
+      { provider: "mock", model: "mock-alpha", n: N },
+      { provider: "mock", model: "mock-beta", n: N },
+    ],
+    "response alts carry the label count per alternate",
+  );
 
   const art = JSON.parse(await readFile(artifactFile(), "utf8"));
   // unitIds are arrival-ordered (cache hits land faster than fresh calls);
@@ -253,8 +283,11 @@ test("stability with two alternates: artifact alts label the same sampled units;
   assert.equal(art.reruns.length, S.baseReruns.length, "still k reruns");
   for (const [i, rerun] of art.reruns.entries()) {
     assert.equal(rerun.index, S.baseReruns[i].index);
-    assert.deepEqual(rerun.labels, S.baseReruns[i].labels,
-      `rerun ${rerun.index} labels are unchanged by alternates (cached, same seeds)`);
+    assert.deepEqual(
+      rerun.labels,
+      S.baseReruns[i].labels,
+      `rerun ${rerun.index} labels are unchanged by alternates (cached, same seeds)`,
+    );
   }
   assert.equal(art.alts.length, 2, "one alts entry per requested model");
   for (const [i, alt] of art.alts.entries()) {
@@ -262,8 +295,11 @@ test("stability with two alternates: artifact alts label the same sampled units;
     assert.equal(alt.provider, want.provider);
     assert.equal(alt.model, want.model);
     assert.ok(!("error" in alt), "successful alternates carry no error");
-    assert.deepEqual(Object.keys(alt.labels).sort(), [...art.unitIds].sort(),
-      `alt ${alt.model} labels exactly the sampled units`);
+    assert.deepEqual(
+      Object.keys(alt.labels).sort(),
+      [...art.unitIds].sort(),
+      `alt ${alt.model} labels exactly the sampled units`,
+    );
     for (const label of Object.values(alt.labels)) {
       assert.ok(["yes", "no"].includes(label), `label "${label}" is a schema value`);
     }
@@ -273,8 +309,11 @@ test("stability with two alternates: artifact alts label the same sampled units;
   // (the header chip links the right reliability matrix) — no alt leakage
   const p = await ok("GET", `/api/projects/${S.slug}`);
   const inst = p.instruments.find((i) => i.id === S.instId);
-  assert.deepEqual(Object.keys(inst.stability).sort(), ["alpha", "corpusId", "k", "n", "ranAt"],
-    "instrument.stability summary shape: wave-1 + corpusId, no alt leakage");
+  assert.deepEqual(
+    Object.keys(inst.stability).sort(),
+    ["alpha", "corpusId", "k", "n", "ranAt"],
+    "instrument.stability summary shape: wave-1 + corpusId, no alt leakage",
+  );
   assert.equal(inst.stability.alpha, 1);
 });
 
@@ -288,27 +327,39 @@ test("reliability: alt:<id>:<provider>/<model> sources with pinned labels and ki
   // every sampled unit a consensus gold label (the consensus rule requires
   // ≥2 unanimous label votes — a single coder's vote is not gold), so gold
   // overlaps the alternates on all N units.
-  const lines = (await readFile(
-    path.join(projectDir(S.slug), "corpora", S.corpusA, "units.ndjson"), "utf8",
-  )).split(/\n/).filter(Boolean).map((l) => JSON.parse(l));
+  const lines = (
+    await readFile(path.join(projectDir(S.slug), "corpora", S.corpusA, "units.ndjson"), "utf8")
+  )
+    .split(/\n/)
+    .filter(Boolean)
+    .map((l) => JSON.parse(l));
   const textById = new Map(lines.map((u) => [u.id, u.text]));
 
   const gs = await ok("POST", `/api/projects/${S.slug}/goldsets`, {
-    constructId: S.constructId, corpusId: S.corpusA,
+    constructId: S.constructId,
+    corpusId: S.corpusA,
   });
   for (const unitId of S.unitIds) {
     await ok("POST", `/api/projects/${S.slug}/goldsets/${gs.id}/queue`, { unitId });
     for (const coder of ["coder-A", "coder-B"]) {
       await ok("POST", `/api/projects/${S.slug}/goldsets/${gs.id}/label`, {
-        coder, unitId, label: ORACLE(textById.get(unitId)),
+        coder,
+        unitId,
+        label: ORACLE(textById.get(unitId)),
       });
     }
   }
 
-  const rel = await ok("GET", `/api/projects/${S.slug}/reliability/${S.constructId}?corpusId=${S.corpusA}`);
+  const rel = await ok(
+    "GET",
+    `/api/projects/${S.slug}/reliability/${S.constructId}?corpusId=${S.corpusA}`,
+  );
   const keys = rel.sources.map((s) => s.key);
   for (const m of [ALT_A, ALT_B]) {
-    assert.ok(keys.includes(altKey(m)), `source ${altKey(m)} present (got ${JSON.stringify(keys)})`);
+    assert.ok(
+      keys.includes(altKey(m)),
+      `source ${altKey(m)} present (got ${JSON.stringify(keys)})`,
+    );
   }
   const a1 = rel.sources.find((s) => s.key === altKey(ALT_A));
   assert.equal(a1.kind, "alt");
@@ -352,11 +403,22 @@ test("reliability: stability artifact for a different corpus → no alt sources,
   });
   S.corpusB = conf.corpusId;
 
-  const rel = await ok("GET", `/api/projects/${S.slug}/reliability/${S.constructId}?corpusId=${S.corpusB}`);
-  assert.ok(!rel.sources.some((s) => String(s.key).startsWith("alt:")), "no alt sources on the other corpus");
-  assert.ok(!rel.notes.some((n) => /alternate judge/i.test(n)), "no alt notes either — the different-corpus note covers discovery");
+  const rel = await ok(
+    "GET",
+    `/api/projects/${S.slug}/reliability/${S.constructId}?corpusId=${S.corpusB}`,
+  );
   assert.ok(
-    rel.notes.includes("A stability check exists for Pay judge on a different corpus. Run the stability check on this corpus to see rerun rows."),
+    !rel.sources.some((s) => String(s.key).startsWith("alt:")),
+    "no alt sources on the other corpus",
+  );
+  assert.ok(
+    !rel.notes.some((n) => /alternate judge/i.test(n)),
+    "no alt notes either — the different-corpus note covers discovery",
+  );
+  assert.ok(
+    rel.notes.includes(
+      "A stability check exists for Pay judge on a different corpus. Run the stability check on this corpus to see rerun rows.",
+    ),
     `the wave-1 different-corpus note still stands (got ${JSON.stringify(rel.notes)})`,
   );
 });
@@ -367,7 +429,13 @@ test("reliability: stability artifact for a different corpus → no alt sources,
 
 test("validation: five models → VALIDATION", async () => {
   const five = Array.from({ length: 5 }, (_, i) => ({ provider: "mock", model: `mock-${i}` }));
-  await fail("POST", stabilityUrl(), { k: K, n: N, corpusId: S.corpusA, models: five }, 400, "VALIDATION");
+  await fail(
+    "POST",
+    stabilityUrl(),
+    { k: K, n: N, corpusId: S.corpusA, models: five },
+    400,
+    "VALIDATION",
+  );
 });
 
 test("validation: models on a dictionary instrument → VALIDATION naming judge instruments", async () => {
@@ -375,24 +443,65 @@ test("validation: models on a dictionary instrument → VALIDATION naming judge 
     constructId: S.constructId,
     kind: "dictionary",
     name: "Pay dictionary",
-    payload: { categories: [{ name: "pay", terms: [{ term: "salary" }] }], negation: { enabled: false, window: 3 }, scoring: "percentOfWords" },
+    payload: {
+      categories: [{ name: "pay", terms: [{ term: "salary" }] }],
+      negation: { enabled: false, window: 3 },
+      scoring: "percentOfWords",
+    },
   });
   S.dictId = dict.id;
-  const err = await fail("POST", `/api/projects/${S.slug}/instruments/${S.dictId}/stability`, {
-    k: K, n: N, corpusId: S.corpusA, models: [ALT_A],
-  }, 400, "VALIDATION");
-  assert.match(err.message, /judge instruments/i, "the message says alternate judges apply to judge instruments");
+  const err = await fail(
+    "POST",
+    `/api/projects/${S.slug}/instruments/${S.dictId}/stability`,
+    {
+      k: K,
+      n: N,
+      corpusId: S.corpusA,
+      models: [ALT_A],
+    },
+    400,
+    "VALIDATION",
+  );
+  assert.match(
+    err.message,
+    /judge instruments/i,
+    "the message says alternate judges apply to judge instruments",
+  );
 });
 
 test("validation: malformed models entries → VALIDATION", async () => {
   // not an array
-  await fail("POST", stabilityUrl(), { k: K, n: N, corpusId: S.corpusA, models: "mock" }, 400, "VALIDATION");
+  await fail(
+    "POST",
+    stabilityUrl(),
+    { k: K, n: N, corpusId: S.corpusA, models: "mock" },
+    400,
+    "VALIDATION",
+  );
   // entry missing model
-  await fail("POST", stabilityUrl(), { k: K, n: N, corpusId: S.corpusA, models: [{ provider: "mock" }] }, 400, "VALIDATION");
+  await fail(
+    "POST",
+    stabilityUrl(),
+    { k: K, n: N, corpusId: S.corpusA, models: [{ provider: "mock" }] },
+    400,
+    "VALIDATION",
+  );
   // entry with empty provider
-  await fail("POST", stabilityUrl(), { k: K, n: N, corpusId: S.corpusA, models: [{ provider: "", model: "mock-2" }] }, 400, "VALIDATION");
+  await fail(
+    "POST",
+    stabilityUrl(),
+    { k: K, n: N, corpusId: S.corpusA, models: [{ provider: "", model: "mock-2" }] },
+    400,
+    "VALIDATION",
+  );
   // entry not a plain object
-  await fail("POST", stabilityUrl(), { k: K, n: N, corpusId: S.corpusA, models: [["mock", "mock-2"]] }, 400, "VALIDATION");
+  await fail(
+    "POST",
+    stabilityUrl(),
+    { k: K, n: N, corpusId: S.corpusA, models: [["mock", "mock-2"]] },
+    400,
+    "VALIDATION",
+  );
 });
 
 // =========================================================================
@@ -402,29 +511,52 @@ test("validation: malformed models entries → VALIDATION", async () => {
 test("failing alternate: recorded as {provider, model, error}; the other alternate's labels intact; reliability carries the failure note", async () => {
   const BAD = { provider: "nope", model: "ghost" }; // unknown provider → deterministic adapter error
   const r = await ok("POST", stabilityUrl(), {
-    k: K, n: N, corpusId: S.corpusA, models: [ALT_A, BAD],
+    k: K,
+    n: N,
+    corpusId: S.corpusA,
+    models: [ALT_A, BAD],
   });
   assert.equal(r.alpha, S.baseAlpha, "the check itself completes with the same alpha");
   assert.equal(r.pass, true);
   assert.equal(r.alts.length, 2);
-  assert.deepEqual(r.alts[0], { provider: "mock", model: "mock-alpha", n: N }, "the healthy alternate is unaffected");
+  assert.deepEqual(
+    r.alts[0],
+    { provider: "mock", model: "mock-alpha", n: N },
+    "the healthy alternate is unaffected",
+  );
   assert.equal(r.alts[1].provider, "nope");
   assert.equal(r.alts[1].model, "ghost");
-  assert.match(r.alts[1].error, /unknown provider "nope"/, "the provider error is recorded, not thrown");
-  assert.ok(!("n" in r.alts[1]) && !("labels" in r.alts[1]), "an errored alternate carries no labels");
+  assert.match(
+    r.alts[1].error,
+    /unknown provider "nope"/,
+    "the provider error is recorded, not thrown",
+  );
+  assert.ok(
+    !("n" in r.alts[1]) && !("labels" in r.alts[1]),
+    "an errored alternate carries no labels",
+  );
 
   const art = JSON.parse(await readFile(artifactFile(), "utf8"));
   assert.equal(art.alts.length, 2);
-  assert.deepEqual(Object.keys(art.alts[0].labels).sort(), [...art.unitIds].sort(), "healthy alt labels intact");
+  assert.deepEqual(
+    Object.keys(art.alts[0].labels).sort(),
+    [...art.unitIds].sort(),
+    "healthy alt labels intact",
+  );
   assert.match(art.alts[1].error, /unknown provider "nope"/);
   assert.ok(!("labels" in art.alts[1]));
 
-  const rel = await ok("GET", `/api/projects/${S.slug}/reliability/${S.constructId}?corpusId=${S.corpusA}`);
+  const rel = await ok(
+    "GET",
+    `/api/projects/${S.slug}/reliability/${S.constructId}?corpusId=${S.corpusA}`,
+  );
   const keys = rel.sources.map((s) => s.key);
   assert.ok(keys.includes(altKey(ALT_A)), "the healthy alternate is a source");
   assert.ok(!keys.includes(`alt:${S.instId}:nope/ghost`), "the errored alternate is NOT a source");
   assert.ok(
-    rel.notes.includes('Alternate judge ghost failed during the stability check: unknown provider "nope".'),
+    rel.notes.includes(
+      'Alternate judge ghost failed during the stability check: unknown provider "nope".',
+    ),
     `the pinned failure note is present (got ${JSON.stringify(rel.notes)})`,
   );
 });

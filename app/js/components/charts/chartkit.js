@@ -19,13 +19,18 @@ import { el, svgEl, uid } from "../../dom.js";
  */
 export function chartFigure({ caption, table, chartClass = "" } = {}) {
   const mount = el("div", { class: `chart__mount ${chartClass}`.trim() });
-  const figure = el("figure", { class: "chart" },
+  const figure = el(
+    "figure",
+    { class: "chart" },
     mount,
     caption ? el("figcaption", { class: "chart__caption" }, caption) : null,
     table
-      ? el("details", { class: "chart__data" },
+      ? el(
+          "details",
+          { class: "chart__data" },
           el("summary", { class: "chart__data-summary" }, "data"),
-          table)
+          table,
+        )
       : null,
   );
   return { figure, mount };
@@ -40,19 +45,25 @@ export function hatchPattern(svg, { spacing = 5, strokeWidth = 1.1 } = {}) {
     svg.prepend(defs);
   }
   defs.append(
-    svgEl("pattern", {
-      id,
-      patternUnits: "userSpaceOnUse",
-      width: spacing,
-      height: spacing,
-      patternTransform: "rotate(45)",
-    },
+    svgEl(
+      "pattern",
+      {
+        id,
+        patternUnits: "userSpaceOnUse",
+        width: spacing,
+        height: spacing,
+        patternTransform: "rotate(45)",
+      },
       svgEl("line", {
-        x1: 0, y1: 0, x2: 0, y2: spacing,
+        x1: 0,
+        y1: 0,
+        x2: 0,
+        y2: spacing,
         stroke: "currentColor",
         "stroke-width": strokeWidth,
         opacity: 0.65,
-      })),
+      }),
+    ),
   );
   return `url(#${id})`;
 }
@@ -102,14 +113,26 @@ export function svgRoot(width, height, label) {
 
 /** Build the visually-available data-table twin from headers + rows. */
 export function dataTable(caption, headers, rows) {
-  return el("table", { class: "chart__table" },
+  return el(
+    "table",
+    { class: "chart__table" },
     el("caption", { class: "sr-only" }, caption),
-    el("thead", {},
-      el("tr", {}, ...headers.map((h) => el("th", { scope: "col" }, h)))),
-    el("tbody", {},
+    el("thead", {}, el("tr", {}, ...headers.map((h) => el("th", { scope: "col" }, h)))),
+    el(
+      "tbody",
+      {},
       ...rows.map((cells) =>
-        el("tr", {}, ...cells.map((c, i) =>
-          i === 0 ? el("th", { scope: "row" }, String(c)) : el("td", { class: "data" }, String(c)))))),
+        el(
+          "tr",
+          {},
+          ...cells.map((c, i) =>
+            i === 0
+              ? el("th", { scope: "row" }, String(c))
+              : el("td", { class: "data" }, String(c)),
+          ),
+        ),
+      ),
+    ),
   );
 }
 

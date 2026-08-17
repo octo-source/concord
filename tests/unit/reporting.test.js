@@ -16,9 +16,21 @@ import { sha256, unitId } from "../../server/core/ids.js";
 import { saveProject, appendNdjson } from "../../server/core/store.js";
 import * as ledger from "../../server/core/ledger.js";
 import {
-  createProject, createConstruct, createInstrument, createGoldSet, createRun, createAnalysis, freeze,
+  createProject,
+  createConstruct,
+  createInstrument,
+  createGoldSet,
+  createRun,
+  createAnalysis,
+  freeze,
 } from "../../server/core/objects.js";
-import { percentAgreement, cohenKappa, krippendorffAlpha, perClass, confusion } from "../../server/stats/agreement.js";
+import {
+  percentAgreement,
+  cohenKappa,
+  krippendorffAlpha,
+  perClass,
+  confusion,
+} from "../../server/stats/agreement.js";
 import { bootstrapCI } from "../../server/stats/boot.js";
 import { dslProportion, dslDiff } from "../../server/stats/correction.js";
 import { ConcordError } from "../../server/core/errors.js";
@@ -57,7 +69,20 @@ async function buildFixture() {
     "Burnout from chronic understaffing on night shifts.",
     "No growth path beyond senior operator, and wages lagged.",
   ];
-  const depts = ["sales", "sales", "sales", "sales", "sales", "sales", "ops", "ops", "ops", "ops", "ops", "ops"];
+  const depts = [
+    "sales",
+    "sales",
+    "sales",
+    "sales",
+    "sales",
+    "sales",
+    "ops",
+    "ops",
+    "ops",
+    "ops",
+    "ops",
+    "ops",
+  ];
   const units = texts.map((text, i) => ({
     id: unitId(corpusId, i, text),
     text,
@@ -86,7 +111,8 @@ async function buildFixture() {
     id: "c_pay",
     name: "Pay concern",
     type: "binary",
-    definition: "Mentions of compensation, salary, bonus or pay fairness as a stated reason for dissatisfaction or leaving. Includes raises and equity grievances. Excludes pay mentioned with no dissatisfaction link.",
+    definition:
+      "Mentions of compensation, salary, bonus or pay fairness as a stated reason for dissatisfaction or leaving. Includes raises and equity grievances. Excludes pay mentioned with no dissatisfaction link.",
     criteria: {
       include: ["explicit pay or salary complaints", "bonus or equity grievances"],
       exclude: ["benefits-only complaints", "workload complaints without a pay link"],
@@ -108,7 +134,8 @@ async function buildFixture() {
     model: "mock-judge-1",
     snapshot: "mock-judge-1@2026-05",
     params: { temperature: 0, maxTokens: 400, seed: 7 },
-    promptTemplate: "You are a careful qualitative coder.\n{{definition}}\n{{criteria}}\n{{examples}}\nUnit:\n{{unit}}\nReturn JSON {rationale, label, confidence}.",
+    promptTemplate:
+      "You are a careful qualitative coder.\n{{definition}}\n{{criteria}}\n{{examples}}\nUnit:\n{{unit}}\nReturn JSON {rationale, label, confidence}.",
     schema: { type: "binary" },
     rationaleFirst: true,
     workerClass: "mid",
@@ -143,7 +170,10 @@ async function buildFixture() {
     percent: percentAgreement(humanRows),
     kappa: cohenKappa(humanRows),
     alpha: krippendorffAlpha(humanRows, { level: "nominal" }),
-    ci: bootstrapCI(humanRows, (d) => krippendorffAlpha(d, { level: "nominal" }), { B: 200, seed: 3 }),
+    ci: bootstrapCI(humanRows, (d) => krippendorffAlpha(d, { level: "nominal" }), {
+      B: 200,
+      seed: 3,
+    }),
   };
 
   // machine-vs-gold certificate agreement (also real)
@@ -160,7 +190,10 @@ async function buildFixture() {
     perClass: perClass(machineRows, "gold"),
     confusion: conf.matrix,
     labels: conf.labels,
-    ci: bootstrapCI(machineRows, (d) => krippendorffAlpha(d, { level: "nominal" }), { B: 200, seed: 7 }),
+    ci: bootstrapCI(machineRows, (d) => krippendorffAlpha(d, { level: "nominal" }), {
+      B: 200,
+      seed: 7,
+    }),
   };
   const certificate = {
     frozenAt: "2026-06-02T09:00:00.000Z",
@@ -179,7 +212,17 @@ async function buildFixture() {
     kind: "dictionary",
     name: "Pay terms",
     payload: {
-      categories: [{ name: "pay_terms", terms: [{ term: "pay" }, { term: "salary" }, { term: "underpa*" }, { term: '"pay freeze"' }] }],
+      categories: [
+        {
+          name: "pay_terms",
+          terms: [
+            { term: "pay" },
+            { term: "salary" },
+            { term: "underpa*" },
+            { term: '"pay freeze"' },
+          ],
+        },
+      ],
       negation: { enabled: true, window: 3 },
       scoring: "percentOfWords",
     },
@@ -195,11 +238,15 @@ async function buildFixture() {
     tier: "silver",
     design: "srs",
     sample: silverIdx.map((i) => ({ unitId: units[i].id, pi: silverIdx.length / units.length })),
-    coders: [{
-      coderId: "director", blind: true,
-      labels: Object.fromEntries(silverIdx.map((i) => [units[i].id, yhat[i]])),
-      startedAt: "2026-06-01T10:00:00.000Z", finishedAt: "2026-06-01T10:05:00.000Z",
-    }],
+    coders: [
+      {
+        coderId: "director",
+        blind: true,
+        labels: Object.fromEntries(silverIdx.map((i) => [units[i].id, yhat[i]])),
+        startedAt: "2026-06-01T10:00:00.000Z",
+        finishedAt: "2026-06-01T10:05:00.000Z",
+      },
+    ],
     status: "complete",
   });
   const gsGold = createGoldSet({
@@ -209,16 +256,36 @@ async function buildFixture() {
     design: "srs",
     sample: goldIdx.map((i) => ({ unitId: units[i].id, pi })),
     coders: [
-      { coderId: "coder_a", blind: true, labels: Object.fromEntries(goldIdx.map((i) => [units[i].id, coderA[i]])), startedAt: "2026-06-01T14:00:00.000Z", finishedAt: "2026-06-01T15:00:00.000Z" },
-      { coderId: "coder_b", blind: true, labels: Object.fromEntries(goldIdx.map((i) => [units[i].id, coderB[i]])), startedAt: "2026-06-01T14:00:00.000Z", finishedAt: "2026-06-01T15:10:00.000Z" },
+      {
+        coderId: "coder_a",
+        blind: true,
+        labels: Object.fromEntries(goldIdx.map((i) => [units[i].id, coderA[i]])),
+        startedAt: "2026-06-01T14:00:00.000Z",
+        finishedAt: "2026-06-01T15:00:00.000Z",
+      },
+      {
+        coderId: "coder_b",
+        blind: true,
+        labels: Object.fromEntries(goldIdx.map((i) => [units[i].id, coderB[i]])),
+        startedAt: "2026-06-01T14:00:00.000Z",
+        finishedAt: "2026-06-01T15:10:00.000Z",
+      },
     ],
     humanAgreement,
     adjudicated: Object.fromEntries(goldIdx.map((i) => [units[i].id, adjudicatedY[i]])),
     status: "complete",
   });
   await mkdir(path.join(projectDir, "gold"), { recursive: true });
-  await writeFile(path.join(projectDir, "gold", "gs_silver.json"), JSON.stringify(gsSilver, null, 2), "utf8");
-  await writeFile(path.join(projectDir, "gold", "gs_gold.json"), JSON.stringify(gsGold, null, 2), "utf8");
+  await writeFile(
+    path.join(projectDir, "gold", "gs_silver.json"),
+    JSON.stringify(gsSilver, null, 2),
+    "utf8",
+  );
+  await writeFile(
+    path.join(projectDir, "gold", "gs_gold.json"),
+    JSON.stringify(gsGold, null, 2),
+    "utf8",
+  );
 
   // ---- run + outputs
   const run = createRun({
@@ -238,7 +305,11 @@ async function buildFixture() {
     pinned: true,
   });
   await mkdir(path.join(projectDir, "runs", run.id), { recursive: true });
-  await writeFile(path.join(projectDir, "runs", run.id, "run.json"), JSON.stringify(run, null, 2), "utf8");
+  await writeFile(
+    path.join(projectDir, "runs", run.id, "run.json"),
+    JSON.stringify(run, null, 2),
+    "utf8",
+  );
   for (let i = 0; i < units.length; i++) {
     await appendNdjson(path.join(projectDir, "runs", run.id, "outputs.ndjson"), {
       unitId: units[i].id,
@@ -253,9 +324,10 @@ async function buildFixture() {
   }
 
   // ---- the DSL-corrected crosstab analysis, numbers from the REAL estimator
-  const mkDslUnits = (idxs) => idxs.map((i) => (
-    i in adjudicatedY ? { yhat: yhat[i], y: adjudicatedY[i], pi } : { yhat: yhat[i] }
-  ));
+  const mkDslUnits = (idxs) =>
+    idxs.map((i) =>
+      i in adjudicatedY ? { yhat: yhat[i], y: adjudicatedY[i], pi } : { yhat: yhat[i] },
+    );
   const salesIdx = [0, 1, 2, 3, 4, 5];
   const opsIdx = [6, 7, 8, 9, 10, 11];
   const sales = dslProportion(mkDslUnits(salesIdx));
@@ -265,24 +337,57 @@ async function buildFixture() {
     id: "an_dsl",
     kind: "crosstab",
     spec: {
-      instrumentId: inst.id, runId: run.id, corpusId, goldsetId: gsGold.id,
-      rows: "pay_concern", cols: "dept", estimator: "dsl-proportion",
+      instrumentId: inst.id,
+      runId: run.id,
+      corpusId,
+      goldsetId: gsGold.id,
+      rows: "pay_concern",
+      cols: "dept",
+      estimator: "dsl-proportion",
     },
     results: {
       estimator: "dsl-proportion",
       outcome: "pay_concern",
       groupBy: "dept",
       cells: [
-        { group: "ops", n: 6, nGold: 3, est: ops.est, se: ops.se, ciLo: ops.ciLo, ciHi: ops.ciHi, naive: ops.naive },
-        { group: "sales", n: 6, nGold: 3, est: sales.est, se: sales.se, ciLo: sales.ciLo, ciHi: sales.ciHi, naive: sales.naive },
+        {
+          group: "ops",
+          n: 6,
+          nGold: 3,
+          est: ops.est,
+          se: ops.se,
+          ciLo: ops.ciLo,
+          ciHi: ops.ciHi,
+          naive: ops.naive,
+        },
+        {
+          group: "sales",
+          n: 6,
+          nGold: 3,
+          est: sales.est,
+          se: sales.se,
+          ciLo: sales.ciLo,
+          ciHi: sales.ciHi,
+          naive: sales.naive,
+        },
       ],
-      diff: { a: "sales", b: "ops", est: diff.est, se: diff.se, ciLo: diff.ciLo, ciHi: diff.ciHi, naive: diff.naive },
+      diff: {
+        a: "sales",
+        b: "ops",
+        est: diff.est,
+        se: diff.se,
+        ciLo: diff.ciLo,
+        ciHi: diff.ciHi,
+        naive: diff.naive,
+      },
     },
     level: "corrected",
-    evidence: { cells: {
-      ops: opsIdx.filter((i) => yhat[i] === 1).map((i) => units[i].id),
-      sales: salesIdx.filter((i) => yhat[i] === 1).map((i) => units[i].id),
-    } },
+    evidence: {
+      cells: {
+        ops: opsIdx.filter((i) => yhat[i] === 1).map((i) => units[i].id),
+        sales: salesIdx.filter((i) => yhat[i] === 1).map((i) => units[i].id),
+      },
+    },
     createdAt: "2026-06-02T11:00:00.000Z",
   });
   const anExpl = createAnalysis({
@@ -300,8 +405,16 @@ async function buildFixture() {
     createdAt: "2026-06-02T11:30:00.000Z",
   });
   await mkdir(path.join(projectDir, "analyses"), { recursive: true });
-  await writeFile(path.join(projectDir, "analyses", "an_dsl.json"), JSON.stringify(anDsl, null, 2), "utf8");
-  await writeFile(path.join(projectDir, "analyses", "an_expl.json"), JSON.stringify(anExpl, null, 2), "utf8");
+  await writeFile(
+    path.join(projectDir, "analyses", "an_dsl.json"),
+    JSON.stringify(anDsl, null, 2),
+    "utf8",
+  );
+  await writeFile(
+    path.join(projectDir, "analyses", "an_expl.json"),
+    JSON.stringify(anExpl, null, 2),
+    "utf8",
+  );
 
   // ---- PANEL fixture: 3 jurors + a per-unit "aggregate" row, run on the same
   // corpus/gold design. The aggregate (majority) labels differ from the judge
@@ -313,12 +426,28 @@ async function buildFixture() {
   const aggPanel = votesA.map((_, i) => (votesA[i] + votesB[i] + votesC[i] >= 2 ? 1 : 0));
   const panelPayload = {
     jurors: [
-      { provider: "mock", model: "mock-a", snapshot: "mock-a@2026-05", params: { temperature: 0, maxTokens: 300, seed: 11 } },
-      { provider: "mock", model: "mock-b", snapshot: "mock-b@2026-04", params: { temperature: 0, maxTokens: 300, seed: 11 } },
-      { provider: "mock", model: "mock-c", snapshot: null, params: { temperature: 0.3, maxTokens: 300 } },
+      {
+        provider: "mock",
+        model: "mock-a",
+        snapshot: "mock-a@2026-05",
+        params: { temperature: 0, maxTokens: 300, seed: 11 },
+      },
+      {
+        provider: "mock",
+        model: "mock-b",
+        snapshot: "mock-b@2026-04",
+        params: { temperature: 0, maxTokens: 300, seed: 11 },
+      },
+      {
+        provider: "mock",
+        model: "mock-c",
+        snapshot: null,
+        params: { temperature: 0.3, maxTokens: 300 },
+      },
     ],
     aggregation: "majority",
-    promptTemplate: "Panel coder.\n{{definition}}\n{{criteria}}\n{{examples}}\nUnit:\n{{unit}}\nReturn JSON {label, confidence}.",
+    promptTemplate:
+      "Panel coder.\n{{definition}}\n{{criteria}}\n{{examples}}\nUnit:\n{{unit}}\nReturn JSON {label, confidence}.",
     schema: { type: "binary" },
   };
   const instPanel = createInstrument({
@@ -348,23 +477,37 @@ async function buildFixture() {
     pinned: false,
   });
   await mkdir(path.join(projectDir, "runs", runPanel.id), { recursive: true });
-  await writeFile(path.join(projectDir, "runs", runPanel.id, "run.json"), JSON.stringify(runPanel, null, 2), "utf8");
+  await writeFile(
+    path.join(projectDir, "runs", runPanel.id, "run.json"),
+    JSON.stringify(runPanel, null, 2),
+    "utf8",
+  );
   const jurorVotes = { j_alpha: votesA, j_beta: votesB, j_gamma: votesC };
   for (let i = 0; i < units.length; i++) {
     for (const [j, votes] of Object.entries(jurorVotes)) {
       await appendNdjson(path.join(projectDir, "runs", runPanel.id, "outputs.ndjson"), {
-        unitId: units[i].id, juror: j, label: votes[i], confidence: 0.55 + 0.02 * i,
-        escalated: false, repaired: false, cacheHit: false,
+        unitId: units[i].id,
+        juror: j,
+        label: votes[i],
+        confidence: 0.55 + 0.02 * i,
+        escalated: false,
+        repaired: false,
+        cacheHit: false,
       });
     }
     await appendNdjson(path.join(projectDir, "runs", runPanel.id, "outputs.ndjson"), {
-      unitId: units[i].id, juror: "aggregate", label: aggPanel[i],
-      escalated: false, repaired: false, cacheHit: false,
+      unitId: units[i].id,
+      juror: "aggregate",
+      label: aggPanel[i],
+      escalated: false,
+      repaired: false,
+      cacheHit: false,
     });
   }
-  const mkPanelUnits = (idxs) => idxs.map((i) => (
-    i in adjudicatedY ? { yhat: aggPanel[i], y: adjudicatedY[i], pi } : { yhat: aggPanel[i] }
-  ));
+  const mkPanelUnits = (idxs) =>
+    idxs.map((i) =>
+      i in adjudicatedY ? { yhat: aggPanel[i], y: adjudicatedY[i], pi } : { yhat: aggPanel[i] },
+    );
   const salesPanel = dslProportion(mkPanelUnits(salesIdx));
   const opsPanel = dslProportion(mkPanelUnits(opsIdx));
   const diffPanel = dslDiff(mkPanelUnits(salesIdx), mkPanelUnits(opsIdx));
@@ -372,36 +515,87 @@ async function buildFixture() {
     id: "an_panel",
     kind: "crosstab",
     spec: {
-      instrumentId: instPanel.id, runId: runPanel.id, corpusId, goldsetId: gsGold.id,
-      rows: "pay_concern", cols: "dept", estimator: "dsl-proportion",
+      instrumentId: instPanel.id,
+      runId: runPanel.id,
+      corpusId,
+      goldsetId: gsGold.id,
+      rows: "pay_concern",
+      cols: "dept",
+      estimator: "dsl-proportion",
     },
     results: {
       estimator: "dsl-proportion",
       outcome: "pay_concern",
       groupBy: "dept",
       cells: [
-        { group: "ops", n: 6, nGold: 3, est: opsPanel.est, se: opsPanel.se, ciLo: opsPanel.ciLo, ciHi: opsPanel.ciHi, naive: opsPanel.naive },
-        { group: "sales", n: 6, nGold: 3, est: salesPanel.est, se: salesPanel.se, ciLo: salesPanel.ciLo, ciHi: salesPanel.ciHi, naive: salesPanel.naive },
+        {
+          group: "ops",
+          n: 6,
+          nGold: 3,
+          est: opsPanel.est,
+          se: opsPanel.se,
+          ciLo: opsPanel.ciLo,
+          ciHi: opsPanel.ciHi,
+          naive: opsPanel.naive,
+        },
+        {
+          group: "sales",
+          n: 6,
+          nGold: 3,
+          est: salesPanel.est,
+          se: salesPanel.se,
+          ciLo: salesPanel.ciLo,
+          ciHi: salesPanel.ciHi,
+          naive: salesPanel.naive,
+        },
       ],
-      diff: { a: "sales", b: "ops", est: diffPanel.est, se: diffPanel.se, ciLo: diffPanel.ciLo, ciHi: diffPanel.ciHi, naive: diffPanel.naive },
+      diff: {
+        a: "sales",
+        b: "ops",
+        est: diffPanel.est,
+        se: diffPanel.se,
+        ciLo: diffPanel.ciLo,
+        ciHi: diffPanel.ciHi,
+        naive: diffPanel.naive,
+      },
     },
     level: "corrected",
     evidence: { cells: {} },
     createdAt: "2026-06-03T11:00:00.000Z",
   });
-  await writeFile(path.join(projectDir, "analyses", "an_panel.json"), JSON.stringify(anPanel, null, 2), "utf8");
+  await writeFile(
+    path.join(projectDir, "analyses", "an_panel.json"),
+    JSON.stringify(anPanel, null, 2),
+    "utf8",
+  );
 
   // ---- incoherent-claim fixture: Corrected level but a naive estimator.
   // methods.generate must refuse to write a methods section for it.
   const anBad = createAnalysis({
     id: "an_bad",
     kind: "descriptive",
-    spec: { instrumentId: inst.id, runId: run.id, corpusId, goldsetId: gsGold.id, measure: "prevalence", estimator: "naive-proportion" },
-    results: { estimator: "naive-proportion", outcome: "pay_concern", groupBy: null, cells: [{ group: "all", n: 12, est: 0.42 }] },
+    spec: {
+      instrumentId: inst.id,
+      runId: run.id,
+      corpusId,
+      goldsetId: gsGold.id,
+      measure: "prevalence",
+      estimator: "naive-proportion",
+    },
+    results: {
+      estimator: "naive-proportion",
+      outcome: "pay_concern",
+      groupBy: null,
+      cells: [{ group: "all", n: 12, est: 0.42 }],
+    },
     level: "corrected",
     createdAt: "2026-06-03T12:00:00.000Z",
   });
-  await writeFile(path.join(projectDir, "analyses", "an_bad.json"), JSON.stringify(anBad, null, 2), "utf8");
+  await writeFile(
+    path.join(projectDir, "analyses", "an_bad.json"),
+    JSON.stringify(anBad, null, 2),
+    "utf8",
+  );
 
   // ---- project.json
   const project = createProject({
@@ -410,19 +604,35 @@ async function buildFixture() {
     slug,
     createdAt,
     privacyMode: "no-training",
-    corpora: [{
-      id: corpusId,
-      name: "Exit survey responses",
-      source: { filename: "exit.csv", format: "csv", rows: 12 },
-      unitization: { scheme: "response" },
-      unitCount: 12,
-      createdAt,
-    }],
+    corpora: [
+      {
+        id: corpusId,
+        name: "Exit survey responses",
+        source: { filename: "exit.csv", format: "csv", rows: 12 },
+        unitization: { scheme: "response" },
+        unitCount: 12,
+        createdAt,
+      },
+    ],
     constructs: [construct],
     instruments: [inst, dict, instPanel],
     goldsets: [
-      { id: gsSilver.id, constructId: construct.id, tier: "silver", design: "srs", status: "complete", n: gsSilver.sample.length },
-      { id: gsGold.id, constructId: construct.id, tier: "gold", design: "srs", status: "complete", n: gsGold.sample.length },
+      {
+        id: gsSilver.id,
+        constructId: construct.id,
+        tier: "silver",
+        design: "srs",
+        status: "complete",
+        n: gsSilver.sample.length,
+      },
+      {
+        id: gsGold.id,
+        constructId: construct.id,
+        tier: "gold",
+        design: "srs",
+        status: "complete",
+        n: gsGold.sample.length,
+      },
     ],
     analyses: [
       { id: anDsl.id, kind: anDsl.kind, level: anDsl.level, createdAt: anDsl.createdAt },
@@ -435,46 +645,243 @@ async function buildFixture() {
 
   // ---- ledger: the full provenance history per the Wave-1 taxonomy
   const L = {};
-  const ev = async (key, actor, type, refs, payload) => { L[key] = await ledger.append(projectDir, actor, type, refs, payload); };
-  await ev("projectCreated", "system", "project.created", { projectId: project.id }, { name: project.name, privacyMode: project.privacyMode });
-  await ev("corpusImported", "human", "corpus.imported", { projectId: project.id, corpusId }, { filename: "exit.csv", format: "csv", rows: 12 });
-  await ev("corpusUnitized", "system", "corpus.unitized", { corpusId }, { scheme: "response", unitCount: 12 });
-  await ev("briefGenerated", "director", "brief.generated", { briefId: "brief_1", corpusId }, { paragraphs: 4 });
-  await ev("constructCreated", "director", "construct.created", { constructId: construct.id }, { name: construct.name, type: construct.type });
-  await ev("constructEdited", "human", "construct.edited", { constructId: construct.id }, { fields: ["definition", "examples"] });
-  await ev("instrumentCreated", "director", "instrument.created", { instrumentId: inst.id }, { kind: "judge", constructId: construct.id });
-  await ev("instrumentCompiled", "director", "instrument.compiled", { instrumentId: inst.id }, { versionHash: inst.versionHash, workerClass: "mid" });
-  await ev("dictCreated", "human", "instrument.created", { instrumentId: dict.id }, { kind: "dictionary", constructId: construct.id });
-  await ev("silverCreated", "director", "goldset.created", { goldsetId: gsSilver.id }, { tier: "silver", constructId: construct.id });
-  await ev("silverSampled", "system", "goldset.sampled", { goldsetId: gsSilver.id }, { design: "srs", n: 4, piMin: 4 / 12, piMax: 4 / 12 });
-  await ev("silverTuned", "director", "instrument.silver_tuned", { instrumentId: inst.id, goldsetId: gsSilver.id }, { iterations: 2, finalAgreement: 0.86 });
-  await ev("stability", "system", "instrument.stability", { instrumentId: inst.id }, { alpha: 0.91, k: 3, n: 100, pass: true });
-  await ev("goldCreated", "human", "goldset.created", { goldsetId: gsGold.id }, { tier: "gold", constructId: construct.id });
-  await ev("goldSampled", "system", "goldset.sampled", { goldsetId: gsGold.id }, { design: "srs", n: 6, piMin: pi, piMax: pi });
+  const ev = async (key, actor, type, refs, payload) => {
+    L[key] = await ledger.append(projectDir, actor, type, refs, payload);
+  };
+  await ev(
+    "projectCreated",
+    "system",
+    "project.created",
+    { projectId: project.id },
+    { name: project.name, privacyMode: project.privacyMode },
+  );
+  await ev(
+    "corpusImported",
+    "human",
+    "corpus.imported",
+    { projectId: project.id, corpusId },
+    { filename: "exit.csv", format: "csv", rows: 12 },
+  );
+  await ev(
+    "corpusUnitized",
+    "system",
+    "corpus.unitized",
+    { corpusId },
+    { scheme: "response", unitCount: 12 },
+  );
+  await ev(
+    "briefGenerated",
+    "director",
+    "brief.generated",
+    { briefId: "brief_1", corpusId },
+    { paragraphs: 4 },
+  );
+  await ev(
+    "constructCreated",
+    "director",
+    "construct.created",
+    { constructId: construct.id },
+    { name: construct.name, type: construct.type },
+  );
+  await ev(
+    "constructEdited",
+    "human",
+    "construct.edited",
+    { constructId: construct.id },
+    { fields: ["definition", "examples"] },
+  );
+  await ev(
+    "instrumentCreated",
+    "director",
+    "instrument.created",
+    { instrumentId: inst.id },
+    { kind: "judge", constructId: construct.id },
+  );
+  await ev(
+    "instrumentCompiled",
+    "director",
+    "instrument.compiled",
+    { instrumentId: inst.id },
+    { versionHash: inst.versionHash, workerClass: "mid" },
+  );
+  await ev(
+    "dictCreated",
+    "human",
+    "instrument.created",
+    { instrumentId: dict.id },
+    { kind: "dictionary", constructId: construct.id },
+  );
+  await ev(
+    "silverCreated",
+    "director",
+    "goldset.created",
+    { goldsetId: gsSilver.id },
+    { tier: "silver", constructId: construct.id },
+  );
+  await ev(
+    "silverSampled",
+    "system",
+    "goldset.sampled",
+    { goldsetId: gsSilver.id },
+    { design: "srs", n: 4, piMin: 4 / 12, piMax: 4 / 12 },
+  );
+  await ev(
+    "silverTuned",
+    "director",
+    "instrument.silver_tuned",
+    { instrumentId: inst.id, goldsetId: gsSilver.id },
+    { iterations: 2, finalAgreement: 0.86 },
+  );
+  await ev(
+    "stability",
+    "system",
+    "instrument.stability",
+    { instrumentId: inst.id },
+    { alpha: 0.91, k: 3, n: 100, pass: true },
+  );
+  await ev(
+    "goldCreated",
+    "human",
+    "goldset.created",
+    { goldsetId: gsGold.id },
+    { tier: "gold", constructId: construct.id },
+  );
+  await ev(
+    "goldSampled",
+    "system",
+    "goldset.sampled",
+    { goldsetId: gsGold.id },
+    { design: "srs", n: 6, piMin: pi, piMax: pi },
+  );
   for (const coder of ["coder_a", "coder_b"]) {
     for (const i of goldIdx) {
-      await ev(`label_${coder}_${i}`, "human", "goldset.label", { goldsetId: gsGold.id, unitId: units[i].id }, { coder });
+      await ev(
+        `label_${coder}_${i}`,
+        "human",
+        "goldset.label",
+        { goldsetId: gsGold.id, unitId: units[i].id },
+        { coder },
+      );
     }
   }
-  await ev("goldAgreement", "system", "goldset.agreement", { goldsetId: gsGold.id }, { n: 6, percent: humanAgreement.percent, kappa: humanAgreement.kappa, alpha: humanAgreement.alpha });
+  await ev(
+    "goldAgreement",
+    "system",
+    "goldset.agreement",
+    { goldsetId: gsGold.id },
+    {
+      n: 6,
+      percent: humanAgreement.percent,
+      kappa: humanAgreement.kappa,
+      alpha: humanAgreement.alpha,
+    },
+  );
   await ev("goldAdjudicated", "human", "goldset.adjudicated", { goldsetId: gsGold.id }, { n: 6 });
   await ev("goldCompleted", "system", "goldset.completed", { goldsetId: gsGold.id }, {});
-  await ev("frozen", "human", "instrument.frozen", { instrumentId: inst.id, goldsetId: gsGold.id }, { versionHash: inst.versionHash, kappa: machineAgreement.kappa, alpha: machineAgreement.alpha, modelPinned: true });
-  await ev("preflight", "system", "run.preflight", { runId: run.id, instrumentId: inst.id, corpusId }, { units: 12, estUSD: 0.05 });
-  await ev("runStarted", "human", "run.started", { runId: run.id, instrumentId: inst.id, corpusId }, { model: run.model, snapshot: run.snapshot });
-  await ev("runCompleted", "system", "run.completed", { runId: run.id }, { done: 12, total: 12, actualUSD: 0.04 });
-  await ev("analysisDsl", "system", "analysis.created", { analysisId: anDsl.id, runId: run.id, goldsetId: gsGold.id }, { kind: "crosstab", estimator: "dsl-proportion", level: "corrected" });
-  await ev("analysisExpl", "system", "analysis.created", { analysisId: anExpl.id }, { kind: "descriptive", level: "exploratory" });
-  await ev("panelCreated", "director", "instrument.created", { instrumentId: instPanel.id }, { kind: "panel", constructId: construct.id });
-  await ev("panelCompiled", "director", "instrument.compiled", { instrumentId: instPanel.id }, { versionHash: instPanel.versionHash, jurors: 3 });
-  await ev("panelRunStarted", "human", "run.started", { runId: runPanel.id, instrumentId: instPanel.id, corpusId }, { model: runPanel.model, snapshot: null });
-  await ev("panelRunCompleted", "system", "run.completed", { runId: runPanel.id }, { done: 12, total: 12, actualUSD: 0.06 });
-  await ev("analysisPanel", "system", "analysis.created", { analysisId: anPanel.id, runId: runPanel.id, goldsetId: gsGold.id }, { kind: "crosstab", estimator: "dsl-proportion", level: "corrected" });
+  await ev(
+    "frozen",
+    "human",
+    "instrument.frozen",
+    { instrumentId: inst.id, goldsetId: gsGold.id },
+    {
+      versionHash: inst.versionHash,
+      kappa: machineAgreement.kappa,
+      alpha: machineAgreement.alpha,
+      modelPinned: true,
+    },
+  );
+  await ev(
+    "preflight",
+    "system",
+    "run.preflight",
+    { runId: run.id, instrumentId: inst.id, corpusId },
+    { units: 12, estUSD: 0.05 },
+  );
+  await ev(
+    "runStarted",
+    "human",
+    "run.started",
+    { runId: run.id, instrumentId: inst.id, corpusId },
+    { model: run.model, snapshot: run.snapshot },
+  );
+  await ev(
+    "runCompleted",
+    "system",
+    "run.completed",
+    { runId: run.id },
+    { done: 12, total: 12, actualUSD: 0.04 },
+  );
+  await ev(
+    "analysisDsl",
+    "system",
+    "analysis.created",
+    { analysisId: anDsl.id, runId: run.id, goldsetId: gsGold.id },
+    { kind: "crosstab", estimator: "dsl-proportion", level: "corrected" },
+  );
+  await ev(
+    "analysisExpl",
+    "system",
+    "analysis.created",
+    { analysisId: anExpl.id },
+    { kind: "descriptive", level: "exploratory" },
+  );
+  await ev(
+    "panelCreated",
+    "director",
+    "instrument.created",
+    { instrumentId: instPanel.id },
+    { kind: "panel", constructId: construct.id },
+  );
+  await ev(
+    "panelCompiled",
+    "director",
+    "instrument.compiled",
+    { instrumentId: instPanel.id },
+    { versionHash: instPanel.versionHash, jurors: 3 },
+  );
+  await ev(
+    "panelRunStarted",
+    "human",
+    "run.started",
+    { runId: runPanel.id, instrumentId: instPanel.id, corpusId },
+    { model: runPanel.model, snapshot: null },
+  );
+  await ev(
+    "panelRunCompleted",
+    "system",
+    "run.completed",
+    { runId: runPanel.id },
+    { done: 12, total: 12, actualUSD: 0.06 },
+  );
+  await ev(
+    "analysisPanel",
+    "system",
+    "analysis.created",
+    { analysisId: anPanel.id, runId: runPanel.id, goldsetId: gsGold.id },
+    { kind: "crosstab", estimator: "dsl-proportion", level: "corrected" },
+  );
 
   return {
-    root, projectDir, project, units, construct, inst, dict, run, gsGold, gsSilver,
-    anDsl, anExpl, anPanel, instPanel, runPanel, aggPanel, jurorVotes,
-    humanAgreement, machineAgreement, L,
+    root,
+    projectDir,
+    project,
+    units,
+    construct,
+    inst,
+    dict,
+    run,
+    gsGold,
+    gsSilver,
+    anDsl,
+    anExpl,
+    anPanel,
+    instPanel,
+    runPanel,
+    aggPanel,
+    jurorVotes,
+    humanAgreement,
+    machineAgreement,
+    L,
     expected: { sales, ops, diff },
     expectedPanel: { sales: salesPanel, ops: opsPanel, diff: diffPanel },
   };
@@ -488,14 +895,23 @@ const TOKEN_RE = /\[ledger:([0-9a-f]{8})\]/g;
 function proseLines(md) {
   return md.split("\n").filter((l) => {
     const t = l.trim();
-    return t.length > 0 && !t.startsWith("#") && !t.startsWith("|") && !t.startsWith(">") && !t.startsWith("-");
+    return (
+      t.length > 0 &&
+      !t.startsWith("#") &&
+      !t.startsWith("|") &&
+      !t.startsWith(">") &&
+      !t.startsWith("-")
+    );
   });
 }
 
 // Minimal CSV parser for archive members KNOWN to contain no quoted fields
 // (outputs/units CSVs, and gold CSVs built with includeGoldText: false).
 function csvRows(text) {
-  const [header, ...lines] = text.trim().split("\n").map((l) => l.split(","));
+  const [header, ...lines] = text
+    .trim()
+    .split("\n")
+    .map((l) => l.split(","));
   return lines.map((cells) => Object.fromEntries(header.map((h, i) => [h, cells[i]])));
 }
 
@@ -508,7 +924,9 @@ function dslFromCsv(outRows, unitById, goldById, dept) {
     if (unitById.get(row.unitId)?.meta_dept !== dept) continue;
     const yhat = Number(row.label);
     const g = goldById.get(row.unitId);
-    pseudo.push(g && g.adjudicated !== "" ? yhat + (Number(g.adjudicated) - yhat) / Number(g.pi) : yhat);
+    pseudo.push(
+      g && g.adjudicated !== "" ? yhat + (Number(g.adjudicated) - yhat) / Number(g.pi) : yhat,
+    );
   }
   const n = pseudo.length;
   const est = pseudo.reduce((a, b) => a + b, 0) / n;
@@ -529,7 +947,8 @@ test("methods: corrected analysis renders all eight numbered journal sections wi
     "## 6. Calibration results",
     "## 7. Aggregation and run execution",
     "## 8. Statistical correction",
-  ]) assert.ok(markdown.includes(h), `missing section heading: ${h}`);
+  ])
+    assert.ok(markdown.includes(h), `missing section heading: ${h}`);
 
   // data & unitization
   assert.ok(markdown.includes("exit.csv"));
@@ -567,13 +986,19 @@ test("methods: corrected analysis renders all eight numbered journal sections wi
   // headline corrected number at 3 decimals, with the naive companion SHOWN and different
   assert.ok(markdown.includes(F.expected.diff.est.toFixed(3)));
   assert.ok(markdown.includes(F.expected.diff.naive.est.toFixed(3)), "naive companion missing");
-  assert.notEqual(F.expected.diff.est.toFixed(3), F.expected.diff.naive.est.toFixed(3), "fixture must exhibit a visible correction");
+  assert.notEqual(
+    F.expected.diff.est.toFixed(3),
+    F.expected.diff.naive.est.toFixed(3),
+    "fixture must exhibit a visible correction",
+  );
   // hygiene
   assert.ok(!/undefined|NaN|\bnull\b/.test(markdown), "placeholder leak in prose");
 });
 
 test("methods: every sentence carries a resolvable ledger citation and the export itself is ledgered", async () => {
-  const { markdown, citations } = await methods.generate(F.project, "an_dsl", { projectDir: F.projectDir });
+  const { markdown, citations } = await methods.generate(F.project, "an_dsl", {
+    projectDir: F.projectDir,
+  });
 
   // every sentence-final period must be immediately preceded by a citation token
   for (const line of proseLines(markdown)) {
@@ -604,7 +1029,10 @@ test("methods: every sentence carries a resolvable ledger citation and the expor
   const exports_ = events.filter((e) => e.type === "export.methods");
   assert.ok(exports_.length >= 1, "export.methods event missing");
   const cited = new Set(citations.map((c) => c.hash));
-  assert.ok(exports_.some((e) => cited.has(e.hash)), "export.methods event not cited");
+  assert.ok(
+    exports_.some((e) => cited.has(e.hash)),
+    "export.methods event not cited",
+  );
 
   // ledger chain still verifies after the export append
   const v = await ledger.verify(F.projectDir);
@@ -616,7 +1044,10 @@ test("methods: below-Corrected level renders its mark and the honest sentence", 
   assert.ok(markdown.includes("◌"), "Exploratory mark missing");
   assert.ok(markdown.includes("Estimates are exploratory; no human validation was performed"));
   assert.ok(markdown.includes("No statistical correction was applied"));
-  assert.ok(!markdown.includes("Egami"), "must not cite DSL literature for an uncorrected analysis");
+  assert.ok(
+    !markdown.includes("Egami"),
+    "must not cite DSL literature for an uncorrected analysis",
+  );
   assert.ok(!markdown.includes("## 8. Statistical correction"));
   // sentence-citation discipline holds here too
   for (const line of proseLines(markdown)) {
@@ -627,15 +1058,27 @@ test("methods: below-Corrected level renders its mark and the honest sentence", 
 });
 
 test("methods: unknown analysis throws NOT_FOUND; bad args throw VALIDATION", async () => {
-  await assert.rejects(methods.generate(F.project, "an_missing", { projectDir: F.projectDir }), (e) => e instanceof ConcordError && e.code === "NOT_FOUND");
-  await assert.rejects(methods.generate(F.project, "an_dsl", {}), (e) => e instanceof ConcordError && e.code === "VALIDATION");
-  await assert.rejects(methods.generate(null, "an_dsl", { projectDir: F.projectDir }), (e) => e instanceof ConcordError && e.code === "VALIDATION");
+  await assert.rejects(
+    methods.generate(F.project, "an_missing", { projectDir: F.projectDir }),
+    (e) => e instanceof ConcordError && e.code === "NOT_FOUND",
+  );
+  await assert.rejects(
+    methods.generate(F.project, "an_dsl", {}),
+    (e) => e instanceof ConcordError && e.code === "VALIDATION",
+  );
+  await assert.rejects(
+    methods.generate(null, "an_dsl", { projectDir: F.projectDir }),
+    (e) => e instanceof ConcordError && e.code === "VALIDATION",
+  );
 });
 
 test("methods: a Corrected level without a correction estimator is refused at generate time", async () => {
   await assert.rejects(
     methods.generate(F.project, "an_bad", { projectDir: F.projectDir }),
-    (e) => e instanceof ConcordError && e.code === "VALIDATION" && /correction estimator/.test(e.message)
+    (e) =>
+      e instanceof ConcordError &&
+      e.code === "VALIDATION" &&
+      /correction estimator/.test(e.message),
   );
 });
 
@@ -652,7 +1095,11 @@ test("methods: stateHash commits to the full reported state tuple", async () => 
   const editedConstruct = structuredClone(F.project);
   editedConstruct.constructs[0].definition += " Amended after the fact.";
   const h3 = await hashOf(editedConstruct);
-  assert.notEqual(h1, h3, "mutating the construct definition between exports must change the stateHash");
+  assert.notEqual(
+    h1,
+    h3,
+    "mutating the construct definition between exports must change the stateHash",
+  );
 
   const editedCert = structuredClone(F.project);
   editedCert.instruments[0].certificate.agreement.kappa = 0.123;
@@ -666,17 +1113,26 @@ test("methods: interpolated free text cannot end sentences or smuggle citation t
   // holds; this pins the rendering
   const { markdown } = await methods.generate(F.project, "an_dsl", { projectDir: F.projectDir });
   assert.ok(
-    markdown.includes("leaving; Includes raises and equity grievances; Excludes pay mentioned with no dissatisfaction link"),
-    "internal sentence terminators in free text must become semicolons"
+    markdown.includes(
+      "leaving; Includes raises and equity grievances; Excludes pay mentioned with no dissatisfaction link",
+    ),
+    "internal sentence terminators in free text must become semicolons",
   );
 
   // fake tokens in free text are stripped, never laundered into citations
   const clone = structuredClone(F.project);
-  clone.constructs[0].definition = "Pay complaints. Evil token [ledger:deadbeef] inside! Trailing question? Done.";
+  clone.constructs[0].definition =
+    "Pay complaints. Evil token [ledger:deadbeef] inside! Trailing question? Done.";
   const m2 = await methods.generate(clone, "an_dsl", { projectDir: F.projectDir });
-  assert.ok(!m2.markdown.includes("deadbeef"), "fake citation token must be stripped from interpolated text");
+  assert.ok(
+    !m2.markdown.includes("deadbeef"),
+    "fake citation token must be stripped from interpolated text",
+  );
   assert.ok(m2.markdown.includes("Pay complaints; Evil token inside; Trailing question; Done"));
-  assert.ok(!m2.citations.some((c) => c.token.includes("deadbeef")), "fake token must not enter the citation table");
+  assert.ok(
+    !m2.citations.some((c) => c.token.includes("deadbeef")),
+    "fake token must not enter the citation table",
+  );
   for (const line of proseLines(m2.markdown)) {
     for (const m of line.matchAll(/\.(?=\s|$)/g)) {
       assert.equal(line[m.index - 1], "]", `unsourced sentence in line: ${line}`);
@@ -687,34 +1143,69 @@ test("methods: interpolated free text cannot end sentences or smuggle citation t
 test("methods: overclaimed sentences are conditioned on recorded evidence", async () => {
   const { markdown } = await methods.generate(F.project, "an_dsl", { projectDir: F.projectDir });
   // (a) fixture ledger proves agreement preceded machine comparison -> strong claim allowed
-  assert.ok(markdown.includes("before any machine output was compared"), "order-proven reliability sentence missing");
+  assert.ok(
+    markdown.includes("before any machine output was compared"),
+    "order-proven reliability sentence missing",
+  );
   // (b) blindness is the INTERFACE's structural claim, asserted in full so a
   // bare "blind to machine labels" overclaim (pre-audit wording) fails here
-  assert.ok(markdown.includes("labels were collected through Concord's blind coding interface, which serves coders no machine labels and no co-coder labels, so each coder was blind to machine labels and to each other's labels"),
-    "honest interface-blindness sentence missing (a bare coder-blindness claim is the old overclaim)");
-  assert.ok(!/enforced by the serving role/.test(markdown), "blindness-enforcement overclaim must be gone");
+  assert.ok(
+    markdown.includes(
+      "labels were collected through Concord's blind coding interface, which serves coders no machine labels and no co-coder labels, so each coder was blind to machine labels and to each other's labels",
+    ),
+    "honest interface-blindness sentence missing (a bare coder-blindness claim is the old overclaim)",
+  );
+  assert.ok(
+    !/enforced by the serving role/.test(markdown),
+    "blindness-enforcement overclaim must be gone",
+  );
   // (c) the fixture run escalated 1 unit: no exactly-one claim; escalation described
-  assert.ok(!markdown.includes("exactly one machine judgment"), "exactly-one claim despite escalations");
+  assert.ok(
+    !markdown.includes("exactly one machine judgment"),
+    "exactly-one claim despite escalations",
+  );
   assert.ok(/1 unit was escalated/.test(markdown), "escalation sentence (count) missing");
-  assert.ok(/the run names no Director model \(not recorded\), so flags carry no second opinion and escalated units keep the primary judgment/.test(markdown),
-    "null Director must render as not recorded WITH the no-second-opinion consequence (a bare '(not recorded)' is not enough)");
+  assert.ok(
+    /the run names no Director model \(not recorded\), so flags carry no second opinion and escalated units keep the primary judgment/.test(
+      markdown,
+    ),
+    "null Director must render as not recorded WITH the no-second-opinion consequence (a bare '(not recorded)' is not enough)",
+  );
   // (d) pinning is the run's recorded fact — recorded and reported, never verified
-  assert.ok(markdown.includes("A model snapshot identifier was recorded for every juror (mock-judge-1@2026-05) and is reported as pinned for every call in this run; Concord records but does not verify"),
-    "run.pinned=true must render as recorded-and-reported-not-verified (a bare 'pinned for every call' is the old overclaim)");
+  assert.ok(
+    markdown.includes(
+      "A model snapshot identifier was recorded for every juror (mock-judge-1@2026-05) and is reported as pinned for every call in this run; Concord records but does not verify",
+    ),
+    "run.pinned=true must render as recorded-and-reported-not-verified (a bare 'pinned for every call' is the old overclaim)",
+  );
   // (e) all three codebook slots present in the fixture template -> verbatim claim earned
-  assert.ok(markdown.includes("injected into the prompt verbatim"), "verbatim claim missing despite full slots");
+  assert.ok(
+    markdown.includes("injected into the prompt verbatim"),
+    "verbatim claim missing despite full slots",
+  );
   // (f) frozen instrument -> the prompt-only-freeze disclosure is due here
-  assert.ok(markdown.includes('these counts read the live construct rather than a snapshot "As frozen for this analysis", which Concord does not yet take'),
-    "frozen instrument must disclose that the freeze versions the prompt, not the codebook entry (a bare 'As frozen for this analysis' is the old overclaim)");
+  assert.ok(
+    markdown.includes(
+      'these counts read the live construct rather than a snapshot "As frozen for this analysis", which Concord does not yet take',
+    ),
+    "frozen instrument must disclose that the freeze versions the prompt, not the codebook entry (a bare 'As frozen for this analysis' is the old overclaim)",
+  );
   // author list and availability phrasing
   assert.ok(markdown.includes("Egami, Hinck, Stewart, and Wei"), "corrected author list missing");
   assert.ok(!markdown.includes("Jacobs-Harukawa"));
-  assert.ok(markdown.includes("available in the replication archive export"), "availability phrasing missing");
-  assert.ok(!/published verbatim in the replication archive/.test(markdown), "publication overclaim must be gone");
+  assert.ok(
+    markdown.includes("available in the replication archive export"),
+    "availability phrasing missing",
+  );
+  assert.ok(
+    !/published verbatim in the replication archive/.test(markdown),
+    "publication overclaim must be gone",
+  );
 
   // (e) counterfactual: template missing a slot -> no verbatim claim
   const noSlots = structuredClone(F.project);
-  noSlots.instruments[0].payload.promptTemplate = "Coder.\n{{definition}}\n{{criteria}}\nUnit:\n{{unit}}\nReturn JSON.";
+  noSlots.instruments[0].payload.promptTemplate =
+    "Coder.\n{{definition}}\n{{criteria}}\nUnit:\n{{unit}}\nReturn JSON.";
   const m2 = await methods.generate(noSlots, "an_dsl", { projectDir: F.projectDir });
   assert.ok(!m2.markdown.includes("verbatim"), "verbatim claim without all three slots");
 
@@ -723,7 +1214,10 @@ test("methods: overclaimed sentences are conditioned on recorded evidence", asyn
   unfrozen.instruments[0].frozen = false;
   delete unfrozen.instruments[0].certificate;
   const m3 = await methods.generate(unfrozen, "an_dsl", { projectDir: F.projectDir });
-  assert.ok(m3.markdown.includes("As recorded at export time"), "unfrozen instrument must use export-time wording");
+  assert.ok(
+    m3.markdown.includes("As recorded at export time"),
+    "unfrozen instrument must use export-time wording",
+  );
   assert.ok(!m3.markdown.includes("As frozen for this analysis"));
 });
 
@@ -733,38 +1227,76 @@ test("methods: unrecorded execution facts render as not recorded, never as confi
   delete clone.instruments[0].payload.params.temperature;
   delete clone.instruments[0].payload.params.maxTokens;
   const m1 = await methods.generate(clone, "an_dsl", { projectDir: F.projectDir });
-  assert.ok(/temperature that was not recorded/.test(m1.markdown), "missing temperature must render as not recorded");
+  assert.ok(
+    /temperature that was not recorded/.test(m1.markdown),
+    "missing temperature must render as not recorded",
+  );
   assert.ok(!/temperature 0\b/.test(m1.markdown), "missing temperature must not default to 0");
-  assert.ok(/output-token maximum that was not recorded/.test(m1.markdown), "missing maxTokens must render as not recorded");
+  assert.ok(
+    /output-token maximum that was not recorded/.test(m1.markdown),
+    "missing maxTokens must render as not recorded",
+  );
 
   // a run that recorded neither cost nor checkpoint nor escalation
   const bareRun = {
-    id: "run_nocost", instrumentId: F.inst.id, versionHash: F.inst.versionHash,
-    corpusId: "corp_demo", status: "complete", provider: "mock",
-    model: "mock-judge-1", snapshot: "mock-judge-1@2026-05",
+    id: "run_nocost",
+    instrumentId: F.inst.id,
+    versionHash: F.inst.versionHash,
+    corpusId: "corp_demo",
+    status: "complete",
+    provider: "mock",
+    model: "mock-judge-1",
+    snapshot: "mock-judge-1@2026-05",
   };
   await mkdir(path.join(F.projectDir, "runs", "run_nocost"), { recursive: true });
-  await writeFile(path.join(F.projectDir, "runs", "run_nocost", "run.json"), JSON.stringify(bareRun, null, 2), "utf8");
+  await writeFile(
+    path.join(F.projectDir, "runs", "run_nocost", "run.json"),
+    JSON.stringify(bareRun, null, 2),
+    "utf8",
+  );
   const anNocost = structuredClone(F.anDsl);
   anNocost.id = "an_nocost";
   anNocost.spec = { ...anNocost.spec, runId: "run_nocost" };
-  await writeFile(path.join(F.projectDir, "analyses", "an_nocost.json"), JSON.stringify(anNocost, null, 2), "utf8");
+  await writeFile(
+    path.join(F.projectDir, "analyses", "an_nocost.json"),
+    JSON.stringify(anNocost, null, 2),
+    "utf8",
+  );
   const m2 = await methods.generate(F.project, "an_nocost", { projectDir: F.projectDir });
-  assert.ok(/no metered cost recorded/.test(m2.markdown), "absent cost must render as not recorded");
+  assert.ok(
+    /no metered cost recorded/.test(m2.markdown),
+    "absent cost must render as not recorded",
+  );
   assert.ok(!/\$0\.00/.test(m2.markdown), "absent cost must not print as $0.00");
-  assert.ok(/completion counts not recorded/.test(m2.markdown), "absent checkpoint must render as not recorded");
-  assert.ok(!m2.markdown.includes("exactly one machine judgment"), "exactly-one claim without a recorded escalation count");
+  assert.ok(
+    /completion counts not recorded/.test(m2.markdown),
+    "absent checkpoint must render as not recorded",
+  );
+  assert.ok(
+    !m2.markdown.includes("exactly one machine judgment"),
+    "exactly-one claim without a recorded escalation count",
+  );
   assert.ok(!/pinned for every call/.test(m2.markdown), "unpinned run must not claim pinning");
 });
 
 test("methods: panel analysis describes jurors, aggregation and pinning honestly", async () => {
   const { markdown } = await methods.generate(F.project, "an_panel", { projectDir: F.projectDir });
   assert.ok(/panel of 3 LLM jurors/.test(markdown), "panel head sentence missing");
-  for (const m of ["mock-a", "mock-b", "mock-c"]) assert.ok(markdown.includes(m), `juror model ${m} missing`);
-  assert.ok(!/disjoint model families/.test(markdown), "unverifiable model-family claim must be gone");
+  for (const m of ["mock-a", "mock-b", "mock-c"])
+    assert.ok(markdown.includes(m), `juror model ${m} missing`);
+  assert.ok(
+    !/disjoint model families/.test(markdown),
+    "unverifiable model-family claim must be gone",
+  );
   // heterogeneous juror params -> no single shared decoding claim
-  assert.ok(/Decoding parameters varied across jurors/.test(markdown), "varied-params sentence missing");
-  assert.ok(!/Decoding used temperature/.test(markdown), "must not assert one temperature for heterogeneous jurors");
+  assert.ok(
+    /Decoding parameters varied across jurors/.test(markdown),
+    "varied-params sentence missing",
+  );
+  assert.ok(
+    !/Decoding used temperature/.test(markdown),
+    "must not assert one temperature for heterogeneous jurors",
+  );
   // aggregation rule as recorded; escalation count 0 on this run
   assert.ok(/majority rule/.test(markdown), "aggregation rule missing");
   // run.pinned = false -> limitation sentence instead of the pinned claim
@@ -784,30 +1316,57 @@ test("methods: panel analysis describes jurors, aggregation and pinning honestly
   const clone = structuredClone(F.project);
   delete clone.instruments.find((i) => i.id === "inst_panel").payload.aggregation;
   const m2 = await methods.generate(clone, "an_panel", { projectDir: F.projectDir });
-  assert.ok(/aggregation rule was not recorded/.test(m2.markdown), "missing aggregation rule must render as not recorded");
-  assert.ok(!/majority rule/.test(m2.markdown), "missing aggregation rule must not default to majority");
+  assert.ok(
+    /aggregation rule was not recorded/.test(m2.markdown),
+    "missing aggregation rule must render as not recorded",
+  );
+  assert.ok(
+    !/majority rule/.test(m2.markdown),
+    "missing aggregation rule must not default to majority",
+  );
 });
 
 // -------------------------------------------------------------- replication
 
 test("replication: archive contains every member, sorted, and MANIFEST hashes verify", async () => {
-  const { zipBuffer, manifest } = await replication.build(F.project, ["an_dsl", "an_expl"], { projectDir: F.projectDir });
+  const { zipBuffer, manifest } = await replication.build(F.project, ["an_dsl", "an_expl"], {
+    projectDir: F.projectDir,
+  });
   const files = unzipSync(new Uint8Array(zipBuffer));
   const paths = Object.keys(files);
   for (const p of [
-    "MANIFEST.json", "README.md", "agreement.json", "analyses/an_dsl.json", "analyses/an_expl.json",
-    "codebook.md", "dictionaries/inst_dict.json", "gold/gs_gold.csv", "gold/gs_silver.csv",
-    "instruments/inst_judge.json", "outputs/run_1.csv", "reproduce.R", "reproduce.py", "units/corp_demo.csv",
-  ]) assert.ok(paths.includes(p), `archive missing member: ${p}`);
+    "MANIFEST.json",
+    "README.md",
+    "agreement.json",
+    "analyses/an_dsl.json",
+    "analyses/an_expl.json",
+    "codebook.md",
+    "dictionaries/inst_dict.json",
+    "gold/gs_gold.csv",
+    "gold/gs_silver.csv",
+    "instruments/inst_judge.json",
+    "outputs/run_1.csv",
+    "reproduce.R",
+    "reproduce.py",
+    "units/corp_demo.csv",
+  ])
+    assert.ok(paths.includes(p), `archive missing member: ${p}`);
   assert.deepEqual(paths, [...paths].sort(), "zip member order must be sorted");
 
   // MANIFEST covers every member except itself, with correct sha256
   const parsed = JSON.parse(strFromU8(files["MANIFEST.json"]));
-  assert.deepEqual(Object.keys(parsed.files).sort(), paths.filter((p) => p !== "MANIFEST.json").sort());
+  assert.deepEqual(
+    Object.keys(parsed.files).sort(),
+    paths.filter((p) => p !== "MANIFEST.json").sort(),
+  );
   for (const [p, h] of Object.entries(parsed.files)) {
     assert.equal(sha256(strFromU8(files[p])), h, `manifest hash mismatch for ${p}`);
   }
-  assert.equal(parsed.createdAt, F.project.createdAt, "manifest timestamps must come from the project, not now");
+  assert.equal(
+    parsed.createdAt,
+    F.project.createdAt,
+    "manifest timestamps must come from the project, not now",
+  );
   assert.deepEqual(manifest.files, parsed.files);
 
   // instruments/ JSON carries the FULL frozen payload including the prompt
@@ -826,19 +1385,33 @@ test("replication: archive contains every member, sorted, and MANIFEST hashes ve
   // ledger event with the manifest hash
   const events = await ledger.query(F.projectDir, { type: "export.replication" });
   assert.ok(events.length >= 1);
-  assert.equal(events[events.length - 1].payload.manifestHash, sha256(strFromU8(files["MANIFEST.json"])));
+  assert.equal(
+    events[events.length - 1].payload.manifestHash,
+    sha256(strFromU8(files["MANIFEST.json"])),
+  );
 });
 
 test("replication: gold CSV has pi, per-coder labels, adjudicated; text only when includeGoldText; escaping correct", async () => {
-  const { zipBuffer } = await replication.build(F.project, ["an_dsl"], { projectDir: F.projectDir });
+  const { zipBuffer } = await replication.build(F.project, ["an_dsl"], {
+    projectDir: F.projectDir,
+  });
   const files = unzipSync(new Uint8Array(zipBuffer));
   const csv = strFromU8(files["gold/gs_gold.csv"]);
-  assert.ok(csv.startsWith("unitId,pi,label_coder_a,label_coder_b,adjudicated,text\n"), `gold csv header wrong: ${csv.split("\n")[0]}`);
+  assert.ok(
+    csv.startsWith("unitId,pi,label_coder_a,label_coder_b,adjudicated,text\n"),
+    `gold csv header wrong: ${csv.split("\n")[0]}`,
+  );
   assert.ok(csv.includes("0.5"), "pi missing");
   // u4's text round-trips with RFC-4180 escaping: doubled quotes, embedded newline inside one quoted field
-  assert.ok(csv.includes('"She said ""I quit"", then left.\nSecond line about salary."'), "CSV escaping of quotes/newline broken");
+  assert.ok(
+    csv.includes('"She said ""I quit"", then left.\nSecond line about salary."'),
+    "CSV escaping of quotes/newline broken",
+  );
 
-  const noText = await replication.build(F.project, ["an_dsl"], { projectDir: F.projectDir, includeGoldText: false });
+  const noText = await replication.build(F.project, ["an_dsl"], {
+    projectDir: F.projectDir,
+    includeGoldText: false,
+  });
   const csv2 = strFromU8(unzipSync(new Uint8Array(noText.zipBuffer))["gold/gs_gold.csv"]);
   assert.ok(csv2.startsWith("unitId,pi,label_coder_a,label_coder_b,adjudicated\n"));
   assert.ok(!csv2.includes("I quit"), "unit text leaked despite includeGoldText: false");
@@ -853,60 +1426,92 @@ test("replication: gold CSV has pi, per-coder labels, adjudicated; text only whe
 test("replication: deterministic — two builds produce byte-identical zips", async () => {
   const a = await replication.build(F.project, ["an_dsl", "an_expl"], { projectDir: F.projectDir });
   const b = await replication.build(F.project, ["an_dsl", "an_expl"], { projectDir: F.projectDir });
-  assert.ok(Buffer.from(a.zipBuffer).equals(Buffer.from(b.zipBuffer)), "zip bytes differ across rebuilds");
+  assert.ok(
+    Buffer.from(a.zipBuffer).equals(Buffer.from(b.zipBuffer)),
+    "zip bytes differ across rebuilds",
+  );
 });
 
 test("replication: reproduce.py embeds Concord's exact stored numbers and the DSL estimator", async () => {
-  const { zipBuffer } = await replication.build(F.project, ["an_dsl"], { projectDir: F.projectDir });
+  const { zipBuffer } = await replication.build(F.project, ["an_dsl"], {
+    projectDir: F.projectDir,
+  });
   const py = strFromU8(unzipSync(new Uint8Array(zipBuffer))["reproduce.py"]);
   for (const x of [
-    F.expected.sales.est, F.expected.sales.se,
-    F.expected.ops.est, F.expected.ops.se,
-    F.expected.diff.est, F.expected.diff.se,
-  ]) assert.ok(py.includes(String(x)), `expected number ${x} not embedded in reproduce.py`);
+    F.expected.sales.est,
+    F.expected.sales.se,
+    F.expected.ops.est,
+    F.expected.ops.se,
+    F.expected.diff.est,
+    F.expected.diff.se,
+  ])
+    assert.ok(py.includes(String(x)), `expected number ${x} not embedded in reproduce.py`);
   assert.ok(py.includes("1e-6"), "tolerance assertion missing");
   assert.ok(/pseudo/.test(py) && /pi/.test(py), "pseudo-outcome estimator missing");
-  assert.ok(py.includes("import numpy") && py.includes("import pandas"), "numpy/pandas imports missing");
+  assert.ok(
+    py.includes("import numpy") && py.includes("import pandas"),
+    "numpy/pandas imports missing",
+  );
   assert.ok(py.includes("assert"), "reproduce.py must assert equality");
   assert.ok(py.includes('read_csv("outputs/run_1.csv")'));
   assert.ok(py.includes('read_csv("gold/gs_gold.csv")'));
 });
 
 test("replication: reproduce.R targets the dsl package and references only columns that exist", async () => {
-  const { zipBuffer } = await replication.build(F.project, ["an_dsl"], { projectDir: F.projectDir });
+  const { zipBuffer } = await replication.build(F.project, ["an_dsl"], {
+    projectDir: F.projectDir,
+  });
   const files = unzipSync(new Uint8Array(zipBuffer));
   const r = strFromU8(files["reproduce.R"]);
   assert.ok(r.includes("library(dsl)"));
   assert.ok(/dsl\(\s*model\s*=\s*"lm"/.test(r), "dsl() call missing");
-  assert.ok(r.includes('sample_prob = "pi"'), "dsl() must use the recorded inclusion probabilities");
+  assert.ok(
+    r.includes('sample_prob = "pi"'),
+    "dsl() must use the recorded inclusion probabilities",
+  );
   assert.ok(r.includes('read.csv("outputs/run_1.csv"'));
   assert.ok(r.includes('read.csv("gold/gs_gold.csv"'));
   assert.ok(r.includes('read.csv("units/corp_demo.csv"'));
-  assert.ok(r.includes(F.expected.sales.est.toFixed(6)), "Concord's number missing from R comments");
+  assert.ok(
+    r.includes(F.expected.sales.est.toFixed(6)),
+    "Concord's number missing from R comments",
+  );
 
   // every column the script references (d$col, d[["col"]], `col` in formulas)
   // must be a CSV column or assigned in the script; comments are excluded so
   // backticked prose (package names) is not misread as a column.
   const headers = new Set(
-    ["outputs/run_1.csv", "gold/gs_gold.csv", "units/corp_demo.csv"]
-      .flatMap((p) => strFromU8(files[p]).split("\n")[0].split(","))
+    ["outputs/run_1.csv", "gold/gs_gold.csv", "units/corp_demo.csv"].flatMap((p) =>
+      strFromU8(files[p]).split("\n")[0].split(","),
+    ),
   );
-  const code = r.split("\n").filter((l) => !l.trim().startsWith("#")).join("\n");
-  const assigned = new Set([...code.matchAll(/\w+\$(\w+)\s*(?:\[[^\]]*\]\s*)?<-/g)].map((m) => m[1]));
+  const code = r
+    .split("\n")
+    .filter((l) => !l.trim().startsWith("#"))
+    .join("\n");
+  const assigned = new Set(
+    [...code.matchAll(/\w+\$(\w+)\s*(?:\[[^\]]*\]\s*)?<-/g)].map((m) => m[1]),
+  );
   const refs = [
     ...[...code.matchAll(/\w+\$([A-Za-z_][\w.]*)/g)].map((m) => m[1]),
     ...[...code.matchAll(/\w+\[\["([^"]+)"\]\]/g)].map((m) => m[1]),
     ...[...code.matchAll(/`([^`]+)`/g)].map((m) => m[1]),
   ];
   for (const col of refs) {
-    assert.ok(headers.has(col) || assigned.has(col), `reproduce.R references unknown column: ${col}`);
+    assert.ok(
+      headers.has(col) || assigned.has(col),
+      `reproduce.R references unknown column: ${col}`,
+    );
   }
   // the grouping column the formula uses exists in units csv (meta_ prefixed)
   assert.ok(headers.has("meta_dept"));
 });
 
 test("replication: panel runs — scripts filter to the aggregate verdicts and the embedded numbers reproduce", async () => {
-  const { zipBuffer } = await replication.build(F.project, ["an_panel"], { projectDir: F.projectDir, includeGoldText: false });
+  const { zipBuffer } = await replication.build(F.project, ["an_panel"], {
+    projectDir: F.projectDir,
+    includeGoldText: false,
+  });
   const files = unzipSync(new Uint8Array(zipBuffer));
 
   // outputs CSV keeps every row (3 jurors + the aggregate verdict per unit)
@@ -918,40 +1523,70 @@ test("replication: panel runs — scripts filter to the aggregate verdicts and t
   const py = strFromU8(files["reproduce.py"]);
   const r = strFromU8(files["reproduce.R"]);
   assert.ok(py.includes('if "juror" in outputs.columns:'), "py juror mask missing");
-  assert.ok(py.includes('outputs = outputs[outputs["juror"] == "aggregate"]'), "py aggregate filter missing");
-  assert.ok(r.includes('if ("juror" %in% names(outputs)) outputs <- subset(outputs, juror == "aggregate")'), "R aggregate filter missing");
+  assert.ok(
+    py.includes('outputs = outputs[outputs["juror"] == "aggregate"]'),
+    "py aggregate filter missing",
+  );
+  assert.ok(
+    r.includes('if ("juror" %in% names(outputs)) outputs <- subset(outputs, juror == "aggregate")'),
+    "R aggregate filter missing",
+  );
 
   // embedded numbers equal Concord's stored results for the panel analysis
   for (const x of [
-    F.expectedPanel.sales.est, F.expectedPanel.sales.se,
-    F.expectedPanel.ops.est, F.expectedPanel.ops.se,
-    F.expectedPanel.diff.est, F.expectedPanel.diff.se,
-  ]) assert.ok(py.includes(String(x)), `panel number ${x} not embedded in reproduce.py`);
+    F.expectedPanel.sales.est,
+    F.expectedPanel.sales.se,
+    F.expectedPanel.ops.est,
+    F.expectedPanel.ops.se,
+    F.expectedPanel.diff.est,
+    F.expectedPanel.diff.se,
+  ])
+    assert.ok(py.includes(String(x)), `panel number ${x} not embedded in reproduce.py`);
 
   // JS recomputation of the scripts' logic from the archive CSVs: with the
   // aggregate mask the numbers match the embedded ones exactly; without it
   // (the duplicated-merge bug) they are materially wrong.
   const allRows = csvRows(outCsv);
   const aggRows = allRows.filter((row) => row.juror === "aggregate");
-  const unitById = new Map(csvRows(strFromU8(files["units/corp_demo.csv"])).map((u) => [u.unitId, u]));
+  const unitById = new Map(
+    csvRows(strFromU8(files["units/corp_demo.csv"])).map((u) => [u.unitId, u]),
+  );
   const goldById = new Map(csvRows(strFromU8(files["gold/gs_gold.csv"])).map((g) => [g.unitId, g]));
   const embedded = Object.fromEntries(
-    [...py.matchAll(/\("(ops|sales)", ([-0-9.e]+), ([-0-9.e]+)\)/g)].map((m) => [m[1], { est: Number(m[2]), se: Number(m[3]) }])
+    [...py.matchAll(/\("(ops|sales)", ([-0-9.e]+), ([-0-9.e]+)\)/g)].map((m) => [
+      m[1],
+      { est: Number(m[2]), se: Number(m[3]) },
+    ]),
   );
-  assert.deepEqual(Object.keys(embedded).sort(), ["ops", "sales"], "panel cell tuples missing from reproduce.py");
+  assert.deepEqual(
+    Object.keys(embedded).sort(),
+    ["ops", "sales"],
+    "panel cell tuples missing from reproduce.py",
+  );
   for (const dept of ["ops", "sales"]) {
     const good = dslFromCsv(aggRows, unitById, goldById, dept);
     assert.equal(good.n, 6, "aggregate mask must leave exactly one row per unit");
-    assert.ok(Math.abs(good.est - embedded[dept].est) < 1e-12, `${dept} est: recomputed ${good.est} != embedded ${embedded[dept].est}`);
-    assert.ok(Math.abs(good.se - embedded[dept].se) < 1e-12, `${dept} se: recomputed ${good.se} != embedded ${embedded[dept].se}`);
+    assert.ok(
+      Math.abs(good.est - embedded[dept].est) < 1e-12,
+      `${dept} est: recomputed ${good.est} != embedded ${embedded[dept].est}`,
+    );
+    assert.ok(
+      Math.abs(good.se - embedded[dept].se) < 1e-12,
+      `${dept} se: recomputed ${good.se} != embedded ${embedded[dept].se}`,
+    );
     const bad = dslFromCsv(allRows, unitById, goldById, dept);
     assert.equal(bad.n, 24, "unfiltered merge duplicates every unit");
-    assert.ok(Math.abs(bad.est - embedded[dept].est) > 1e-3, `fixture must make the unfiltered ${dept} estimate visibly wrong`);
+    assert.ok(
+      Math.abs(bad.est - embedded[dept].est) > 1e-3,
+      `fixture must make the unfiltered ${dept} estimate visibly wrong`,
+    );
   }
 });
 
 test("replication: units CSV prefixes meta columns and neutralizes formula injection", async () => {
-  const { zipBuffer } = await replication.build(F.project, ["an_dsl"], { projectDir: F.projectDir });
+  const { zipBuffer } = await replication.build(F.project, ["an_dsl"], {
+    projectDir: F.projectDir,
+  });
   const files = unzipSync(new Uint8Array(zipBuffer));
   const unitsCsv = strFromU8(files["units/corp_demo.csv"]);
   // meta keys are prefixed so they can never collide with unitId/label/pi/adjudicated on merge
@@ -970,11 +1605,16 @@ test("replication: units CSV prefixes meta columns and neutralizes formula injec
   // README documents both conventions
   const readme = strFromU8(files["README.md"]);
   assert.ok(readme.includes("meta_"), "meta_ prefix convention undocumented");
-  assert.ok(/formula injection|spreadsheet formula/i.test(readme), "injection convention undocumented");
+  assert.ok(
+    /formula injection|spreadsheet formula/i.test(readme),
+    "injection convention undocumented",
+  );
 });
 
 test("replication: reproduce.R verifies inline with stopifnot and demotes dsl() to a labeled cross-check", async () => {
-  const { zipBuffer } = await replication.build(F.project, ["an_dsl"], { projectDir: F.projectDir });
+  const { zipBuffer } = await replication.build(F.project, ["an_dsl"], {
+    projectDir: F.projectDir,
+  });
   const files = unzipSync(new Uint8Array(zipBuffer));
   const r = strFromU8(files["reproduce.R"]);
   const py = strFromU8(files["reproduce.py"]);
@@ -984,7 +1624,10 @@ test("replication: reproduce.R verifies inline with stopifnot and demotes dsl() 
   assert.ok(r.includes("pseudo"), "inline pseudo-outcome estimator missing from R");
   assert.ok(/stopifnot\(abs\(/.test(r), "stopifnot near-equality assertions missing");
   assert.ok(r.includes("1e-6"), "R tolerance missing");
-  assert.ok(r.includes(String(F.expected.sales.est)), "Concord's full-precision number missing from R assertions");
+  assert.ok(
+    r.includes(String(F.expected.sales.est)),
+    "Concord's full-precision number missing from R assertions",
+  );
   assert.ok(r.includes(String(F.expected.diff.se)), "diff SE missing from R assertions");
 
   // dsl() remains as a clearly labeled methodological cross-check that cannot
@@ -993,7 +1636,10 @@ test("replication: reproduce.R verifies inline with stopifnot and demotes dsl() 
   assert.ok(/will not match/i.test(r), "printed-precision caveat missing");
   assert.ok(/may fail/i.test(r), "tiny-gold-sample caveat missing");
   assert.ok(r.includes("set.seed("), "pinned seed for the cross-check missing");
-  assert.ok(/tryCatch\(/.test(r), "cross-check must be wrapped so failure cannot abort verification");
+  assert.ok(
+    /tryCatch\(/.test(r),
+    "cross-check must be wrapped so failure cannot abort verification",
+  );
   assert.ok(/dsl\(\s*model\s*=\s*"lm"/.test(r), "dsl() call missing");
 
   // reference-level comment states the actual contrast direction
@@ -1012,9 +1658,18 @@ test("replication: reproduce.R verifies inline with stopifnot and demotes dsl() 
 });
 
 test("replication: unknown analysis id throws NOT_FOUND; bad args throw VALIDATION", async () => {
-  await assert.rejects(replication.build(F.project, ["an_missing"], { projectDir: F.projectDir }), (e) => e instanceof ConcordError && e.code === "NOT_FOUND");
-  await assert.rejects(replication.build(F.project, [], { projectDir: F.projectDir }), (e) => e instanceof ConcordError && e.code === "VALIDATION");
-  await assert.rejects(replication.build(F.project, ["an_dsl"], {}), (e) => e instanceof ConcordError && e.code === "VALIDATION");
+  await assert.rejects(
+    replication.build(F.project, ["an_missing"], { projectDir: F.projectDir }),
+    (e) => e instanceof ConcordError && e.code === "NOT_FOUND",
+  );
+  await assert.rejects(
+    replication.build(F.project, [], { projectDir: F.projectDir }),
+    (e) => e instanceof ConcordError && e.code === "VALIDATION",
+  );
+  await assert.rejects(
+    replication.build(F.project, ["an_dsl"], {}),
+    (e) => e instanceof ConcordError && e.code === "VALIDATION",
+  );
 });
 
 // ------------------------------------------------------------------ report
@@ -1030,7 +1685,19 @@ test("report: standalone HTML — self-contained, well-formed, drill-down JSON, 
   const html = await report.render(F.project, layout, { projectDir: F.projectDir });
 
   assert.ok(html.startsWith("<!DOCTYPE html>"));
-  for (const tag of ["html", "head", "body", "main", "style", "div", "section", "svg", "table", "blockquote", "script"]) {
+  for (const tag of [
+    "html",
+    "head",
+    "body",
+    "main",
+    "style",
+    "div",
+    "section",
+    "svg",
+    "table",
+    "blockquote",
+    "script",
+  ]) {
     const open = (html.match(new RegExp(`<${tag}[\\s>]`, "g")) || []).length;
     const close = (html.match(new RegExp(`</${tag}>`, "g")) || []).length;
     assert.equal(open, close, `unbalanced <${tag}>: ${open} open vs ${close} close`);
@@ -1039,16 +1706,24 @@ test("report: standalone HTML — self-contained, well-formed, drill-down JSON, 
   // self-contained: no external RESOURCE references. Asserting on src=/href=/
   // url( rather than bare "http" — prose and quoted unit text may legitimately
   // mention URLs without the file fetching anything.
-  assert.ok(!/\b(?:src|href)\s*=\s*["']?\s*https?:/i.test(html), "external src/href found in report HTML");
+  assert.ok(
+    !/\b(?:src|href)\s*=\s*["']?\s*https?:/i.test(html),
+    "external src/href found in report HTML",
+  );
   assert.ok(!/url\(\s*["']?\s*https?:/i.test(html), "external url() found in report CSS");
 
   // drill-down: embedded evidence JSON parses and carries real unit text
-  const m = html.match(/<script type="application\/json" id="concord-evidence">([\s\S]*?)<\/script>/);
+  const m = html.match(
+    /<script type="application\/json" id="concord-evidence">([\s\S]*?)<\/script>/,
+  );
   assert.ok(m, "embedded evidence JSON missing");
   const data = JSON.parse(m[1]);
   assert.ok(data.evidence.sales.length >= 1);
   assert.ok(data.evidence.sales.some((e) => typeof e.text === "string" && e.text.length > 0));
-  assert.ok(data.evidence.sales.some((e) => e.label !== undefined), "evidence entries must carry machine labels");
+  assert.ok(
+    data.evidence.sales.some((e) => e.label !== undefined),
+    "evidence entries must carry machine labels",
+  );
   assert.ok(html.includes('data-evidence="sales"') && html.includes('data-evidence="ops"'));
   assert.ok(html.includes("addEventListener"), "drill-down script missing");
 
@@ -1056,7 +1731,10 @@ test("report: standalone HTML — self-contained, well-formed, drill-down JSON, 
   assert.ok(html.includes("◉"));
   assert.ok(html.includes("0.83") && html.includes("0.33"), "corrected estimates missing");
   assert.ok(html.includes("0.50 uncorrected"), "naive bar label missing");
-  assert.ok(html.includes("<pattern") && html.includes("url(#"), "hatch pattern for uncorrected values missing");
+  assert.ok(
+    html.includes("<pattern") && html.includes("url(#"),
+    "hatch pattern for uncorrected values missing",
+  );
 
   // fonts: family stacks only, no embedded font files or @font-face
   assert.ok(html.includes("Fraunces") && html.includes("IBM Plex Sans"));
@@ -1081,52 +1759,102 @@ test("report: standalone HTML — self-contained, well-formed, drill-down JSON, 
 });
 
 test("report: methods-excerpt is a side-effect-free preview by default", async () => {
-  const countExports = async () => (await ledger.query(F.projectDir, { type: "export.methods" })).length;
+  const countExports = async () =>
+    (await ledger.query(F.projectDir, { type: "export.methods" })).length;
 
   const before = await countExports();
-  const html = await report.render(F.project, [{ kind: "methods-excerpt", ref: "an_dsl" }], { projectDir: F.projectDir });
-  assert.equal(await countExports(), before, "default render must not append export.methods events");
+  const html = await report.render(F.project, [{ kind: "methods-excerpt", ref: "an_dsl" }], {
+    projectDir: F.projectDir,
+  });
+  assert.equal(
+    await countExports(),
+    before,
+    "default render must not append export.methods events",
+  );
   assert.ok(html.includes("Preview — not an export of record"), "preview banner missing");
   assert.ok(/ledger:[0-9a-f]{8}/.test(html), "preview citations must still render as chips");
 
   // preview citations resolve against EXISTING events only
   const prev = await methods.generatePreview(F.project, "an_dsl", { projectDir: F.projectDir });
   assert.equal(await countExports(), before, "generatePreview must not append");
-  assert.ok(prev.markdown.includes("> Preview — not an export of record"), "preview markdown banner missing");
+  assert.ok(
+    prev.markdown.includes("> Preview — not an export of record"),
+    "preview markdown banner missing",
+  );
   const events = await ledger.query(F.projectDir);
   const byHash = new Map(events.map((e) => [e.hash, e]));
   for (const c of prev.citations) {
-    assert.ok(byHash.has(c.hash), `preview citation ${c.token} does not resolve to an existing event`);
+    assert.ok(
+      byHash.has(c.hash),
+      `preview citation ${c.token} does not resolve to an existing event`,
+    );
   }
 
   // a real export of record stays available per block
-  const html2 = await report.render(F.project, [{ kind: "methods-excerpt", ref: "an_dsl", sideEffectFree: false }], { projectDir: F.projectDir });
-  assert.equal(await countExports(), before + 1, "sideEffectFree: false must perform an export of record");
-  assert.ok(!html2.includes("Preview — not an export of record"), "export of record must not carry the preview banner");
+  const html2 = await report.render(
+    F.project,
+    [{ kind: "methods-excerpt", ref: "an_dsl", sideEffectFree: false }],
+    { projectDir: F.projectDir },
+  );
+  assert.equal(
+    await countExports(),
+    before + 1,
+    "sideEffectFree: false must perform an export of record",
+  );
+  assert.ok(
+    !html2.includes("Preview — not an export of record"),
+    "export of record must not carry the preview banner",
+  );
 
   // the chain stays valid throughout
   assert.equal((await ledger.verify(F.projectDir)).ok, true);
 });
 
 test("report: watermark band present iff any block is exploratory", async () => {
-  const noExpl = await report.render(F.project, [{ kind: "chart", ref: "an_dsl" }], { projectDir: F.projectDir });
+  const noExpl = await report.render(F.project, [{ kind: "chart", ref: "an_dsl" }], {
+    projectDir: F.projectDir,
+  });
   assert.ok(!noExpl.includes("watermark"), "watermark must be absent without exploratory blocks");
 
-  const withExpl = await report.render(F.project, [
-    { kind: "chart", ref: "an_dsl" },
-    { kind: "chart", ref: "an_expl" },
-  ], { projectDir: F.projectDir });
+  const withExpl = await report.render(
+    F.project,
+    [
+      { kind: "chart", ref: "an_dsl" },
+      { kind: "chart", ref: "an_expl" },
+    ],
+    { projectDir: F.projectDir },
+  );
   assert.ok(withExpl.includes("watermark"), "watermark band missing");
   assert.ok(/EXPLORATORY/i.test(withExpl), "watermark must say exploratory");
   assert.ok(withExpl.includes("◌"), "exploratory mark missing");
 });
 
 test("report: inline-content chart, table and quote blocks render without an analysis ref", async () => {
-  const html = await report.render(F.project, [
-    { kind: "chart", content: { title: "Custom chart", level: "calibrated", bars: [{ label: "a", value: 0.4, n: 10 }, { label: "b", value: 0.7, ci: { lo: 0.5, hi: 0.9 } }] } },
-    { kind: "table", content: { title: "Custom table", columns: ["x", "y"], rows: [["1", "2"]] } },
-    { kind: "quote", content: { text: "Inline quote from fieldnotes", attribution: "fieldnote-3" } },
-  ], { projectDir: F.projectDir });
+  const html = await report.render(
+    F.project,
+    [
+      {
+        kind: "chart",
+        content: {
+          title: "Custom chart",
+          level: "calibrated",
+          bars: [
+            { label: "a", value: 0.4, n: 10 },
+            { label: "b", value: 0.7, ci: { lo: 0.5, hi: 0.9 } },
+          ],
+        },
+      },
+      {
+        kind: "table",
+        content: { title: "Custom table", columns: ["x", "y"], rows: [["1", "2"]] },
+      },
+      {
+        kind: "quote",
+        content: { text: "Inline quote from fieldnotes", attribution: "fieldnote-3" },
+      },
+    ],
+    { projectDir: F.projectDir },
+  );
   assert.ok(html.includes("Custom chart") && html.includes("●"), "calibrated mark missing");
   assert.ok(html.includes("url(#"), "below-Corrected content must render hatched");
   assert.ok(html.includes("<th>x</th>") && html.includes("<td>1</td>"));
@@ -1135,17 +1863,32 @@ test("report: inline-content chart, table and quote blocks render without an ana
 });
 
 test("report: bad layout throws VALIDATION; unknown refs throw NOT_FOUND", async () => {
-  await assert.rejects(report.render(F.project, "not-an-array", { projectDir: F.projectDir }), (e) => e instanceof ConcordError && e.code === "VALIDATION");
-  await assert.rejects(report.render(F.project, [{ kind: "hologram" }], { projectDir: F.projectDir }), (e) => e instanceof ConcordError && e.code === "VALIDATION");
-  await assert.rejects(report.render(F.project, [{ kind: "chart", ref: "an_missing" }], { projectDir: F.projectDir }), (e) => e instanceof ConcordError && e.code === "NOT_FOUND");
-  await assert.rejects(report.render(F.project, [{ kind: "chart" }], { projectDir: F.projectDir }), (e) => e instanceof ConcordError && e.code === "VALIDATION");
+  await assert.rejects(
+    report.render(F.project, "not-an-array", { projectDir: F.projectDir }),
+    (e) => e instanceof ConcordError && e.code === "VALIDATION",
+  );
+  await assert.rejects(
+    report.render(F.project, [{ kind: "hologram" }], { projectDir: F.projectDir }),
+    (e) => e instanceof ConcordError && e.code === "VALIDATION",
+  );
+  await assert.rejects(
+    report.render(F.project, [{ kind: "chart", ref: "an_missing" }], { projectDir: F.projectDir }),
+    (e) => e instanceof ConcordError && e.code === "NOT_FOUND",
+  );
+  await assert.rejects(
+    report.render(F.project, [{ kind: "chart" }], { projectDir: F.projectDir }),
+    (e) => e instanceof ConcordError && e.code === "VALIDATION",
+  );
 });
 
 test("methods: uncodable + excluded counts render one reliability sentence, only when nonzero", async () => {
   // the untouched fixture has no uncodable marks and no exclusions → silent
   const clean = await methods.generate(F.project, "an_dsl", { projectDir: F.projectDir });
   assert.ok(!/uncodable/.test(clean.markdown), "no uncodable claim without uncodable marks");
-  assert.ok(!/excluded from the gold standard/.test(clean.markdown), "no exclusion claim without exclusions");
+  assert.ok(
+    !/excluded from the gold standard/.test(clean.markdown),
+    "no exclusion claim without exclusions",
+  );
 
   // two units carry an uncodable mark from ≥1 coder (one overlaps across
   // coders and must not double-count); one unit was excluded from gold at
@@ -1162,9 +1905,11 @@ test("methods: uncodable + excluded counts render one reliability sentence, only
 
   const { markdown } = await methods.generate(F.project, "an_dsl", { projectDir: F.projectDir });
   const reliability = markdown.split("## 4. Human reliability")[1]?.split("\n## ")[0] ?? "";
-  assert.match(reliability,
+  assert.match(
+    reliability,
     /2 units were marked uncodable by at least one coder; 1 unit was excluded from the gold standard after adjudication \[ledger:[0-9a-f]{8}\]\./,
-    "the factual disclosure sentence with correct counts belongs to the reliability section");
+    "the factual disclosure sentence with correct counts belongs to the reliability section",
+  );
 });
 
 // LAST because it appends a ledger event that changes what the generator may
@@ -1173,13 +1918,28 @@ test("methods: reliability-order claim downgrades when the ledger cannot prove i
   // a recomputed agreement event AFTER the freeze/analysis events means the
   // latest reliability computation postdates machine comparison — the strong
   // "before any machine output" sentence is no longer provable
-  await ledger.append(F.projectDir, "system", "goldset.agreement", { goldsetId: F.gsGold.id }, {
-    n: 6, percent: F.humanAgreement.percent, kappa: F.humanAgreement.kappa,
-    alpha: F.humanAgreement.alpha, recomputed: true,
-  });
+  await ledger.append(
+    F.projectDir,
+    "system",
+    "goldset.agreement",
+    { goldsetId: F.gsGold.id },
+    {
+      n: 6,
+      percent: F.humanAgreement.percent,
+      kappa: F.humanAgreement.kappa,
+      alpha: F.humanAgreement.alpha,
+      recomputed: true,
+    },
+  );
   const { markdown } = await methods.generate(F.project, "an_dsl", { projectDir: F.projectDir });
-  assert.ok(!markdown.includes("before any machine output was compared"), "strong order claim without ledger proof");
-  assert.ok(/Inter-coder reliability was computed from the blind double-coded sample/.test(markdown), "fallback reliability sentence missing");
+  assert.ok(
+    !markdown.includes("before any machine output was compared"),
+    "strong order claim without ledger proof",
+  );
+  assert.ok(
+    /Inter-coder reliability was computed from the blind double-coded sample/.test(markdown),
+    "fallback reliability sentence missing",
+  );
   for (const line of proseLines(markdown)) {
     for (const m of line.matchAll(/\.(?=\s|$)/g)) {
       assert.equal(line[m.index - 1], "]", `unsourced sentence in line: ${line}`);
@@ -1196,20 +1956,26 @@ test("artifact dump for manual review", { skip: !process.env.CONCORD_REPORTING_D
   await writeFile(path.join(dir, "methods-an_dsl.md"), m.markdown, "utf8");
   const m2 = await methods.generate(F.project, "an_expl", { projectDir: F.projectDir });
   await writeFile(path.join(dir, "methods-an_expl.md"), m2.markdown, "utf8");
-  const { zipBuffer } = await replication.build(F.project, ["an_dsl", "an_expl"], { projectDir: F.projectDir });
+  const { zipBuffer } = await replication.build(F.project, ["an_dsl", "an_expl"], {
+    projectDir: F.projectDir,
+  });
   await writeFile(path.join(dir, "replication.zip"), zipBuffer);
   for (const [p, bytes] of Object.entries(unzipSync(new Uint8Array(zipBuffer)))) {
     const target = path.join(dir, "archive", p);
     await mkdir(path.dirname(target), { recursive: true });
     await writeFile(target, Buffer.from(bytes));
   }
-  const html = await report.render(F.project, [
-    { kind: "text", content: "Corrected prevalence of pay concerns by department." },
-    { kind: "chart", ref: "an_dsl" },
-    { kind: "table", ref: "an_dsl" },
-    { kind: "chart", ref: "an_expl" },
-    { kind: "quote", ref: F.units[4].id },
-    { kind: "methods-excerpt", ref: "an_dsl" },
-  ], { projectDir: F.projectDir });
+  const html = await report.render(
+    F.project,
+    [
+      { kind: "text", content: "Corrected prevalence of pay concerns by department." },
+      { kind: "chart", ref: "an_dsl" },
+      { kind: "table", ref: "an_dsl" },
+      { kind: "chart", ref: "an_expl" },
+      { kind: "quote", ref: F.units[4].id },
+      { kind: "methods-excerpt", ref: "an_dsl" },
+    ],
+    { projectDir: F.projectDir },
+  );
   await writeFile(path.join(dir, "report.html"), html, "utf8");
 });

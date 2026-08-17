@@ -6,9 +6,15 @@
 
 /* ---- reset ---------------------------------------------------------------- */
 
-*, *::before, *::after { box-sizing: border-box; }
+*,
+*::before,
+*::after {
+  box-sizing: border-box;
+}
 
-* { margin: 0; }
+* {
+  margin: 0;
+}
 
 html {
   height: 100%;
@@ -28,9 +34,17 @@ body {
   text-rendering: optimizeLegibility;
 }
 
-img, svg, canvas { display: block; max-width: 100%; }
+img,
+svg,
+canvas {
+  display: block;
+  max-width: 100%;
+}
 
-input, button, textarea, select {
+input,
+button,
+textarea,
+select {
   font: inherit;
   color: inherit;
 }
@@ -42,16 +56,29 @@ button {
   cursor: pointer;
 }
 
-p, h1, h2, h3, h4, h5, h6 { overflow-wrap: break-word; }
+p,
+h1,
+h2,
+h3,
+h4,
+h5,
+h6 {
+  overflow-wrap: break-word;
+}
 
-ul[role="list"], ol[role="list"], .plain-list {
+ul[role="list"],
+ol[role="list"],
+.plain-list {
   list-style: none;
   padding: 0;
 }
 
 /* ---- typography ----------------------------------------------------------- */
 
-h1, h2, h3, h4 {
+h1,
+h2,
+h3,
+h4 {
   font-family: var(--font-serif);
   font-optical-sizing: auto;
   font-weight: 600;
@@ -59,10 +86,19 @@ h1, h2, h3, h4 {
   letter-spacing: -0.01em;
 }
 
-h1 { font-size: var(--fs-display); font-weight: 900; }
-h2 { font-size: var(--fs-title); }
-h3 { font-size: var(--fs-section); }
-h4 { font-size: var(--fs-body); }
+h1 {
+  font-size: var(--fs-display);
+  font-weight: 900;
+}
+h2 {
+  font-size: var(--fs-title);
+}
+h3 {
+  font-size: var(--fs-section);
+}
+h4 {
+  font-size: var(--fs-body);
+}
 
 a {
   color: var(--accent);
@@ -70,11 +106,19 @@ a {
   text-decoration-thickness: 1px;
   text-underline-offset: 0.15em;
   text-decoration-color: color-mix(in oklab, var(--accent) 45%, transparent);
-  transition: color var(--t-fast) var(--ease), text-decoration-color var(--t-fast) var(--ease);
+  transition:
+    color var(--t-fast) var(--ease),
+    text-decoration-color var(--t-fast) var(--ease);
 }
-a:hover { color: var(--accent-hover); text-decoration-color: currentColor; }
+a:hover {
+  color: var(--accent-hover);
+  text-decoration-color: currentColor;
+}
 
-code, kbd, samp, pre {
+code,
+kbd,
+samp,
+pre {
   font-family: var(--font-mono);
   font-size: 0.9em;
 }
@@ -91,7 +135,10 @@ kbd {
   color: var(--ink-muted);
 }
 
-::selection { background: var(--accent-wash); color: var(--ink); }
+::selection {
+  background: var(--accent-wash);
+  color: var(--ink);
+}
 
 /* the section voice: letterspaced caps label, Plex Sans 600 */
 .overline {
@@ -103,24 +150,35 @@ kbd {
   color: var(--ink-faint);
 }
 
-.muted { color: var(--ink-muted); }
-.faint { color: var(--ink-faint); }
+.muted {
+  color: var(--ink-muted);
+}
+.faint {
+  color: var(--ink-faint);
+}
 
 /* quiet thin scrollbars — the page, not chrome */
 * {
   scrollbar-width: thin;
   scrollbar-color: var(--rule-color-strong) transparent;
 }
-*::-webkit-scrollbar { width: 8px; height: 8px; }
+*::-webkit-scrollbar {
+  width: 8px;
+  height: 8px;
+}
 *::-webkit-scrollbar-thumb {
   background: var(--rule-color-strong);
   border-radius: var(--r-pill);
 }
-*::-webkit-scrollbar-track { background: transparent; }
+*::-webkit-scrollbar-track {
+  background: transparent;
+}
 
 /* ---- focus ---------------------------------------------------------------- */
 
-:focus { outline: none; }
+:focus {
+  outline: none;
+}
 :focus-visible {
   outline: var(--focus-ring);
   outline-offset: var(--focus-offset);
@@ -140,13 +198,17 @@ kbd {
   color: var(--accent);
   transition: top var(--t-fast) var(--ease);
 }
-.skip-link:focus { top: var(--s2); }
+.skip-link:focus {
+  top: var(--s2);
+}
 
 /* screen-reader-only (chart table twins, live regions) */
 .sr-only {
   position: absolute !important;
-  width: 1px; height: 1px;
-  padding: 0; margin: -1px;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  margin: -1px;
   overflow: hidden;
   clip-path: inset(50%);
   white-space: nowrap;
@@ -178,7 +240,9 @@ kbd {
   grid-template-columns: 0px minmax(0, 1fr) 0px;
 }
 .app[data-fullbleed] .app-rail,
-.app[data-fullbleed] .app-inspector { visibility: hidden; }
+.app[data-fullbleed] .app-inspector {
+  visibility: hidden;
+}
 
 .app-topbar {
   grid-area: topbar;
@@ -225,16 +289,29 @@ kbd {
   padding: var(--s6) var(--s6) var(--s8);
 }
 
-.work-page--reading { max-width: 42rem; } /* full-bleed Brief column */
+.work-page--reading {
+  max-width: 42rem;
+} /* full-bleed Brief column */
 
 /* ---- print hooks -----------------------------------------------------------
    print.css carries the publication styles; here only the structural switch:
    chrome vanishes, the work column becomes the page. ----------------------- */
 
 @media print {
-  .app { display: block; height: auto; }
-  .app-topbar, .app-rail, .app-inspector, .toast-shelf, .skip-link { display: none !important; }
-  .app-work { overflow: visible; }
+  .app {
+    display: block;
+    height: auto;
+  }
+  .app-topbar,
+  .app-rail,
+  .app-inspector,
+  .toast-shelf,
+  .skip-link {
+    display: none !important;
+  }
+  .app-work {
+    overflow: visible;
+  }
 }
 
 /* ---- static-demo banner ----------------------------------------------------

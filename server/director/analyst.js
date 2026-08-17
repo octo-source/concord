@@ -15,7 +15,7 @@ import { analystPrompt, ANALYST_SCHEMA } from "./prompts.js";
 export async function suggestAnalyses(project, run, outputsSample) {
   const instrument = (project.instruments ?? []).find((i) => i.id === run.instrumentId) ?? null;
   const construct = instrument
-    ? (project.constructs ?? []).find((c) => c.id === instrument.constructId) ?? null
+    ? ((project.constructs ?? []).find((c) => c.id === instrument.constructId) ?? null)
     : null;
 
   // label distribution from the sample
@@ -35,13 +35,23 @@ export async function suggestAnalyses(project, run, outputsSample) {
     const { columns } = detect(units.map((u) => u.meta ?? {}));
     metaColumns = columns.filter((c) => c.role === "categorical").map((c) => c.name);
     for (const u of units) unitsById.set(u.id, u);
-  } catch { /* corpus unreadable → no meta columns */ }
+  } catch {
+    /* corpus unreadable → no meta columns */
+  }
 
   const { system, user } = analystPrompt({
-    construct, run, labelDist, metaColumns, outputsSample: outputsSample ?? [], unitsById,
+    construct,
+    run,
+    labelDist,
+    metaColumns,
+    outputsSample: outputsSample ?? [],
+    unitsById,
   });
   const res = await callDirector(project, {
-    messages: [{ role: "system", content: system }, { role: "user", content: user }],
+    messages: [
+      { role: "system", content: system },
+      { role: "user", content: user },
+    ],
     schema: ANALYST_SCHEMA,
     // thinking tokens bill against max_tokens on reasoning-class Directors
     // — keep at the reasoning-tolerant floor (≥2048)

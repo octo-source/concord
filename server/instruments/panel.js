@@ -36,7 +36,14 @@
 // [{juror, label, confidence, weight}] for the disagreement view.
 import { ConcordError } from "../core/errors.js";
 
-const RULES = new Set(["majority", "mean", "median", "unanimityOrFlag", "confidenceWeighted", "reliabilityWeighted"]);
+const RULES = new Set([
+  "majority",
+  "mean",
+  "median",
+  "unanimityOrFlag",
+  "confidenceWeighted",
+  "reliabilityWeighted",
+]);
 
 function fail(message, details = {}) {
   throw new ConcordError("VALIDATION", message, details);
@@ -47,13 +54,23 @@ function normalize(outputsByJuror) {
   if (Array.isArray(outputsByJuror)) {
     list = outputsByJuror.map((o, i) => {
       if (!o || typeof o !== "object") fail(`outputs[${i}] must be an object`, { index: i });
-      if (o.juror === undefined || o.juror === null || o.juror === "") fail(`outputs[${i}] missing juror id`, { index: i });
-      return { juror: String(o.juror), label: o.label, confidence: typeof o.confidence === "number" ? o.confidence : null };
+      if (o.juror === undefined || o.juror === null || o.juror === "")
+        fail(`outputs[${i}] missing juror id`, { index: i });
+      return {
+        juror: String(o.juror),
+        label: o.label,
+        confidence: typeof o.confidence === "number" ? o.confidence : null,
+      };
     });
   } else if (outputsByJuror && typeof outputsByJuror === "object") {
     list = Object.entries(outputsByJuror).map(([juror, o]) => {
-      if (!o || typeof o !== "object") fail(`output for juror "${juror}" must be an object`, { juror });
-      return { juror, label: o.label, confidence: typeof o.confidence === "number" ? o.confidence : null };
+      if (!o || typeof o !== "object")
+        fail(`output for juror "${juror}" must be an object`, { juror });
+      return {
+        juror,
+        label: o.label,
+        confidence: typeof o.confidence === "number" ? o.confidence : null,
+      };
     });
   } else {
     fail("outputsByJuror must be an array of outputs or a Record<juror, output>", {});
@@ -87,7 +104,8 @@ function asNumber(label, juror) {
 
 // Shannon entropy over juror label counts, normalized by ln(k observed).
 export function entropy(labels) {
-  if (!Array.isArray(labels) || labels.length === 0) fail("entropy requires a non-empty array of labels", {});
+  if (!Array.isArray(labels) || labels.length === 0)
+    fail("entropy requires a non-empty array of labels", {});
   const counts = new Map();
   for (const l of labels) {
     const k = sig(l);
@@ -193,7 +211,12 @@ export function aggregate(outputsByJuror, panelPayload, weights) {
   }[rule];
 
   const h = entropy(list.map((o) => o.label));
-  const perJuror = list.map((o) => ({ juror: o.juror, label: o.label, confidence: o.confidence, weight: weightOf(o) }));
+  const perJuror = list.map((o) => ({
+    juror: o.juror,
+    label: o.label,
+    confidence: o.confidence,
+    weight: weightOf(o),
+  }));
 
   let verdict;
   if (rule === "mean" || rule === "median") {
@@ -207,7 +230,9 @@ export function aggregate(outputsByJuror, panelPayload, weights) {
     }
   } else if (rule === "unanimityOrFlag") {
     const first = sig(list[0].label);
-    verdict = list.every((o) => sig(o.label) === first) ? { label: list[0].label } : { flagged: true };
+    verdict = list.every((o) => sig(o.label) === first)
+      ? { label: list[0].label }
+      : { flagged: true };
   } else if (multilabel) {
     verdict = multilabelVote(list, weightOf);
   } else {

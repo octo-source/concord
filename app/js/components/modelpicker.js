@@ -67,10 +67,25 @@ export function capBadges(entry) {
   if (!entry) return [];
   const badges = [];
   if (entry.structuredOutput) {
-    badges.push(el("span", { class: "chip", title: "Native structured output — the provider enforces the label schema" }, "structured ✓"));
+    badges.push(
+      el(
+        "span",
+        {
+          class: "chip",
+          title: "Native structured output — the provider enforces the label schema",
+        },
+        "structured ✓",
+      ),
+    );
   }
   if (entry.noTemperature) {
-    badges.push(el("span", { class: "chip chip--ghost", title: "Reasoning-class model — temperature is ignored" }, "no temp"));
+    badges.push(
+      el(
+        "span",
+        { class: "chip chip--ghost", title: "Reasoning-class model — temperature is ignored" },
+        "no temp",
+      ),
+    );
   }
   const inP = entry.pricing?.inUSDper1M;
   const outP = entry.pricing?.outUSDper1M;
@@ -96,11 +111,14 @@ export function render({
   const total = providers.reduce((n, [, models]) => n + (models?.length ?? 0), 0);
   // Capability data may be missing entirely (older server): the structured
   // filter would then hide every model — disarm it instead of lying.
-  const hasCapData = providers.some(([, models]) => (models ?? []).some((m) => m.structuredOutput !== undefined));
+  const hasCapData = providers.some(([, models]) =>
+    (models ?? []).some((m) => m.structuredOutput !== undefined),
+  );
 
-  let selected = value?.provider && value?.model
-    ? { provider: value.provider, entry: findEntry(catalog, value.provider, value.model) }
-    : null;
+  let selected =
+    value?.provider && value?.model
+      ? { provider: value.provider, entry: findEntry(catalog, value.provider, value.model) }
+      : null;
   let structuredOnly = structuredFilter === true && hasCapData;
   let open = false;
   let rows = []; // visible options, flat: [{provider, entry, node}]
@@ -116,28 +134,47 @@ export function render({
     role: "combobox",
     "aria-expanded": "false",
     aria: { autocomplete: "list", controls: listId, label },
-    oninput: () => { openPanel(); paintList(); },
+    oninput: () => {
+      openPanel();
+      paintList();
+    },
     onfocus: () => openPanel(),
     onclick: () => openPanel(),
     onkeydown: onKey,
   });
 
-  const list = el("div", { class: "modelpicker__list", role: "listbox", id: listId, aria: { label: `${label} catalog` } });
+  const list = el("div", {
+    class: "modelpicker__list",
+    role: "listbox",
+    id: listId,
+    aria: { label: `${label} catalog` },
+  });
   const count = el("p", { class: "modelpicker__count faint data" });
 
-  const filterBox = (structuredFilter !== undefined && hasCapData)
-    ? el("label", { class: "switch modelpicker__filter" },
-        el("input", {
-          type: "checkbox", checked: structuredOnly,
-          onchange: (e) => { structuredOnly = e.target.checked; paintList(); input.focus(); },
-        }),
-        el("span", {}, STRUCTURED_FILTER_LABEL))
-    : null;
+  const filterBox =
+    structuredFilter !== undefined && hasCapData
+      ? el(
+          "label",
+          { class: "switch modelpicker__filter" },
+          el("input", {
+            type: "checkbox",
+            checked: structuredOnly,
+            onchange: (e) => {
+              structuredOnly = e.target.checked;
+              paintList();
+              input.focus();
+            },
+          }),
+          el("span", {}, STRUCTURED_FILTER_LABEL),
+        )
+      : null;
 
   const panel = el("div", { class: "modelpicker__panel", hidden: true }, filterBox, list, count);
   const selectedHost = showSelected ? el("span", { class: "modelpicker__selected" }) : null;
 
-  const root = el("div", { class: "modelpicker" },
+  const root = el(
+    "div",
+    { class: "modelpicker" },
     el("div", { class: "modelpicker__field" }, input, panel),
     selectedHost,
   );
@@ -152,7 +189,11 @@ export function render({
     }
     const id = selected.entry?.id ?? value?.model;
     selectedHost.append(
-      el("span", { class: "chip chip--machine", title: selected.entry?.name ?? id }, `${selected.provider} · ${id}`),
+      el(
+        "span",
+        { class: "chip chip--machine", title: selected.entry?.name ?? id },
+        `${selected.provider} · ${id}`,
+      ),
       ...capBadges(selected.entry),
     );
   };
@@ -162,8 +203,12 @@ export function render({
     if (structuredOnly && !entry.structuredOutput) return false;
     const q = input.value.trim().toLowerCase();
     if (!q) return true;
-    return String(entry.id).toLowerCase().includes(q)
-      || String(entry.name ?? "").toLowerCase().includes(q);
+    return (
+      String(entry.id).toLowerCase().includes(q) ||
+      String(entry.name ?? "")
+        .toLowerCase()
+        .includes(q)
+    );
   };
 
   function paintList() {
@@ -173,36 +218,53 @@ export function render({
     for (const [provider, models] of providers) {
       const hits = (models ?? []).filter(matches);
       if (!hits.length) continue;
-      list.append(el("p", { class: "overline modelpicker__group", role: "presentation" }, provider));
+      list.append(
+        el("p", { class: "overline modelpicker__group", role: "presentation" }, provider),
+      );
       for (const entry of hits) {
         const i = rows.length;
         const isCurrent = selected?.provider === provider && selected?.entry?.id === entry.id;
-        const node = el("div", {
-          class: "modelpicker__row",
-          role: "option",
-          id: `${listId}-opt-${i}`,
-          "aria-selected": isCurrent ? "true" : "false",
-          title: entry.name ?? entry.id,
-          onmousedown: (e) => e.preventDefault(), // keep focus on the input
-          onclick: () => pick(i),
-          onmousemove: () => setActive(i, false),
-        },
+        const node = el(
+          "div",
+          {
+            class: "modelpicker__row",
+            role: "option",
+            id: `${listId}-opt-${i}`,
+            "aria-selected": isCurrent ? "true" : "false",
+            title: entry.name ?? entry.id,
+            onmousedown: (e) => e.preventDefault(), // keep focus on the input
+            onclick: () => pick(i),
+            onmousemove: () => setActive(i, false),
+          },
           el("span", { class: "modelpicker__id data" }, entry.id),
-          el("span", { class: "modelpicker__meta data" },
-            entry.ctx ? el("span", { title: "context window (tokens)" }, `${fmtCompact(entry.ctx)} ctx`) : null,
-            el("span", { title: "price per 1M tokens, in/out (USD)" },
-              `$${entry.pricing?.inUSDper1M ?? 0}/$${entry.pricing?.outUSDper1M ?? 0}`),
-            ...capBadges(entry)),
+          el(
+            "span",
+            { class: "modelpicker__meta data" },
+            entry.ctx
+              ? el("span", { title: "context window (tokens)" }, `${fmtCompact(entry.ctx)} ctx`)
+              : null,
+            el(
+              "span",
+              { title: "price per 1M tokens, in/out (USD)" },
+              `$${entry.pricing?.inUSDper1M ?? 0}/$${entry.pricing?.outUSDper1M ?? 0}`,
+            ),
+            ...capBadges(entry),
+          ),
         );
         list.append(node);
         rows.push({ provider, entry, node });
       }
     }
     if (!rows.length) {
-      list.append(el("p", { class: "modelpicker__empty faint" },
-        structuredOnly
-          ? "No matches with the structured-output filter on — uncheck it to see every model."
-          : "No models match."));
+      list.append(
+        el(
+          "p",
+          { class: "modelpicker__empty faint" },
+          structuredOnly
+            ? "No matches with the structured-output filter on — uncheck it to see every model."
+            : "No models match.",
+        ),
+      );
     }
     count.textContent = `${rows.length} of ${total} models`;
     input.setAttribute("aria-activedescendant", "");
@@ -249,7 +311,10 @@ export function render({
   function onKey(e) {
     if (e.key === "ArrowDown" || e.key === "ArrowUp") {
       e.preventDefault();
-      if (!open) { openPanel(); return; }
+      if (!open) {
+        openPanel();
+        return;
+      }
       if (!rows.length) return;
       const delta = e.key === "ArrowDown" ? 1 : -1;
       setActive((active + delta + rows.length) % rows.length);
@@ -278,9 +343,10 @@ export function render({
     el: root,
     setValue(next) {
       value = next;
-      selected = next?.provider && next?.model
-        ? { provider: next.provider, entry: findEntry(catalog, next.provider, next.model) }
-        : null;
+      selected =
+        next?.provider && next?.model
+          ? { provider: next.provider, entry: findEntry(catalog, next.provider, next.model) }
+          : null;
       paintSelected();
     },
   };

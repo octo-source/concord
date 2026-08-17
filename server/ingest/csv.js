@@ -112,11 +112,18 @@ function parseRecords(text, delim, issues) {
     }
   }
   if (inQ) {
-    issues.push({ kind: "unterminated_quote", detail: "quote opened but never closed; remainder taken as one field" });
+    issues.push({
+      kind: "unterminated_quote",
+      detail: "quote opened but never closed; remainder taken as one field",
+    });
   }
   if (field.length > 0 || record.length > 0) pushRecord();
   // Drop fully-empty trailing records (file ends with newline)
-  while (records.length && records[records.length - 1].length === 1 && records[records.length - 1][0] === "") {
+  while (
+    records.length &&
+    records[records.length - 1].length === 1 &&
+    records[records.length - 1][0] === ""
+  ) {
     records.pop();
   }
   return records;
@@ -165,10 +172,14 @@ function makeHeader(records, issues) {
       assigned.add(`col${i}`);
       names.push(`col${i}`);
     }
-    if (dup) issues.push({ kind: "dup_header", detail: "duplicate header names deduped with _N suffix" });
+    if (dup)
+      issues.push({ kind: "dup_header", detail: "duplicate header names deduped with _N suffix" });
     return { names, dataStart: 1 };
   }
-  issues.push({ kind: "no_header", detail: "first row does not look like a header; synthesized col1..colN" });
+  issues.push({
+    kind: "no_header",
+    detail: "first row does not look like a header; synthesized col1..colN",
+  });
   return { names: Array.from({ length: width }, (_, i) => `col${i + 1}`), dataStart: 0 };
 }
 

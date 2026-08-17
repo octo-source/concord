@@ -64,7 +64,11 @@ async function call(method, p, body) {
   const res = await fetch(base + p, init);
   const text = await res.text();
   let json = null;
-  try { json = JSON.parse(text); } catch { /* non-JSON */ }
+  try {
+    json = JSON.parse(text);
+  } catch {
+    /* non-JSON */
+  }
   return { status: res.status, json, text };
 }
 
@@ -80,7 +84,11 @@ async function upload(p, filename, content) {
   form.append("file", new Blob([content]), filename);
   const res = await fetch(base + p, { method: "POST", body: form });
   const json = JSON.parse(await res.text());
-  assert.equal(res.status, 200, `upload ${p} → ${res.status}: ${JSON.stringify(json).slice(0, 300)}`);
+  assert.equal(
+    res.status,
+    200,
+    `upload ${p} → ${res.status}: ${JSON.stringify(json).slice(0, 300)}`,
+  );
   assert.equal(json.ok, true);
   return json.data;
 }
@@ -118,8 +126,8 @@ const S = {
   csv: null,
   oracleDoc: null,
   corpusId: null,
-  units: new Map(),       // unitId → unit
-  flagsById: new Map(),   // unitId → planted theme flags
+  units: new Map(), // unitId → unit
+  flagsById: new Map(), // unitId → planted theme flags
   flagsByText: new Map(), // unit text → flags (the worker oracle)
   briefId: null,
   payConstructId: null,
@@ -129,7 +137,7 @@ const S = {
   dictRunId: null,
   goldsetId: null,
   goldIds: [],
-  flips: [],              // units where coder B disagrees with coder A
+  flips: [], // units where coder B disagrees with coder A
   crosstabId: null,
 };
 
@@ -140,13 +148,31 @@ const getProject = () => ok("GET", `/api/projects/${S.slug}`);
 
 const mock = () => getAdapter({ privacyMode: "open" }, "mock").adapter;
 const lastUser = (req) => [...req.messages].reverse().find((m) => m.role === "user")?.content ?? "";
-const shownUnitIds = (t) => [...new Set([...String(t).matchAll(/unit (u_[0-9a-f]{16})/g)].map((m) => m[1]))];
+const shownUnitIds = (t) => [
+  ...new Set([...String(t).matchAll(/unit (u_[0-9a-f]{16})/g)].map((m) => m[1])),
+];
 
 const BRIEF_THEMES = [
-  { name: "Pay and compensation", flag: "pay", definition: "The response names pay, salary, or compensation as a problem." },
-  { name: "Management problems", flag: "management", definition: "The response criticizes managers, supervisors, or leadership." },
-  { name: "Workload and burnout", flag: "workload", definition: "The response describes unsustainable workload, hours, or burnout." },
-  { name: "Growth stagnation", flag: "growth", definition: "The response cites missing career growth or promotion paths." },
+  {
+    name: "Pay and compensation",
+    flag: "pay",
+    definition: "The response names pay, salary, or compensation as a problem.",
+  },
+  {
+    name: "Management problems",
+    flag: "management",
+    definition: "The response criticizes managers, supervisors, or leadership.",
+  },
+  {
+    name: "Workload and burnout",
+    flag: "workload",
+    definition: "The response describes unsustainable workload, hours, or burnout.",
+  },
+  {
+    name: "Growth stagnation",
+    flag: "growth",
+    definition: "The response cites missing career growth or promotion paths.",
+  },
 ];
 
 function shapesHandler(req) {
@@ -156,7 +182,8 @@ function shapesHandler(req) {
   // Director compile → a fresh worker template
   if (props.promptTemplate) {
     return {
-      promptTemplate: "Apply the codebook to the unit. {{definition}} {{criteria}} {{examples}} {{unit}}",
+      promptTemplate:
+        "Apply the codebook to the unit. {{definition}} {{criteria}} {{examples}} {{unit}}",
       note: "scripted compile (deterministic shapes Director)",
     };
   }
@@ -165,23 +192,42 @@ function shapesHandler(req) {
   if (props.reason) {
     let label = "no";
     const m = user.match(/- label: (".*?"|\S+)/);
-    if (m) { try { label = JSON.parse(m[1]); } catch { label = m[1]; } }
-    return { rationale: "Independent read reaches the same verdict.", label, confidence: 0.9, reason: "" };
+    if (m) {
+      try {
+        label = JSON.parse(m[1]);
+      } catch {
+        label = m[1];
+      }
+    }
+    return {
+      rationale: "Independent read reaches the same verdict.",
+      label,
+      confidence: 0.9,
+      reason: "",
+    };
   }
 
   // Corpus Brief
   if (props.paragraphs) {
     const ids = shownUnitIds(user);
     const withFlag = (flag) => ids.filter((id) => S.flagsById.get(id)?.[flag]).slice(0, 4);
-    const themes = BRIEF_THEMES
-      .map((t) => ({ name: t.name, definition: t.definition, quoteRefs: withFlag(t.flag) }))
-      .filter((t) => t.quoteRefs.length >= 3);
+    const themes = BRIEF_THEMES.map((t) => ({
+      name: t.name,
+      definition: t.definition,
+      quoteRefs: withFlag(t.flag),
+    })).filter((t) => t.quoteRefs.length >= 3);
     return {
       unitOfAnalysis: "One exit-survey response per row.",
       paragraphs: [
         { md: "Compensation dominates the corpus.", refs: withFlag("pay").slice(0, 2) },
-        { md: "Management complaints form a second cluster.", refs: withFlag("management").slice(0, 2) },
-        { md: "Workload and burnout language is common among short tenures.", refs: withFlag("workload").slice(0, 2) },
+        {
+          md: "Management complaints form a second cluster.",
+          refs: withFlag("management").slice(0, 2),
+        },
+        {
+          md: "Workload and burnout language is common among short tenures.",
+          refs: withFlag("workload").slice(0, 2),
+        },
       ],
       themes,
       redFlags: [
@@ -199,14 +245,28 @@ function shapesHandler(req) {
           name: "Pay complaint (plan)",
           type: "binary",
           definition: "The response names pay, salary, or compensation as a problem.",
-          criteria: { include: ["explicit complaint about pay level or fairness"], exclude: ["benefits-only complaints"] },
+          criteria: {
+            include: ["explicit complaint about pay level or fairness"],
+            exclude: ["benefits-only complaints"],
+          },
           edgeCases: [],
-          examples: [{ text: "the pay was simply too low for the work", label: "yes", kind: "positive" }],
-          categories: [{ value: "yes", label: "Yes" }, { value: "no", label: "No" }],
+          examples: [
+            { text: "the pay was simply too low for the work", label: "yes", kind: "positive" },
+          ],
+          categories: [
+            { value: "yes", label: "Yes" },
+            { value: "no", label: "No" },
+          ],
         },
       ],
       instruments: [
-        { construct: "Pay complaint (plan)", workerClass: "small", provider: "mock", model: "mock-1", snapshot: "mock-1" },
+        {
+          construct: "Pay complaint (plan)",
+          workerClass: "small",
+          provider: "mock",
+          model: "mock-1",
+          snapshot: "mock-1",
+        },
       ],
       analysis: {
         kind: "crosstab",
@@ -221,8 +281,16 @@ function shapesHandler(req) {
     const ids = shownUnitIds(user);
     return {
       themes: [
-        { name: "Pay pressure", definition: "Compensation named as the decisive grievance.", quoteRefs: ids.slice(0, 2) },
-        { name: "Manager churn", definition: "Manager turnover or absence as the decisive grievance.", quoteRefs: ids.slice(2, 4) },
+        {
+          name: "Pay pressure",
+          definition: "Compensation named as the decisive grievance.",
+          quoteRefs: ids.slice(0, 2),
+        },
+        {
+          name: "Manager churn",
+          definition: "Manager turnover or absence as the decisive grievance.",
+          quoteRefs: ids.slice(2, 4),
+        },
       ],
       note: "inductive sketch over the shown sample",
     };
@@ -231,7 +299,11 @@ function shapesHandler(req) {
   // Silver labeling fallback (unused here — silver-tune is skipped)
   const ids = shownUnitIds(user);
   const u = S.units.get(ids.at(-1));
-  return { rationale: "Applying the codebook as written.", label: payTruth(u?.text ?? ""), confidence: 0.95 };
+  return {
+    rationale: "Applying the codebook as written.",
+    label: payTruth(u?.text ?? ""),
+    confidence: 0.95,
+  };
 }
 
 function armMock(accuracy = 0.9) {
@@ -247,7 +319,10 @@ function armMock(accuracy = 0.9) {
 // =========================================================================
 
 test("home.js: POST /api/projects returns the full project; GET /api/projects serves {counts} summaries (no corpusCount/unitCount/ladder)", async () => {
-  const project = await ok("POST", "/api/projects", { name: "Shapes Audit", privacyMode: "no-training" });
+  const project = await ok("POST", "/api/projects", {
+    name: "Shapes Audit",
+    privacyMode: "no-training",
+  });
   assert.equal(project.slug, S.slug);
   assert.equal(project.privacyMode, "no-training");
   assert.ok(project.budget && typeof project.budget === "object", "budget object on the project");
@@ -255,7 +330,12 @@ test("home.js: POST /api/projects returns the full project; GET /api/projects se
   await ok("PUT", "/api/settings", {
     project: {
       slug: S.slug,
-      director: { provider: "mock", model: "mock-director", snapshot: "mock-1", systemSuffix: "[[handler:shapes]]" },
+      director: {
+        provider: "mock",
+        model: "mock-director",
+        snapshot: "mock-1",
+        systemSuffix: "[[handler:shapes]]",
+      },
     },
   });
 
@@ -268,7 +348,15 @@ test("home.js: POST /api/projects returns the full project; GET /api/projects se
   assert.equal(typeof mine.createdAt, "string");
   assert.equal(typeof mine.privacyMode, "string");
   assert.ok(mine.counts && typeof mine.counts === "object", "counts envelope present");
-  for (const k of ["corpora", "constructs", "instruments", "goldsets", "runs", "analyses", "briefs"]) {
+  for (const k of [
+    "corpora",
+    "constructs",
+    "instruments",
+    "goldsets",
+    "runs",
+    "analyses",
+    "briefs",
+  ]) {
     assert.equal(typeof mine.counts[k], "number", `counts.${k} is a number`);
   }
   // the fields the OLD card read must not be relied on — they don't exist
@@ -285,7 +373,10 @@ test("import.js: POST import → {importId, mapping.columns[{name, role, confide
   assert.match(up.importId, /^imp_/);
   // the screen reads proposal.mapping.columns — NOT proposal.columns
   assert.equal(up.columns, undefined, "columns live under mapping, not at the top level");
-  assert.ok(Array.isArray(up.mapping?.columns) && up.mapping.columns.length >= 4, "mapping.columns array");
+  assert.ok(
+    Array.isArray(up.mapping?.columns) && up.mapping.columns.length >= 4,
+    "mapping.columns array",
+  );
   for (const col of up.mapping.columns) {
     assert.equal(typeof col.name, "string");
     assert.equal(typeof col.role, "string");
@@ -305,7 +396,10 @@ test("import.js: POST import → {importId, mapping.columns[{name, role, confide
   assert.equal(confirmed.unitCount, 200, "all 200 slice rows unitize");
   // the toast sums junkQueue.counts — an object map, never a number
   assert.ok(confirmed.junkQueue && typeof confirmed.junkQueue === "object");
-  assert.ok(confirmed.junkQueue.counts && typeof confirmed.junkQueue.counts === "object", "junkQueue.counts map");
+  assert.ok(
+    confirmed.junkQueue.counts && typeof confirmed.junkQueue.counts === "object",
+    "junkQueue.counts map",
+  );
   for (const v of Object.values(confirmed.junkQueue.counts)) assert.equal(typeof v, "number");
   assert.ok(Array.isArray(confirmed.junkQueue.flagged), "junkQueue.flagged array");
 
@@ -322,7 +416,10 @@ test("import.js: POST import → {importId, mapping.columns[{name, role, confide
 });
 
 test("corpora units (instruments.js preview sample, units listings): {units, total, offset, limit} with unit {id, text, meta, pos}", async () => {
-  const page = await ok("GET", `/api/projects/${S.slug}/corpora/${S.corpusId}/units?offset=0&limit=5`);
+  const page = await ok(
+    "GET",
+    `/api/projects/${S.slug}/corpora/${S.corpusId}/units?offset=0&limit=5`,
+  );
   assert.equal(page.units.length, 5);
   assert.equal(page.total, 200);
   assert.equal(typeof page.offset, "number");
@@ -345,7 +442,11 @@ test("instantread.js: lengthHist is {bins, unit} (NOT an array), langMix an obje
   assert.equal(typeof r.unitCount, "number");
 
   // the live-walkthrough crash: (read.lengthHist ?? []).map is not a function
-  assert.equal(Array.isArray(r.lengthHist), false, "lengthHist is NOT an array — it is {bins, unit}");
+  assert.equal(
+    Array.isArray(r.lengthHist),
+    false,
+    "lengthHist is NOT an array — it is {bins, unit}",
+  );
   assert.ok(Array.isArray(r.lengthHist.bins) && r.lengthHist.bins.length > 0, "lengthHist.bins");
   assert.equal(r.lengthHist.unit, "words");
   for (const b of r.lengthHist.bins) {
@@ -358,10 +459,17 @@ test("instantread.js: lengthHist is {bins, unit} (NOT an array), langMix an obje
   assert.equal(typeof r.langMix.en, "number");
   assert.ok(r.langMix.en > 0.8, `mostly English (${JSON.stringify(r.langMix)})`);
 
-  assert.ok(Array.isArray(r.topTerms) && r.topTerms.length > 0 && r.topTerms.length <= 20, "≤ 20 topTerms");
+  assert.ok(
+    Array.isArray(r.topTerms) && r.topTerms.length > 0 && r.topTerms.length <= 20,
+    "≤ 20 topTerms",
+  );
   for (const t of r.topTerms) {
     assert.equal(typeof t.term, "string");
-    assert.equal(typeof t.count, "number", `topTerms carry {term, count} (got ${JSON.stringify(t)})`);
+    assert.equal(
+      typeof t.count,
+      "number",
+      `topTerms carry {term, count} (got ${JSON.stringify(t)})`,
+    );
     assert.ok(t.term.length >= 3, `term "${t.term}" has min length 3`);
   }
 
@@ -388,7 +496,10 @@ test("instantread.js: lengthHist is {bins, unit} (NOT an array), langMix an obje
   // Director slot is configured. This harness configured the mock Director
   // before importing, so the brief is priced (at mock's $0).
   assert.ok("briefEstimate" in r, "briefEstimate field present (null | {usd, etaMin})");
-  assert.ok(r.briefEstimate !== undefined && r.briefEstimate !== null, "a configured Director slot prices the brief");
+  assert.ok(
+    r.briefEstimate !== undefined && r.briefEstimate !== null,
+    "a configured Director slot prices the brief",
+  );
   assert.equal(typeof r.briefEstimate.usd, "number");
   assert.equal(typeof r.briefEstimate.etaMin, "number");
   assert.equal(r.briefEstimate.usd, 0, "keyless mock prices the brief at $0");
@@ -405,12 +516,27 @@ test("corpora.js route: distinctive-terms ranking surfaces planted theme vocabul
   // checks instead.
   assert.ok(terms.has("pay"), `"pay" in top terms: ${[...terms].join(", ")}`);
   assert.ok(terms.has("salary"), `"salary" in top terms`);
-  assert.ok(["manager", "management", "managers"].some((w) => terms.has(w)),
-    `management vocabulary in top terms: ${[...terms].join(", ")}`);
-  assert.ok(["office", "commute", "mandate", "remote", "hybrid"].some((w) => terms.has(w)),
-    `remote-policy vocabulary in top terms: ${[...terms].join(", ")}`);
+  assert.ok(
+    ["manager", "management", "managers"].some((w) => terms.has(w)),
+    `management vocabulary in top terms: ${[...terms].join(", ")}`,
+  );
+  assert.ok(
+    ["office", "commute", "mandate", "remote", "hybrid"].some((w) => terms.has(w)),
+    `remote-policy vocabulary in top terms: ${[...terms].join(", ")}`,
+  );
   // the connective glue the old frequency ranking surfaced
-  for (const bad of ["meanwhile", "honestly", "plus", "same", "beyond", "top", "made", "never", "also", "really"]) {
+  for (const bad of [
+    "meanwhile",
+    "honestly",
+    "plus",
+    "same",
+    "beyond",
+    "top",
+    "made",
+    "never",
+    "also",
+    "really",
+  ]) {
     assert.ok(!terms.has(bad), `connective "${bad}" is stopworded out`);
   }
 });
@@ -450,7 +576,10 @@ test("brief.js: SSE para {md, refs} + done {briefId}; artifact carries sample.{n
     assert.equal(typeof p.md, "string");
     assert.ok(Array.isArray(p.refs));
   }
-  assert.ok(Array.isArray(brief.themes) && brief.themes.length >= 3, `themes (got ${brief.themes.length})`);
+  assert.ok(
+    Array.isArray(brief.themes) && brief.themes.length >= 3,
+    `themes (got ${brief.themes.length})`,
+  );
   for (const t of brief.themes) {
     assert.equal(typeof t.name, "string");
     assert.equal(typeof t.definition, "string");
@@ -485,7 +614,10 @@ test("constructs.js: POST/GET constructs round-trip the full construct; inductiv
       { text: "the pay was simply too low for the work", label: "yes", kind: "positive" },
       { text: "the team itself was genuinely kind", label: "no", kind: "negative" },
     ],
-    categories: [{ value: "yes", label: "Yes" }, { value: "no", label: "No" }],
+    categories: [
+      { value: "yes", label: "Yes" },
+      { value: "no", label: "No" },
+    ],
   });
   S.payConstructId = pay.id;
   assert.equal(typeof pay.id, "string");
@@ -494,7 +626,10 @@ test("constructs.js: POST/GET constructs round-trip the full construct; inductiv
   assert.ok(Array.isArray(pay.criteria.include) && Array.isArray(pay.criteria.exclude));
   assert.ok(Array.isArray(pay.edgeCases));
   assert.ok(Array.isArray(pay.examples) && pay.examples.every((ex) => ex.text && ex.kind));
-  assert.ok(Array.isArray(pay.categories) && pay.categories.every((c) => "value" in c && typeof c.label === "string"));
+  assert.ok(
+    Array.isArray(pay.categories) &&
+      pay.categories.every((c) => "value" in c && typeof c.label === "string"),
+  );
 
   const list = await ok("GET", `/api/projects/${S.slug}/constructs`);
   assert.ok(Array.isArray(list) && list.some((k) => k.id === pay.id));
@@ -503,10 +638,16 @@ test("constructs.js: POST/GET constructs round-trip the full construct; inductiv
   // (+ draftedFrom), the Director draft accept path sends origin: "draft" —
   // both round-trip; absent stays absent; anything else rejects
   const adopted = await ok("POST", `/api/projects/${S.slug}/constructs`, {
-    name: "Adopted theme", type: "binary",
-    categories: [{ value: "present", label: "Present" }, { value: "absent", label: "Absent" }],
-    authoredBy: "director", humanTouched: false,
-    origin: "inductive", draftedFrom: S.corpusId,
+    name: "Adopted theme",
+    type: "binary",
+    categories: [
+      { value: "present", label: "Present" },
+      { value: "absent", label: "Absent" },
+    ],
+    authoredBy: "director",
+    humanTouched: false,
+    origin: "inductive",
+    draftedFrom: S.corpusId,
   });
   assert.equal(adopted.origin, "inductive", "origin round-trips on the created construct");
   assert.equal(adopted.draftedFrom, S.corpusId, "draftedFrom rides beside origin");
@@ -514,15 +655,24 @@ test("constructs.js: POST/GET constructs round-trip the full construct; inductiv
   assert.equal(adoptedGot.origin, "inductive", "origin persists through GET");
   assert.equal(pay.origin, undefined, "constructs created without an origin carry none");
   const badOrigin = await call("POST", `/api/projects/${S.slug}/constructs`, {
-    name: "Bad origin", type: "binary", origin: "telepathy",
+    name: "Bad origin",
+    type: "binary",
+    origin: "telepathy",
   });
   assert.equal(badOrigin.status, 400, "unknown origin values reject");
   assert.equal(badOrigin.json?.error?.code, "VALIDATION");
   await ok("DELETE", `/api/projects/${S.slug}/constructs/${adopted.id}`);
 
   // the inductive flow: the screen maps taxonomy THEMES to draft constructs
-  const taxonomy = await ok("POST", `/api/projects/${S.slug}/constructs/inductive`, { corpusId: S.corpusId, n: 24 });
-  assert.equal(Array.isArray(taxonomy), false, "inductive returns one artifact, not an array of proposals");
+  const taxonomy = await ok("POST", `/api/projects/${S.slug}/constructs/inductive`, {
+    corpusId: S.corpusId,
+    n: 24,
+  });
+  assert.equal(
+    Array.isArray(taxonomy),
+    false,
+    "inductive returns one artifact, not an array of proposals",
+  );
   assert.equal(taxonomy.mode, "inductive-hypothesis");
   assert.equal(typeof taxonomy.sampleN, "number");
   assert.equal(typeof taxonomy.note, "string");
@@ -548,7 +698,10 @@ test("instruments.js: catalog is {providers: {name: [{id, name, family, pricing,
   assert.ok(cat.providers && typeof cat.providers === "object", "models nest under .providers");
   assert.equal(typeof cat.cachedAt, "string");
   assert.equal(cat.anthropic, undefined, "no top-level provider arrays");
-  assert.ok(Array.isArray(cat.providers.mock) && cat.providers.mock.length > 0, "mock catalog present");
+  assert.ok(
+    Array.isArray(cat.providers.mock) && cat.providers.mock.length > 0,
+    "mock catalog present",
+  );
   const m = cat.providers.mock[0];
   assert.equal(typeof m.id, "string");
   assert.equal(typeof m.name, "string");
@@ -566,7 +719,16 @@ test("instruments.js: create dictionary + judge; compile re-versions; list serve
     name: "pay dictionary",
     payload: {
       categories: [
-        { name: "pay", terms: [{ term: "pay" }, { term: "salary" }, { term: "underpa*" }, { term: "compensation" }, { term: "raise" }] },
+        {
+          name: "pay",
+          terms: [
+            { term: "pay" },
+            { term: "salary" },
+            { term: "underpa*" },
+            { term: "compensation" },
+            { term: "raise" },
+          ],
+        },
       ],
       negation: { enabled: true, window: 3 },
       scoring: "percentOfWords",
@@ -594,7 +756,11 @@ test("instruments.js: create dictionary + judge; compile re-versions; list serve
   });
   S.judgeInstId = judge.id;
 
-  const compiled = await ok("POST", `/api/projects/${S.slug}/instruments/${S.judgeInstId}/compile`, {});
+  const compiled = await ok(
+    "POST",
+    `/api/projects/${S.slug}/instruments/${S.judgeInstId}/compile`,
+    {},
+  );
   assert.equal(compiled.version, 2, "compile re-versions");
   assert.equal(typeof compiled.versionHash, "string");
   for (const slot of ["{{definition}}", "{{criteria}}", "{{examples}}", "{{unit}}"]) {
@@ -616,7 +782,9 @@ test("instruments.js: create dictionary + judge; compile re-versions; list serve
 
   // preview: the live envelope (the screen reads res.outputs, never a bare array)
   const ids = [...S.units.keys()].slice(0, 5);
-  const prev = await ok("POST", `/api/projects/${S.slug}/instruments/${S.dictInstId}/preview`, { unitIds: ids });
+  const prev = await ok("POST", `/api/projects/${S.slug}/instruments/${S.dictInstId}/preview`, {
+    unitIds: ids,
+  });
   assert.equal(Array.isArray(prev), false, "preview is an envelope, not a bare array");
   assert.ok(Array.isArray(prev.outputs));
   assert.ok(prev.cost && typeof prev.cost === "object");
@@ -633,7 +801,10 @@ test("instruments.js: create dictionary + judge; compile re-versions; list serve
       assert.equal(typeof h.start, "number");
       assert.equal(typeof h.end, "number");
     }
-    assert.ok(o.scores && typeof o.scores === "object", "dictionary outputs carry per-category scores");
+    assert.ok(
+      o.scores && typeof o.scores === "object",
+      "dictionary outputs carry per-category scores",
+    );
   }
 });
 
@@ -732,7 +903,11 @@ test("runs.js: escalations are output LINES {unitId, juror, label, escalated} (D
     assert.equal(typeof line.juror, "string");
     assert.ok("label" in line);
     assert.equal(line.escalated, true);
-    assert.equal(line.director, undefined, "no nested director object — overrides replace in place with escalatedBy");
+    assert.equal(
+      line.director,
+      undefined,
+      "no nested director object — overrides replace in place with escalatedBy",
+    );
   }
 });
 
@@ -751,7 +926,10 @@ test("explorer.js: POST analyses {kind: descriptive, spec: {runId}} → results 
   assert.ok(a.evidence && typeof a.evidence.cells === "object", "evidence.cells map");
 
   const r = a.results;
-  assert.ok(Array.isArray(r.prevalence) && r.prevalence.length > 0, "prevalence present when spec.runId rode the request");
+  assert.ok(
+    Array.isArray(r.prevalence) && r.prevalence.length > 0,
+    "prevalence present when spec.runId rode the request",
+  );
   for (const p of r.prevalence) {
     assert.equal(typeof p.label, "string");
     assert.equal(typeof p.count, "number");
@@ -804,7 +982,11 @@ test("calibration.js: goldset create/get artifact; sample → {goldsetId, design
   assert.equal(gs.status, "sampling");
   assert.ok(Array.isArray(gs.sample) && Array.isArray(gs.coders));
   assert.equal(typeof gs.createdAt, "string");
-  assert.equal(gs.disagreements, undefined, "no disagreements field — the screen derives the queue from coders+adjudicated");
+  assert.equal(
+    gs.disagreements,
+    undefined,
+    "no disagreements field — the screen derives the queue from coders+adjudicated",
+  );
 
   const sampled = await ok("POST", `/api/projects/${S.slug}/goldsets/${S.goldsetId}/sample`, {
     design: "srs",
@@ -815,7 +997,10 @@ test("calibration.js: goldset create/get artifact; sample → {goldsetId, design
   assert.equal(sampled.design, "srs");
   assert.equal(sampled.n, 30);
   assert.ok(Array.isArray(sampled.sample));
-  assert.ok(sampled.sample.every((s) => typeof s.unitId === "string" && s.pi === 30 / 200), "π = n/N on every row");
+  assert.ok(
+    sampled.sample.every((s) => typeof s.unitId === "string" && s.pi === 30 / 200),
+    "π = n/N on every row",
+  );
   S.goldIds = sampled.sample.map((s) => s.unitId);
 
   // the artifact the studio loads
@@ -828,21 +1013,34 @@ test("calibration.js: goldset create/get artifact; sample → {goldsetId, design
   assert.ok(meta);
   assert.equal(meta.n, 30);
   assert.ok(Array.isArray(meta.coders));
-  assert.equal(meta.name, "Gold — Pay complaint", "goldset metas carry the auto-name 'Gold — <construct>'");
+  assert.equal(
+    meta.name,
+    "Gold — Pay complaint",
+    "goldset metas carry the auto-name 'Gold — <construct>'",
+  );
 });
 
 test("calibration.js: coder next view {unit {id, text, pos}, construct, progress}; label → progress {coderId, done, total, remaining, flagged}", async () => {
-  const next = await ok("GET", `/api/projects/${S.slug}/goldsets/${S.goldsetId}/next?coder=coder-A`);
+  const next = await ok(
+    "GET",
+    `/api/projects/${S.slug}/goldsets/${S.goldsetId}/next?coder=coder-A`,
+  );
   assert.ok(next.unit && typeof next.unit.id === "string" && typeof next.unit.text === "string");
   assert.ok(next.construct && typeof next.construct.definition === "string");
-  assert.ok(next.progress && typeof next.progress.done === "number" && typeof next.progress.total === "number");
+  assert.ok(
+    next.progress &&
+      typeof next.progress.done === "number" &&
+      typeof next.progress.total === "number",
+  );
 
   // coder A codes planted truth; coder B flips the first 4 units
   S.flips = S.goldIds.slice(0, 4);
   for (const unitId of S.goldIds) {
     const truth = payTruth(S.units.get(unitId).text);
     const a = await ok("POST", `/api/projects/${S.slug}/goldsets/${S.goldsetId}/label`, {
-      coder: "coder-A", unitId, label: truth,
+      coder: "coder-A",
+      unitId,
+      label: truth,
     });
     assert.equal(typeof a.done, "number");
     assert.equal(typeof a.total, "number");
@@ -850,7 +1048,9 @@ test("calibration.js: coder next view {unit {id, text, pos}, construct, progress
     assert.equal(typeof a.flagged, "number");
     const bLabel = S.flips.includes(unitId) ? (truth === "yes" ? "no" : "yes") : truth;
     await ok("POST", `/api/projects/${S.slug}/goldsets/${S.goldsetId}/label`, {
-      coder: "coder-B", unitId, label: bLabel,
+      coder: "coder-B",
+      unitId,
+      label: bLabel,
     });
   }
 });
@@ -867,12 +1067,17 @@ test("calibration.js: agreement report nests — humanAgreement {n, coders, perc
   assert.ok(Math.abs(h.percent - 26 / 30) < 1e-9, `po = 26/30 exactly (got ${h.percent})`);
   assert.ok("kappa" in h && "alpha" in h && "ac1" in h, "κ/α/AC1 on the human report");
   // the bootstrap CI rides the human report — {lo, hi, method}, percentile
-  assert.ok(h.ci && typeof h.ci.lo === "number" && typeof h.ci.hi === "number",
-    "bootstrap CI {lo, hi} on the live agreement report");
+  assert.ok(
+    h.ci && typeof h.ci.lo === "number" && typeof h.ci.hi === "number",
+    "bootstrap CI {lo, hi} on the live agreement report",
+  );
   assert.equal(h.ci.method, "bootstrap-percentile");
   assert.ok(h.ci.lo <= h.alpha + 1e-9 && h.alpha <= h.ci.hi + 1e-9, "CI brackets the headline α");
 
-  assert.ok(Array.isArray(r.perInstrument) && r.perInstrument.length >= 2, "judge + dictionary tested");
+  assert.ok(
+    Array.isArray(r.perInstrument) && r.perInstrument.length >= 2,
+    "judge + dictionary tested",
+  );
   for (const inst of r.perInstrument) {
     assert.equal(typeof inst.instrumentId, "string");
     assert.equal(typeof inst.name, "string");
@@ -898,7 +1103,10 @@ test("calibration.js: agreement report nests — humanAgreement {n, coders, perc
   }
   const judge = r.perInstrument.find((x) => x.instrumentId === S.judgeInstId);
   assert.ok(judge && !judge.error, "the judge tested clean against gold");
-  assert.ok(judge.agreement.percent > 0.7, `judge ≈ dialed accuracy (got ${judge.agreement.percent})`);
+  assert.ok(
+    judge.agreement.percent > 0.7,
+    `judge ≈ dialed accuracy (got ${judge.agreement.percent})`,
+  );
   assert.equal(typeof r.goldLabeled, "number");
 });
 
@@ -923,7 +1131,11 @@ test("calibration.js: adjudicate → {status, adjudicated: count} (no `open` fie
     const labels = coders.map((c) => c.labels[s.unitId]).filter((v) => v !== undefined);
     if (labels.length >= 2 && new Set(labels.map(String)).size > 1) derived.push(s.unitId);
   }
-  assert.deepEqual(derived.sort(), [...S.flips].sort(), "derived disagreement queue = the flipped units");
+  assert.deepEqual(
+    derived.sort(),
+    [...S.flips].sort(),
+    "derived disagreement queue = the flipped units",
+  );
 });
 
 test("instruments.js: freeze → certificate {frozenAt, goldsetId, agreement, humanAgreement, versionHash, modelPinned} — the certificateCard contract", async () => {
@@ -935,7 +1147,12 @@ test("instruments.js: freeze → certificate {frozenAt, goldsetId, agreement, hu
   assert.equal(cert.goldsetId, S.goldsetId);
   assert.equal(typeof cert.versionHash, "string");
   assert.equal(cert.modelPinned, true);
-  assert.ok(cert.agreement && "kappa" in cert.agreement && "alpha" in cert.agreement && "ac1" in cert.agreement);
+  assert.ok(
+    cert.agreement &&
+      "kappa" in cert.agreement &&
+      "alpha" in cert.agreement &&
+      "ac1" in cert.agreement,
+  );
   assert.ok(Array.isArray(cert.agreement.perClass));
   assert.ok(cert.humanAgreement && typeof cert.humanAgreement.kappa === "number");
 
@@ -980,7 +1197,10 @@ test("workbench.js: crosstab spec {rowKey, colKey} → results.table {rows, cols
   }
   // evidence doors key as `${label}|${group}`
   const keys = Object.keys(a.evidence.cells);
-  assert.ok(keys.some((k) => k.includes("|")), `evidence cell keys are "row|col" pairs (${keys.slice(0, 4).join(", ")})`);
+  assert.ok(
+    keys.some((k) => k.includes("|")),
+    `evidence cell keys are "row|col" pairs (${keys.slice(0, 4).join(", ")})`,
+  );
 });
 
 test("workbench.js: model spec {x, family} → results {family, outcome, estimator, coef [{name, est, se}], naive, n, nGold} — no z/p columns", async () => {
@@ -1025,8 +1245,14 @@ test("workbench.js: subgroup audit (design §6.7) → results {by, overall {gold
   assert.ok(r.overall.goldN > 0, "the complete gold set reaches this run");
   assert.equal(typeof r.overall.percentAgreement, "number");
   assert.equal(typeof r.overall.errorRate, "number");
-  assert.ok(Math.abs(r.overall.errorRate - (1 - r.overall.percentAgreement)) < 2e-6, "errorRate complements agreement");
-  assert.ok("kappa" in r.overall, "overall κ present (number, or null with a note when degenerate)");
+  assert.ok(
+    Math.abs(r.overall.errorRate - (1 - r.overall.percentAgreement)) < 2e-6,
+    "errorRate complements agreement",
+  );
+  assert.ok(
+    "kappa" in r.overall,
+    "overall κ present (number, or null with a note when degenerate)",
+  );
 
   assert.ok(Array.isArray(r.groups) && r.groups.length > 0);
   let withGold = 0;
@@ -1046,12 +1272,18 @@ test("workbench.js: subgroup audit (design §6.7) → results {by, overall {gold
       withGold++;
       assert.equal(typeof g.percentAgreement, "number");
       assert.equal(typeof g.errorRate, "number");
-      assert.ok(Math.abs(g.errorRate - (1 - g.percentAgreement)) < 2e-6, "per-group errorRate complements agreement");
+      assert.ok(
+        Math.abs(g.errorRate - (1 - g.percentAgreement)) < 2e-6,
+        "per-group errorRate complements agreement",
+      );
       assert.ok(typeof g.kappa === "number" || g.kappa === null, "κ is number|null");
       if (g.kappa === null) assert.equal(typeof g.note, "string", "degenerate κ carries its note");
       // THE flagged computation: >0.1 below the overall agreement
-      assert.equal(g.flagged, r.overall.percentAgreement - g.percentAgreement > 0.1,
-        `flag(${g.group}) = overall(${r.overall.percentAgreement}) − group(${g.percentAgreement}) > 0.1`);
+      assert.equal(
+        g.flagged,
+        r.overall.percentAgreement - g.percentAgreement > 0.1,
+        `flag(${g.group}) = overall(${r.overall.percentAgreement}) − group(${g.percentAgreement}) > 0.1`,
+      );
     }
     if (g.corrected) {
       assert.equal(typeof g.corrected.est, "number");
@@ -1060,7 +1292,11 @@ test("workbench.js: subgroup audit (design §6.7) → results {by, overall {gold
   }
   assert.ok(withGold > 0, "at least one group is auditable");
   // gold units partition over the groups — nothing double-counted or dropped
-  assert.equal(r.groups.reduce((n, g) => n + g.goldN, 0), r.overall.goldN, "per-group goldN sums to overall goldN");
+  assert.equal(
+    r.groups.reduce((n, g) => n + g.goldN, 0),
+    r.overall.goldN,
+    "per-group goldN sums to overall goldN",
+  );
 });
 
 test("workbench.js: triangulation spec {instrumentIds} → results {instruments, n, percentAgreement, kappa, divergent [{unitId, a, b}], pairs} — labels, not numeric points", async () => {
@@ -1103,7 +1339,11 @@ test("evidence dossier: {unit, dictionaryHits [{instrumentId, name, versionHash,
   assert.ok(Array.isArray(d.dictionaryHits));
   for (const dh of d.dictionaryHits) {
     assert.equal(typeof dh.instrumentId, "string");
-    assert.equal(typeof dh.name, "string", "the wrapper carries the instrument NAME — the inspector's group label");
+    assert.equal(
+      typeof dh.name,
+      "string",
+      "the wrapper carries the instrument NAME — the inspector's group label",
+    );
     assert.equal(typeof dh.versionHash, "string");
     assert.ok(Array.isArray(dh.hits), "hit spans nest under .hits per instrument");
     for (const h of dh.hits) {
@@ -1135,7 +1375,10 @@ test("evidence dossier: {unit, dictionaryHits [{instrumentId, name, versionHash,
   assert.ok(gl.coders && typeof gl.coders === "object", "coder → label map");
   assert.ok("adjudicated" in gl);
 
-  assert.ok(d.sourcePos && typeof d.sourcePos.row === "number", "source position rides the dossier");
+  assert.ok(
+    d.sourcePos && typeof d.sourcePos.row === "number",
+    "source position rides the dossier",
+  );
 });
 
 // =========================================================================
@@ -1203,27 +1446,55 @@ test("report canvas: PUT /report echoes {blocks: ARRAY, updatedAt}; project.repo
   // canvas assigns it straight onto the cached project graph (reports.js
   // persist(): cached.report = saved), so blocks must be the ARRAY, not a count
   const saved = await ok("PUT", `/api/projects/${S.slug}/report`, { blocks: five });
-  assert.ok(Array.isArray(saved.blocks), "PUT echoes blocks as an ARRAY — the canvas caches it as project.report");
+  assert.ok(
+    Array.isArray(saved.blocks),
+    "PUT echoes blocks as an ARRAY — the canvas caches it as project.report",
+  );
   assert.equal(saved.blocks.length, 5);
-  assert.deepEqual(saved.blocks.map((b) => b.kind), ["chart", "table", "quote", "text", "methods-excerpt"],
-    "all five kinds the validator accepts persist");
-  assert.deepEqual(saved.blocks, five, "PUT echoes the blocks exactly as sent — no addedAt stamping on replace");
+  assert.deepEqual(
+    saved.blocks.map((b) => b.kind),
+    ["chart", "table", "quote", "text", "methods-excerpt"],
+    "all five kinds the validator accepts persist",
+  );
+  assert.deepEqual(
+    saved.blocks,
+    five,
+    "PUT echoes the blocks exactly as sent — no addedAt stamping on replace",
+  );
   assert.equal(typeof saved.updatedAt, "string");
-  assert.ok(Number.isFinite(Date.parse(saved.updatedAt)), `updatedAt is ISO-parseable (got ${saved.updatedAt})`);
+  assert.ok(
+    Number.isFinite(Date.parse(saved.updatedAt)),
+    `updatedAt is ISO-parseable (got ${saved.updatedAt})`,
+  );
 
   // the project GET — THE read reports.js seeds its canvas from
   // (store.set("report.blocks", project.report?.blocks ?? []))
   let p = await getProject();
-  assert.ok(p.report && typeof p.report === "object", "project.report rides the full project graph");
+  assert.ok(
+    p.report && typeof p.report === "object",
+    "project.report rides the full project graph",
+  );
   assert.equal(p.report.blocks.length, 5, "round-trip: same length");
-  assert.deepEqual(p.report.blocks.map((b) => b.kind), five.map((b) => b.kind), "kinds preserved in order");
-  assert.deepEqual(p.report.blocks, five,
-    "every field intact ({kind, ref?, content?, title?, level?}) — the read the canvas opens with");
+  assert.deepEqual(
+    p.report.blocks.map((b) => b.kind),
+    five.map((b) => b.kind),
+    "kinds preserved in order",
+  );
+  assert.deepEqual(
+    p.report.blocks,
+    five,
+    "every field intact ({kind, ref?, content?, title?, level?}) — the read the canvas opens with",
+  );
   assert.equal(p.report.updatedAt, saved.updatedAt);
 
   // POST appends ONE block (the workbench "Add to report" action) → {blocks:
   // COUNT}, a NUMBER — workbench.js toasts `${updated.blocks} blocks now`
-  const sixth = { kind: "chart", ref: S.crosstabId, title: "appended from workbench", level: "corrected" };
+  const sixth = {
+    kind: "chart",
+    ref: S.crosstabId,
+    title: "appended from workbench",
+    level: "corrected",
+  };
   const appended = await ok("POST", `/api/projects/${S.slug}/report/blocks`, { block: sixth });
   assert.equal(appended.blocks, 6, "POST answers {blocks: <count>} — a number, never the array");
   p = await getProject();
@@ -1233,13 +1504,26 @@ test("report canvas: PUT /report echoes {blocks: ARRAY, updatedAt}; project.repo
   assert.equal(added.ref, sixth.ref);
   assert.equal(added.title, sixth.title);
   assert.equal(added.level, sixth.level);
-  assert.equal(typeof added.addedAt, "string", "the append path stamps addedAt for the canvas's recency display");
-  assert.ok(Number.isFinite(Date.parse(added.addedAt)), `addedAt is ISO-parseable (got ${added.addedAt})`);
-  assert.equal(p.report.blocks[0].addedAt, undefined, "PUT-replaced blocks carry NO addedAt — only the append stamps");
+  assert.equal(
+    typeof added.addedAt,
+    "string",
+    "the append path stamps addedAt for the canvas's recency display",
+  );
+  assert.ok(
+    Number.isFinite(Date.parse(added.addedAt)),
+    `addedAt is ISO-parseable (got ${added.addedAt})`,
+  );
+  assert.equal(
+    p.report.blocks[0].addedAt,
+    undefined,
+    "PUT-replaced blocks carry NO addedAt — only the append stamps",
+  );
 
   // unknown kind → 400 VALIDATION (same negative pattern as the analyses 404):
   // the canvas must never persist a block the exporter cannot draw
-  const bad = await call("PUT", `/api/projects/${S.slug}/report`, { blocks: [{ kind: "sparkle" }] });
+  const bad = await call("PUT", `/api/projects/${S.slug}/report`, {
+    blocks: [{ kind: "sparkle" }],
+  });
   assert.equal(bad.status, 400, "unknown block kind rejects");
   assert.equal(bad.json?.error?.code, "VALIDATION");
   assert.match(bad.json.error.message, /sparkle/, "the error names the offending kind");
@@ -1289,14 +1573,20 @@ test("questionbar (main.js plan sheet): ask → {planId, plan {constructs, instr
   assert.equal(typeof plan.estimate.etaMin, "number");
   assert.equal(typeof plan.estimate.calls, "number");
   assert.equal(typeof plan.analysis.kind, "string");
-  assert.ok(plan.analysis.spec && typeof plan.analysis.spec === "object", "analysis.spec is an object");
+  assert.ok(
+    plan.analysis.spec && typeof plan.analysis.spec === "object",
+    "analysis.spec is an object",
+  );
   assert.equal(typeof plan.analysis.annotation, "string");
 
   const approved = await ok("POST", `/api/projects/${S.slug}/questionbar/${res.planId}/approve`);
   assert.equal(approved.planId, res.planId);
   assert.ok(Array.isArray(approved.constructIds) && approved.constructIds.length >= 1);
   assert.ok(Array.isArray(approved.instrumentIds) && approved.instrumentIds.length >= 1);
-  assert.ok(Array.isArray(approved.runIds) && approved.runIds.length >= 1, "a pending run per instrument");
+  assert.ok(
+    Array.isArray(approved.runIds) && approved.runIds.length >= 1,
+    "a pending run per instrument",
+  );
 
   const p = await getProject();
   assert.equal(p.plans.find((x) => x.planId === res.planId)?.status, "approved");
@@ -1326,7 +1616,9 @@ test("settings.js: GET /api/settings → {keys: {name: {configured, apiKey?, bas
   assert.equal(s.providers, undefined, "no rich providers map — cards compose keys + health");
   assert.equal(s.director, undefined, "no global director — the slot is a project field");
 
-  const updated = await ok("PUT", "/api/settings", { keys: { anthropic: "sk-shapes-test-key-12345" } });
+  const updated = await ok("PUT", "/api/settings", {
+    keys: { anthropic: "sk-shapes-test-key-12345" },
+  });
   assert.ok(Array.isArray(updated.keysUpdated) && updated.keysUpdated.includes("anthropic"));
   const entry = updated.keys.anthropic;
   assert.equal(entry.configured, true);

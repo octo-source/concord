@@ -30,7 +30,13 @@ function ledgerFile(projectDir) {
 function withLock(key, fn) {
   const prev = locks.get(key) || Promise.resolve();
   const next = prev.then(fn, fn);
-  locks.set(key, next.then(() => undefined, () => undefined));
+  locks.set(
+    key,
+    next.then(
+      () => undefined,
+      () => undefined,
+    ),
+  );
   return next;
 }
 
@@ -56,7 +62,9 @@ export function append(projectDir, actor, type, refs, payload) {
     }
     // hash-what-you-persist: round-trip through JSON first so values with
     // toJSON (Dates), undefined holes, etc. are hashed exactly as stored
-    const body = JSON.parse(JSON.stringify({ ts: new Date().toISOString(), actor, type, refs, payload }));
+    const body = JSON.parse(
+      JSON.stringify({ ts: new Date().toISOString(), actor, type, refs, payload }),
+    );
     const hash = sha256(prev + canonical(body));
     const event = { ...body, prev, hash };
     const { size } = await appendNdjson(file, event);
@@ -70,19 +78,27 @@ export async function verify(projectDir) {
   let tornTail = false;
   let events;
   try {
-    events = await readNdjson(file, { onTornTail: () => { tornTail = true; } });
+    events = await readNdjson(file, {
+      onTornTail: () => {
+        tornTail = true;
+      },
+    });
   } catch (err) {
-    if (err.code === "BAD_NDJSON") return { ok: false, length: err.details.line, failedAt: err.details.line };
+    if (err.code === "BAD_NDJSON")
+      return { ok: false, length: err.details.line, failedAt: err.details.line };
     throw err;
   }
   let prev = "";
   for (let i = 0; i < events.length; i++) {
     const { ts, actor, type, refs, payload, prev: storedPrev, hash } = events[i];
     const expected = sha256(prev + canonical({ ts, actor, type, refs, payload }));
-    if (storedPrev !== prev || hash !== expected) return { ok: false, length: events.length, failedAt: i };
+    if (storedPrev !== prev || hash !== expected)
+      return { ok: false, length: events.length, failedAt: i };
     prev = hash;
   }
-  return tornTail ? { ok: true, length: events.length, tornTail: true } : { ok: true, length: events.length };
+  return tornTail
+    ? { ok: true, length: events.length, tornTail: true }
+    : { ok: true, length: events.length };
 }
 
 function hasRef(refs, ref) {
@@ -93,6 +109,7 @@ function hasRef(refs, ref) {
 
 export function query(projectDir, { type, ref } = {}) {
   return readNdjson(ledgerFile(projectDir), {
-    filter: (e) => (type === undefined || e.type === type) && (ref === undefined || hasRef(e.refs, ref)),
+    filter: (e) =>
+      (type === undefined || e.type === type) && (ref === undefined || hasRef(e.refs, ref)),
   });
 }

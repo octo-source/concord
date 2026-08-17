@@ -63,9 +63,13 @@ function alphaOptionsFor(construct) {
   if (construct.type === "ordinal") {
     const order = (construct.categories ?? []).map((c) => String(c.value));
     if (order.length === 0) {
-      throw new ConcordError("VALIDATION", "ordinal construct needs categories for stability scoring", {
-        constructId: construct.id,
-      });
+      throw new ConcordError(
+        "VALIDATION",
+        "ordinal construct needs categories for stability scoring",
+        {
+          constructId: construct.id,
+        },
+      );
     }
     return { level: "interval", order };
   }
@@ -90,7 +94,12 @@ function labeledCount(outputs) {
 //            | {provider, model, error}]}
 // n is the ACTUAL sample size (min(n, 100, units.length)) — callers that
 // record the check must record this, not the requested cap.
-export async function stabilityCheck(project, instrument, units, { k = 3, n = 100, dir, alts = null } = {}) {
+export async function stabilityCheck(
+  project,
+  instrument,
+  units,
+  { k = 3, n = 100, dir, alts = null } = {},
+) {
   if (!Array.isArray(units) || units.length === 0) {
     throw new ConcordError("VALIDATION", "stabilityCheck requires a non-empty units array", {});
   }
@@ -99,9 +108,13 @@ export async function stabilityCheck(project, instrument, units, { k = 3, n = 10
   }
   const construct = (project.constructs ?? []).find((c) => c.id === instrument.constructId);
   if (!construct) {
-    throw new ConcordError("NOT_FOUND", `construct '${instrument.constructId}' not found in project`, {
-      id: instrument.constructId,
-    });
+    throw new ConcordError(
+      "NOT_FOUND",
+      `construct '${instrument.constructId}' not found in project`,
+      {
+        id: instrument.constructId,
+      },
+    );
   }
 
   const seed = parseInt(sha256(`${instrument.versionHash}|stability`).slice(0, 8), 16);
@@ -148,8 +161,17 @@ export async function stabilityCheck(project, instrument, units, { k = 3, n = 10
       const payload = { ...instrument.payload, provider, model, snapshot };
       const altInstrument = { ...instrument, payload, versionHash: instrumentVersionHash(payload) };
       try {
-        const res = await runEphemeral(project, altInstrument, sample, { seedOffset: `stability:alt:${i}`, dir });
-        altRuns.push({ provider, model, outputs: res.outputs, cost: res.cost, quarantine: res.quarantine });
+        const res = await runEphemeral(project, altInstrument, sample, {
+          seedOffset: `stability:alt:${i}`,
+          dir,
+        });
+        altRuns.push({
+          provider,
+          model,
+          outputs: res.outputs,
+          cost: res.cost,
+          quarantine: res.quarantine,
+        });
       } catch (err) {
         // a broken alternate is a recorded result, not a sunk check
         altRuns.push({ provider, model, error: err?.message ?? String(err) });
@@ -158,14 +180,28 @@ export async function stabilityCheck(project, instrument, units, { k = 3, n = 10
   }
 
   const pdir = projectDir(project.slug, dir ?? projectsDir());
-  await ledger.append(pdir, "system", "instrument.stability", { instrumentId: instrument.id }, {
-    alpha, pass, k, n: sample.length, versionHash: instrument.versionHash,
-    ...(altRuns ? {
-      alts: altRuns.map((a) => (a.error !== undefined
-        ? { provider: a.provider, model: a.model, error: a.error }
-        : { provider: a.provider, model: a.model, n: labeledCount(a.outputs) })),
-    } : {}),
-  });
+  await ledger.append(
+    pdir,
+    "system",
+    "instrument.stability",
+    { instrumentId: instrument.id },
+    {
+      alpha,
+      pass,
+      k,
+      n: sample.length,
+      versionHash: instrument.versionHash,
+      ...(altRuns
+        ? {
+            alts: altRuns.map((a) =>
+              a.error !== undefined
+                ? { provider: a.provider, model: a.model, error: a.error }
+                : { provider: a.provider, model: a.model, n: labeledCount(a.outputs) },
+            ),
+          }
+        : {}),
+    },
+  );
 
   return { alpha, pass, n: sample.length, runs, ...(altRuns ? { alts: altRuns } : {}) };
 }

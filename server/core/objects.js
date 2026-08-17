@@ -7,7 +7,14 @@ import { ConcordError } from "./errors.js";
 import { canonical, sha256, newId } from "./ids.js";
 
 export const PRIVACY_MODES = ["open", "no-training", "strict"];
-export const CONSTRUCT_TYPES = ["binary", "nominal", "ordinal", "continuous", "multilabel", "extraction"];
+export const CONSTRUCT_TYPES = [
+  "binary",
+  "nominal",
+  "ordinal",
+  "continuous",
+  "multilabel",
+  "extraction",
+];
 export const EXAMPLE_KINDS = ["positive", "negative", "nearmiss"];
 export const INSTRUMENT_KINDS = ["dictionary", "rule", "judge", "panel", "human"];
 export const EVIDENCE_LEVELS = ["exploratory", "stabilized", "calibrated", "corrected"];
@@ -24,7 +31,8 @@ function fail(message, details = {}) {
 }
 
 function reqString(v, field) {
-  if (typeof v !== "string" || v.length === 0) fail(`${field} must be a non-empty string`, { field, value: v });
+  if (typeof v !== "string" || v.length === 0)
+    fail(`${field} must be a non-empty string`, { field, value: v });
   return v;
 }
 
@@ -34,12 +42,14 @@ function oneOf(v, list, field) {
 }
 
 function plainObject(v, field) {
-  if (v === null || typeof v !== "object" || Array.isArray(v)) fail(`${field} must be an object`, { field, value: v });
+  if (v === null || typeof v !== "object" || Array.isArray(v))
+    fail(`${field} must be an object`, { field, value: v });
   return v;
 }
 
 function stringArray(v, field) {
-  if (!Array.isArray(v) || v.some((s) => typeof s !== "string")) fail(`${field} must be an array of strings`, { field });
+  if (!Array.isArray(v) || v.some((s) => typeof s !== "string"))
+    fail(`${field} must be an array of strings`, { field });
   return v;
 }
 
@@ -47,13 +57,35 @@ function stringArray(v, field) {
 // directory name; suffix them rather than reject (the user typed "Con
 // Survey", not a syscall).
 const RESERVED_SLUGS = new Set([
-  "con", "prn", "aux", "nul",
-  "com1", "com2", "com3", "com4", "com5", "com6", "com7", "com8", "com9",
-  "lpt1", "lpt2", "lpt3", "lpt4", "lpt5", "lpt6", "lpt7", "lpt8", "lpt9",
+  "con",
+  "prn",
+  "aux",
+  "nul",
+  "com1",
+  "com2",
+  "com3",
+  "com4",
+  "com5",
+  "com6",
+  "com7",
+  "com8",
+  "com9",
+  "lpt1",
+  "lpt2",
+  "lpt3",
+  "lpt4",
+  "lpt5",
+  "lpt6",
+  "lpt7",
+  "lpt8",
+  "lpt9",
 ]);
 
 function slugify(name) {
-  const s = name.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-+|-+$/g, "");
+  const s = name
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, "-")
+    .replace(/^-+|-+$/g, "");
   return RESERVED_SLUGS.has(s) ? `${s}-project` : s;
 }
 
@@ -62,20 +94,27 @@ function slugify(name) {
 export function createProject(input = {}) {
   reqString(input.name, "name");
   const slug = input.slug ?? slugify(input.name);
-  if (!/^[a-z0-9][a-z0-9-]*$/.test(slug)) fail("slug must be lowercase letters, digits, hyphens", { field: "slug", value: slug });
+  if (!/^[a-z0-9][a-z0-9-]*$/.test(slug))
+    fail("slug must be lowercase letters, digits, hyphens", { field: "slug", value: slug });
   // Reserved-name guard on the FINAL slug, not just inside slugify(). slugify
   // suffixes a reserved auto-derived slug, but an EXPLICIT input.slug of exactly
   // "con"/"aux"/"nul"/… sailed past the regex and would mint a Windows reserved
   // device-name directory (fs calls then misbehave). An explicit device name is
   // a deliberate, broken choice — reject it rather than silently rewrite it.
-  if (RESERVED_SLUGS.has(slug)) fail(`slug "${slug}" is a reserved device name on Windows; choose another`, { field: "slug", value: slug });
+  if (RESERVED_SLUGS.has(slug))
+    fail(`slug "${slug}" is a reserved device name on Windows; choose another`, {
+      field: "slug",
+      value: slug,
+    });
   const privacyMode = oneOf(input.privacyMode ?? "open", PRIVACY_MODES, "privacyMode");
   const budget = {
     capUSD: input.budget?.capUSD ?? null,
     spentUSD: input.budget?.spentUSD ?? 0,
   };
-  if (budget.capUSD !== null && (typeof budget.capUSD !== "number" || budget.capUSD < 0)) fail("budget.capUSD must be null or a number >= 0", { field: "budget.capUSD" });
-  if (typeof budget.spentUSD !== "number" || budget.spentUSD < 0) fail("budget.spentUSD must be a number >= 0", { field: "budget.spentUSD" });
+  if (budget.capUSD !== null && (typeof budget.capUSD !== "number" || budget.capUSD < 0))
+    fail("budget.capUSD must be null or a number >= 0", { field: "budget.capUSD" });
+  if (typeof budget.spentUSD !== "number" || budget.spentUSD < 0)
+    fail("budget.spentUSD must be a number >= 0", { field: "budget.spentUSD" });
   let director = input.director ?? null;
   if (director !== null) {
     plainObject(director, "director");
@@ -143,24 +182,30 @@ export function createConstruct(input = {}) {
     createdAt: input.createdAt ?? new Date().toISOString(),
   };
   if (input.categories !== undefined) {
-    if (!Array.isArray(input.categories) || input.categories.length === 0) fail("categories must be a non-empty array", { field: "categories" });
+    if (!Array.isArray(input.categories) || input.categories.length === 0)
+      fail("categories must be a non-empty array", { field: "categories" });
     out.categories = input.categories.map((c, i) => {
       plainObject(c, `categories[${i}]`);
-      if (c.value === undefined) fail(`categories[${i}].value is required`, { field: "categories" });
+      if (c.value === undefined)
+        fail(`categories[${i}].value is required`, { field: "categories" });
       reqString(c.label, `categories[${i}].label`);
-      return c.anchor !== undefined ? { value: c.value, label: c.label, anchor: c.anchor } : { value: c.value, label: c.label };
+      return c.anchor !== undefined
+        ? { value: c.value, label: c.label, anchor: c.anchor }
+        : { value: c.value, label: c.label };
     });
   }
   if (input.scale !== undefined) {
     plainObject(input.scale, "scale");
     const { min, max } = input.scale;
-    if (typeof min !== "number" || typeof max !== "number" || !(min < max)) fail("scale requires numbers min < max", { field: "scale", value: input.scale });
+    if (typeof min !== "number" || typeof max !== "number" || !(min < max))
+      fail("scale requires numbers min < max", { field: "scale", value: input.scale });
     out.scale = { min, max };
   }
   // Provenance: the corpus id whose sample fed a Director draft. Optional —
   // only stamped when a registered corpus actually backed the proposal, never
   // guessed (a hand-authored construct carries no draftedFrom).
-  if (input.draftedFrom !== undefined) out.draftedFrom = reqString(input.draftedFrom, "draftedFrom");
+  if (input.draftedFrom !== undefined)
+    out.draftedFrom = reqString(input.draftedFrom, "draftedFrom");
   // Provenance: HOW a Director-authored entry entered the codebook — "draft"
   // (Draft with Director formalizing the user's concepts) or "inductive"
   // (accepted from an Inductive-mode corpus-mining pass). Optional; absent
@@ -181,7 +226,8 @@ export function createInstrument(input = {}) {
   plainObject(input.payload, "payload");
   // Constructors create NEW things: a frozen instrument can only come from
   // freeze() (which mints the certificate) or rehydrateProject() on load.
-  if (input.frozen) fail("createInstrument cannot create a frozen instrument — use freeze()", { field: "frozen" });
+  if (input.frozen)
+    fail("createInstrument cannot create a frozen instrument — use freeze()", { field: "frozen" });
   const out = {
     id: input.id ?? newId("inst"),
     constructId: input.constructId,
@@ -196,7 +242,8 @@ export function createInstrument(input = {}) {
     humanTouched: input.humanTouched ?? (input.authoredBy ?? "human") === "human",
     createdAt: input.createdAt ?? new Date().toISOString(),
   };
-  if (!Number.isInteger(out.version) || out.version < 1) fail("version must be an integer >= 1", { field: "version", value: out.version });
+  if (!Number.isInteger(out.version) || out.version < 1)
+    fail("version must be an integer >= 1", { field: "version", value: out.version });
   if (input.parentVersion !== undefined) out.parentVersion = input.parentVersion;
   if (input.certificate !== undefined) out.certificate = input.certificate;
   if (input.stability !== undefined) out.stability = input.stability;
@@ -266,7 +313,8 @@ export function rehydrateProject(project) {
 
 export function createGoldSet(input = {}) {
   reqString(input.constructId, "constructId");
-  if (input.name !== undefined && typeof input.name !== "string") fail("name must be a string", { field: "name", value: input.name });
+  if (input.name !== undefined && typeof input.name !== "string")
+    fail("name must be a string", { field: "name", value: input.name });
   const out = {
     id: input.id ?? newId("gs"),
     constructId: input.constructId,
@@ -277,7 +325,8 @@ export function createGoldSet(input = {}) {
     sample: (input.sample ?? []).map((s, i) => {
       plainObject(s, `sample[${i}]`);
       reqString(s.unitId, `sample[${i}].unitId`);
-      if (typeof s.pi !== "number" || !(s.pi > 0) || s.pi > 1) fail(`sample[${i}].pi must be a number in (0, 1]`, { field: "sample", value: s.pi });
+      if (typeof s.pi !== "number" || !(s.pi > 0) || s.pi > 1)
+        fail(`sample[${i}].pi must be a number in (0, 1]`, { field: "sample", value: s.pi });
       return { unitId: s.unitId, pi: s.pi };
     }),
     coders: input.coders ?? [],
@@ -297,7 +346,8 @@ export function createRun(input = {}) {
   reqString(input.corpusId, "corpusId");
   reqString(input.provider, "provider");
   reqString(input.model, "model");
-  if (input.name !== undefined && typeof input.name !== "string") fail("name must be a string", { field: "name", value: input.name });
+  if (input.name !== undefined && typeof input.name !== "string")
+    fail("name must be a string", { field: "name", value: input.name });
   const out = {
     id: input.id ?? newId("run"),
     instrumentId: input.instrumentId,
@@ -313,7 +363,10 @@ export function createRun(input = {}) {
       inputTokens: input.cost?.inputTokens ?? 0,
       outputTokens: input.cost?.outputTokens ?? 0,
     },
-    escalation: { count: input.escalation?.count ?? 0, directorModel: input.escalation?.directorModel ?? null },
+    escalation: {
+      count: input.escalation?.count ?? 0,
+      directorModel: input.escalation?.directorModel ?? null,
+    },
     quarantine: input.quarantine ?? [],
     startedAt: input.startedAt ?? null,
     finishedAt: input.finishedAt ?? null,

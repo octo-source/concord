@@ -75,7 +75,10 @@ const DEFAULT_MAX_TOKENS = 2048;
 // because existing call sites and tests import it from this module.
 export { withTruncationRetry };
 
-export async function callDirector(project, { messages, schema, maxTokens = DEFAULT_MAX_TOKENS, temperature = 0, seed } = {}) {
+export async function callDirector(
+  project,
+  { messages, schema, maxTokens = DEFAULT_MAX_TOKENS, temperature = 0, seed } = {},
+) {
   const slot = project?.director;
   if (!slot || !slot.provider || !slot.model) {
     throw new ConcordError(
@@ -86,7 +89,11 @@ export async function callDirector(project, { messages, schema, maxTokens = DEFA
     );
   }
   if (!schema || typeof schema !== "object") {
-    throw new ConcordError("VALIDATION", "callDirector requires a strict response schema — every Director output is an artifact", {});
+    throw new ConcordError(
+      "VALIDATION",
+      "callDirector requires a strict response schema — every Director output is an artifact",
+      {},
+    );
   }
   if (!Array.isArray(messages)) {
     throw new ConcordError("VALIDATION", "callDirector requires a messages array", {});
@@ -105,9 +112,10 @@ export async function callDirector(project, { messages, schema, maxTokens = DEFA
   let finalMessages = messages;
   if (suffix) {
     const i = messages.findIndex((m) => m.role === "system");
-    finalMessages = i === -1
-      ? [{ role: "system", content: suffix }, ...messages]
-      : messages.map((m, j) => (j === i ? { ...m, content: `${m.content}\n\n${suffix}` } : m));
+    finalMessages =
+      i === -1
+        ? [{ role: "system", content: suffix }, ...messages]
+        : messages.map((m, j) => (j === i ? { ...m, content: `${m.content}\n\n${suffix}` } : m));
   }
 
   // Meter EVERY provider attempt, not just the final response: schema-repair
@@ -125,14 +133,18 @@ export async function callDirector(project, { messages, schema, maxTokens = DEFA
 
   let res;
   try {
-    res = await withTruncationRetry((budget) => completeWithRepair(adapter, {
-      model: slot.model,
-      messages: finalMessages,
-      schema,
-      temperature,
-      maxTokens: budget,
-      ...(seed !== undefined ? { seed } : {}),
-    }), { maxTokens });
+    res = await withTruncationRetry(
+      (budget) =>
+        completeWithRepair(adapter, {
+          model: slot.model,
+          messages: finalMessages,
+          schema,
+          temperature,
+          maxTokens: budget,
+          ...(seed !== undefined ? { seed } : {}),
+        }),
+      { maxTokens },
+    );
   } catch (err) {
     const billed = err?.details?.attemptsUsage;
     if (billed) m.meter.add(billed, pricing); // failed calls still billed their returned attempts
@@ -158,7 +170,9 @@ export function directorPool({ concurrency = 8 } = {}) {
 export async function readCorpusUnits(project, corpusId, { limit } = {}) {
   const meta = (project?.corpora ?? []).find((c) => c.id === corpusId);
   if (!meta) {
-    throw new ConcordError("NOT_FOUND", `Corpus '${corpusId}' is not part of this project`, { corpusId });
+    throw new ConcordError("NOT_FOUND", `Corpus '${corpusId}' is not part of this project`, {
+      corpusId,
+    });
   }
   const file = path.join(projectDir(project.slug), "corpora", corpusId, "units.ndjson");
   const units = await readNdjson(file, limit ? { limit } : {});

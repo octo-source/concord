@@ -77,7 +77,11 @@ async function call(method, p, body) {
   const res = await fetch(base + p, init);
   const text = await res.text();
   let json = null;
-  try { json = JSON.parse(text); } catch { /* non-JSON */ }
+  try {
+    json = JSON.parse(text);
+  } catch {
+    /* non-JSON */
+  }
   return { status: res.status, json, text };
 }
 
@@ -90,9 +94,14 @@ async function ok(method, p, body) {
 
 async function fail(method, p, body, status, code) {
   const r = await call(method, p, body);
-  assert.equal(r.status, status, `${method} ${p} expected ${status}, got ${r.status}: ${r.text?.slice(0, 300)}`);
+  assert.equal(
+    r.status,
+    status,
+    `${method} ${p} expected ${status}, got ${r.status}: ${r.text?.slice(0, 300)}`,
+  );
   assert.equal(r.json?.ok, false);
-  if (code) assert.equal(r.json.error.code, code, `expected error code ${code}, got ${r.json.error.code}`);
+  if (code)
+    assert.equal(r.json.error.code, code, `expected error code ${code}, got ${r.json.error.code}`);
   return r.json.error;
 }
 
@@ -101,7 +110,11 @@ async function upload(p, filename, content) {
   form.append("file", new Blob([content]), filename);
   const res = await fetch(base + p, { method: "POST", body: form });
   const json = JSON.parse(await res.text());
-  assert.equal(res.status, 200, `upload ${p} → ${res.status}: ${JSON.stringify(json).slice(0, 300)}`);
+  assert.equal(
+    res.status,
+    200,
+    `upload ${p} → ${res.status}: ${JSON.stringify(json).slice(0, 300)}`,
+  );
   return json.data;
 }
 
@@ -111,9 +124,10 @@ function makeCsv() {
   const lines = ["respondent_id,region,response"];
   for (let i = 0; i < 60; i++) {
     const region = i < 56 ? "north" : i < 58 ? "south" : "east";
-    const text = i % 2 === 0
-      ? `the salary is too low for this work and it never improves around here (${i})`
-      : `the office is comfortable and the team is genuinely kind to everyone (${i})`;
+    const text =
+      i % 2 === 0
+        ? `the salary is too low for this work and it never improves around here (${i})`
+        : `the office is comfortable and the team is genuinely kind to everyone (${i})`;
     lines.push(`r${i},${region},${text}`);
   }
   return lines.join("\n") + "\n";
@@ -130,9 +144,9 @@ const S = {
   slug: null,
   corpusId: null,
   constructId: null, // binary, categories yes/no, worked examples
-  contId: null,      // continuous, scale 1..5
-  extId: null,       // extraction — free labels
-  gs1: null,         // the consensus-rule fixture
+  contId: null, // continuous, scale 1..5
+  extId: null, // extraction — free labels
+  gs1: null, // the consensus-rule fixture
   gs1Units: [],
 };
 
@@ -142,7 +156,10 @@ const goldsetArtifact = (id) => path.join(tmpProjects, S.slug, "gold", `${id}.js
 // ---------------------------------------------------------------- the tests
 
 test("setup: project + corpus + three constructs (categories / continuous / extraction)", async () => {
-  const project = await ok("POST", "/api/projects", { name: "Gold Integrity", privacyMode: "open" });
+  const project = await ok("POST", "/api/projects", {
+    name: "Gold Integrity",
+    privacyMode: "open",
+  });
   S.slug = project.slug;
 
   const up = await upload(`/api/projects/${S.slug}/import`, "survey.csv", makeCsv());
@@ -158,9 +175,15 @@ test("setup: project + corpus + three constructs (categories / continuous / extr
     name: "Pay complaint",
     type: "binary",
     definition: "The unit complains about compensation level or fairness.",
-    criteria: { include: ["names compensation as a problem"], exclude: ["benefits-only complaints"] },
+    criteria: {
+      include: ["names compensation as a problem"],
+      exclude: ["benefits-only complaints"],
+    },
     examples: EXAMPLES,
-    categories: [{ value: "yes", label: "Yes" }, { value: "no", label: "No" }],
+    categories: [
+      { value: "yes", label: "Yes" },
+      { value: "no", label: "No" },
+    ],
   });
   S.constructId = binary.id;
 
@@ -206,7 +229,11 @@ test("consensus gold: a single voice is not gold; label vs can't-code is an open
   await ok("POST", G(`/${gs.id}/label`), { coder: "ben", unitId: u[5], label: "no" });
 
   const r = await ok("GET", G(`/${gs.id}/agreement`));
-  assert.equal(r.goldLabeled, 2, "only u1 and u5 (≥2 coders unanimous, no conflicting mark) are gold");
+  assert.equal(
+    r.goldLabeled,
+    2,
+    "only u1 and u5 (≥2 coders unanimous, no conflicting mark) are gold",
+  );
   assert.equal(r.humanAgreement.n, 3, "u1, u2, u5 are the pairable units");
   assert.equal(r.humanAgreement.uncodableUnits, 2, "u3 and u4 carry can't-code marks");
   assert.equal(r.humanAgreement.excludedFromAgreement, 3, "u0, u3, u4 lack two codable labels");
@@ -217,10 +244,18 @@ test("adjudication always wins — over a single voice, a split, and a label-vs-
   await ok("POST", G(`/${S.gs1}/adjudicate`), { unitId: u[3], label: "no" });
   await ok("POST", G(`/${S.gs1}/adjudicate`), { unitId: u[0], label: "yes" });
   const r2 = await ok("POST", G(`/${S.gs1}/adjudicate`), { unitId: u[2], label: "yes" });
-  assert.notEqual(r2.status, "complete", "the unit everyone marked can't-code still blocks completion");
+  assert.notEqual(
+    r2.status,
+    "complete",
+    "the unit everyone marked can't-code still blocks completion",
+  );
 
   const done = await ok("POST", G(`/${S.gs1}/adjudicate`), { unitId: u[4], exclude: true });
-  assert.equal(done.status, "complete", "an adjudicator exclusion resolves the unanimous-can't-code deadlock");
+  assert.equal(
+    done.status,
+    "complete",
+    "an adjudicator exclusion resolves the unanimous-can't-code deadlock",
+  );
 
   const r = await ok("GET", G(`/${S.gs1}/agreement`));
   assert.equal(r.goldLabeled, 5, "3 adjudicated + 2 consensus; the excluded unit stays out");
@@ -228,7 +263,11 @@ test("adjudication always wins — over a single voice, a split, and a label-vs-
 
 test("adjudication queue (UI derivation): units everyone marked can't-code are queued; a single coder's label is not", () => {
   const goldset = {
-    sample: [{ unitId: "u1", pi: 0.1 }, { unitId: "u2", pi: 0.1 }, { unitId: "u3", pi: 0.1 }],
+    sample: [
+      { unitId: "u1", pi: 0.1 },
+      { unitId: "u2", pi: 0.1 },
+      { unitId: "u3", pi: 0.1 },
+    ],
     coders: [
       { coderId: "ann", labels: { u2: "yes" }, uncodable: { u1: true } },
       { coderId: "ben", labels: {}, uncodable: { u1: true } },
@@ -236,7 +275,10 @@ test("adjudication queue (UI derivation): units everyone marked can't-code are q
   };
   const queue = disagreementsOf(goldset);
   const ids = queue.map((d) => d.unitId);
-  assert.ok(ids.includes("u1"), "the unanimous can't-code unit needs a human disposition — it must queue");
+  assert.ok(
+    ids.includes("u1"),
+    "the unanimous can't-code unit needs a human disposition — it must queue",
+  );
   assert.deepEqual(queue.find((d) => d.unitId === "u1").labels, { ann: UNCODABLE, ben: UNCODABLE });
   assert.ok(!ids.includes("u2"), "a single coder's label is not a disagreement");
   assert.ok(!ids.includes("u3"), "an untouched unit is not queued");
@@ -253,24 +295,41 @@ test("agreement: the human report carries a bootstrap CI for α; an adjudicator 
   for (let i = 0; i < u.length; i++) {
     const truth = i % 2 === 0 ? "yes" : "no";
     await ok("POST", G(`/${gs.id}/label`), { coder: "ann", unitId: u[i], label: truth });
-    await ok("POST", G(`/${gs.id}/label`), { coder: "ben", unitId: u[i], label: i === 11 ? "yes" : truth });
+    await ok("POST", G(`/${gs.id}/label`), {
+      coder: "ben",
+      unitId: u[i],
+      label: i === 11 ? "yes" : truth,
+    });
   }
 
   const before = await ok("GET", G(`/${gs.id}/agreement`));
   assert.equal(before.humanAgreement.n, 12);
-  assert.ok(Math.abs(before.humanAgreement.percent - 11 / 12) < 1e-9, `one planted disagreement (got ${before.humanAgreement.percent})`);
+  assert.ok(
+    Math.abs(before.humanAgreement.percent - 11 / 12) < 1e-9,
+    `one planted disagreement (got ${before.humanAgreement.percent})`,
+  );
   const ci = before.humanAgreement.ci;
   assert.ok(ci, "humanAgreement.ci present");
   assert.equal(ci.method, "bootstrap-percentile");
   assert.ok(typeof ci.lo === "number" && typeof ci.hi === "number" && ci.lo <= ci.hi);
-  assert.ok(ci.lo <= before.humanAgreement.alpha && before.humanAgreement.alpha <= ci.hi,
-    `lo ${ci.lo} ≤ α ${before.humanAgreement.alpha} ≤ hi ${ci.hi}`);
+  assert.ok(
+    ci.lo <= before.humanAgreement.alpha && before.humanAgreement.alpha <= ci.hi,
+    `lo ${ci.lo} ≤ α ${before.humanAgreement.alpha} ≤ hi ${ci.hi}`,
+  );
 
   await ok("POST", G(`/${gs.id}/adjudicate`), { unitId: u[11], exclude: true });
   const after = await ok("GET", G(`/${gs.id}/agreement`));
   assert.equal(after.humanAgreement.n, 11, "the excluded unit contributes no agreement rows");
-  assert.equal(after.humanAgreement.percent, 1, "the lone disagreement left with the excluded unit");
-  assert.equal(after.humanAgreement.excludedFromAgreement, 0, "an adjudicator-excluded unit is out of the disclosure counts too");
+  assert.equal(
+    after.humanAgreement.percent,
+    1,
+    "the lone disagreement left with the excluded unit",
+  );
+  assert.equal(
+    after.humanAgreement.excludedFromAgreement,
+    0,
+    "an adjudicator-excluded unit is out of the disclosure counts too",
+  );
   assert.equal(after.goldLabeled, 11);
 });
 
@@ -289,19 +348,46 @@ test("blind next: only unit id/text/pos, the codebook (with worked examples) and
 
   const res = await call("GET", G(`/${gs.id}/next?coder=newcoder`));
   assert.equal(res.status, 200, res.text?.slice(0, 300));
-  for (const marker of ['"juror"', '"machine', '"adjudicated"', '"labels"', '"rationale"', '"confidence"', "rival"]) {
-    assert.ok(!res.text.includes(marker), `blind payload must not contain ${marker}: ${res.text.slice(0, 400)}`);
+  for (const marker of [
+    '"juror"',
+    '"machine',
+    '"adjudicated"',
+    '"labels"',
+    '"rationale"',
+    '"confidence"',
+    "rival",
+  ]) {
+    assert.ok(
+      !res.text.includes(marker),
+      `blind payload must not contain ${marker}: ${res.text.slice(0, 400)}`,
+    );
   }
 
   const data = res.json.data;
-  assert.deepEqual(Object.keys(data).sort(), ["construct", "progress", "remaining", "unit"], "payload shape pinned");
-  assert.equal(data.remaining.length, 3, "the coder's whole remaining queue rides along for the sprint");
+  assert.deepEqual(
+    Object.keys(data).sort(),
+    ["construct", "progress", "remaining", "unit"],
+    "payload shape pinned",
+  );
+  assert.equal(
+    data.remaining.length,
+    3,
+    "the coder's whole remaining queue rides along for the sprint",
+  );
   for (const item of data.remaining) {
-    assert.deepEqual(Object.keys(item).sort(), ["id", "pos", "text"], "remaining units are id/text/pos only");
+    assert.deepEqual(
+      Object.keys(item).sort(),
+      ["id", "pos", "text"],
+      "remaining units are id/text/pos only",
+    );
     assert.equal(typeof item.text, "string");
   }
   assert.deepEqual(data.unit, data.remaining[0], "unit stays the first remaining entry");
-  assert.deepEqual(data.construct.examples, EXAMPLES, "worked examples reach the human coder word for word");
+  assert.deepEqual(
+    data.construct.examples,
+    EXAMPLES,
+    "worked examples reach the human coder word for word",
+  );
   assert.deepEqual([data.progress.done, data.progress.total], [0, 3]);
 
   // labeling shrinks the remaining queue for THAT coder only
@@ -319,16 +405,30 @@ test("resample: a forced redraw with identical parameters draws a different samp
   const gs = await ok("POST", G(), { constructId: S.constructId, corpusId: S.corpusId });
   const first = await ok("POST", G(`/${gs.id}/sample`), { design: "srs", n: 10 });
   const ids1 = first.sample.map((s) => s.unitId).sort();
-  assert.ok(first.sample.every((s) => Math.abs(s.pi - 10 / 60) < 1e-12), "SRS π = n/N");
+  assert.ok(
+    first.sample.every((s) => Math.abs(s.pi - 10 / 60) < 1e-12),
+    "SRS π = n/N",
+  );
 
   // commit one label so the redraw demands force — the confirm dialog's path
-  await ok("POST", G(`/${gs.id}/label`), { coder: "ann", unitId: first.sample[0].unitId, label: "yes" });
+  await ok("POST", G(`/${gs.id}/label`), {
+    coder: "ann",
+    unitId: first.sample[0].unitId,
+    label: "yes",
+  });
   await fail("POST", G(`/${gs.id}/sample`), { design: "srs", n: 10 }, 409, "CONFIRM_REQUIRED");
 
   const second = await ok("POST", G(`/${gs.id}/sample`), { design: "srs", n: 10, force: true });
   const ids2 = second.sample.map((s) => s.unitId).sort();
-  assert.notDeepEqual(ids2, ids1, "a forced redraw with unchanged parameters must not re-deal the identical sample");
-  assert.ok(second.sample.every((s) => Math.abs(s.pi - 10 / 60) < 1e-12), "π is untouched by the seed salt");
+  assert.notDeepEqual(
+    ids2,
+    ids1,
+    "a forced redraw with unchanged parameters must not re-deal the identical sample",
+  );
+  assert.ok(
+    second.sample.every((s) => Math.abs(s.pi - 10 / 60) < 1e-12),
+    "π is untouched by the seed salt",
+  );
 
   // a third draw (no committed work now) differs again — the counter advances
   const third = await ok("POST", G(`/${gs.id}/sample`), { design: "srs", n: 10 });
@@ -347,12 +447,28 @@ test("validation: category constructs refuse unknown labels (naming the valid va
   const sampled = await ok("POST", G(`/${gs.id}/sample`), { design: "srs", n: 2 });
   const [ua, ub] = sampled.sample.map((s) => s.unitId);
 
-  const aerr = await fail("POST", G(`/${gs.id}/adjudicate`), { unitId: ua, label: "maybee" }, 400, "VALIDATION");
+  const aerr = await fail(
+    "POST",
+    G(`/${gs.id}/adjudicate`),
+    { unitId: ua, label: "maybee" },
+    400,
+    "VALIDATION",
+  );
   assert.match(aerr.message, /yes/);
   assert.match(aerr.message, /no/);
-  assert.deepEqual(aerr.details.valid, ["yes", "no"], "the valid category values ride the error details");
+  assert.deepEqual(
+    aerr.details.valid,
+    ["yes", "no"],
+    "the valid category values ride the error details",
+  );
 
-  const lerr = await fail("POST", G(`/${gs.id}/label`), { coder: "ann", unitId: ua, label: "absolutely" }, 400, "VALIDATION");
+  const lerr = await fail(
+    "POST",
+    G(`/${gs.id}/label`),
+    { coder: "ann", unitId: ua, label: "absolutely" },
+    400,
+    "VALIDATION",
+  );
   assert.match(lerr.message, /yes/);
   assert.match(lerr.message, /no/);
 
@@ -367,7 +483,13 @@ test("validation: continuous constructs enforce the scale bounds; extraction sta
   const cs = await ok("POST", G(`/${cgs.id}/sample`), { design: "srs", n: 2 });
   const [ca, cb] = cs.sample.map((s) => s.unitId);
 
-  const cerr = await fail("POST", G(`/${cgs.id}/label`), { coder: "ann", unitId: ca, label: 9 }, 400, "VALIDATION");
+  const cerr = await fail(
+    "POST",
+    G(`/${cgs.id}/label`),
+    { coder: "ann", unitId: ca, label: 9 },
+    400,
+    "VALIDATION",
+  );
   assert.match(cerr.message, /1/);
   assert.match(cerr.message, /5/);
   await ok("POST", G(`/${cgs.id}/label`), { coder: "ann", unitId: ca, label: 3 });
@@ -377,7 +499,11 @@ test("validation: continuous constructs enforce the scale bounds; extraction sta
 
   const egs = await ok("POST", G(), { constructId: S.extId, corpusId: S.corpusId });
   const es = await ok("POST", G(`/${egs.id}/sample`), { design: "srs", n: 1 });
-  await ok("POST", G(`/${egs.id}/label`), { coder: "ann", unitId: es.sample[0].unitId, label: "any free text stays legal" });
+  await ok("POST", G(`/${egs.id}/label`), {
+    coder: "ann",
+    unitId: es.sample[0].unitId,
+    label: "any free text stays legal",
+  });
 });
 
 // =========================================================================
@@ -386,11 +512,19 @@ test("validation: continuous constructs enforce the scale bounds; extraction sta
 
 test("stratified: every non-empty stratum lands at least one unit with π = take/N per stratum; n below the stratum count → VALIDATION", async () => {
   const gs = await ok("POST", G(), { constructId: S.constructId, corpusId: S.corpusId });
-  const sampled = await ok("POST", G(`/${gs.id}/sample`), { design: "stratified", n: 10, strata: { by: "region" } });
+  const sampled = await ok("POST", G(`/${gs.id}/sample`), {
+    design: "stratified",
+    n: 10,
+    strata: { by: "region" },
+  });
   assert.equal(sampled.n, 10);
 
-  const units = (await readFile(path.join(tmpProjects, S.slug, "corpora", S.corpusId, "units.ndjson"), "utf8"))
-    .split(/\n/).filter(Boolean).map((l) => JSON.parse(l));
+  const units = (
+    await readFile(path.join(tmpProjects, S.slug, "corpora", S.corpusId, "units.ndjson"), "utf8")
+  )
+    .split(/\n/)
+    .filter(Boolean)
+    .map((l) => JSON.parse(l));
   const regionOf = new Map(units.map((un) => [un.id, un.meta.region]));
   const byRegion = { north: [], south: [], east: [] };
   for (const s of sampled.sample) byRegion[regionOf.get(s.unitId)].push(s);
@@ -405,9 +539,22 @@ test("stratified: every non-empty stratum lands at least one unit with π = take
     assert.ok(Math.abs(s.pi - byRegion.east.length / 2) < 1e-12, `east π = take/N (got ${s.pi})`);
   }
   for (const s of byRegion.north) {
-    assert.ok(Math.abs(s.pi - byRegion.north.length / 56) < 1e-12, `north π = take/N (got ${s.pi})`);
+    assert.ok(
+      Math.abs(s.pi - byRegion.north.length / 56) < 1e-12,
+      `north π = take/N (got ${s.pi})`,
+    );
   }
 
-  const err = await fail("POST", G(`/${gs.id}/sample`), { design: "stratified", n: 2, strata: { by: "region" } }, 400, "VALIDATION");
-  assert.match(err.message, /at least 3/, "the error tells the user to raise n to the stratum count");
+  const err = await fail(
+    "POST",
+    G(`/${gs.id}/sample`),
+    { design: "stratified", n: 2, strata: { by: "region" } },
+    400,
+    "VALIDATION",
+  );
+  assert.match(
+    err.message,
+    /at least 3/,
+    "the error tells the user to raise n to the stratum count",
+  );
 });

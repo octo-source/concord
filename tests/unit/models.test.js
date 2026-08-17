@@ -2,12 +2,7 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import { ols, logit } from "../../server/stats/models.js";
-import {
-  normQuantile,
-  chi2Cdf,
-  tCdf,
-  bhQValues,
-} from "../../server/stats/distributions.js";
+import { normQuantile, chi2Cdf, tCdf, bhQValues } from "../../server/stats/distributions.js";
 import {
   crosstab,
   cooccurrence,
@@ -38,7 +33,7 @@ test("ols recovers exact coefficients on noiseless data (y = 2 + 3x − 1.5z, n=
   const fit = ols(y, X);
   assert.ok(Math.abs(fit.coef[0] - 2) < EPS);
   assert.ok(Math.abs(fit.coef[1] - 3) < EPS);
-  assert.ok(Math.abs(fit.coef[2] - (-1.5)) < EPS);
+  assert.ok(Math.abs(fit.coef[2] - -1.5) < EPS);
   assert.ok(fit.r2 > 1 - EPS);
   for (const se of fit.seHC1) assert.ok(se >= 0 && se < 1e-6);
 });
@@ -83,7 +78,7 @@ test("I3: tiny-scale covariate (≈1e-8) is NOT singular; coefficients scale-equ
   assert.ok(Math.abs(fitSmall.coef[0] - fitBig.coef[0]) < 1e-9 * Math.abs(fitBig.coef[0]));
   assert.ok(
     Math.abs(fitSmall.coef[1] * s - fitBig.coef[1]) < 1e-9 * Math.abs(fitBig.coef[1]),
-    `slope ${fitSmall.coef[1] * s} vs ${fitBig.coef[1]}`
+    `slope ${fitSmall.coef[1] * s} vs ${fitBig.coef[1]}`,
   );
   assert.ok(Math.abs(fitSmall.seHC1[0] - fitBig.seHC1[0]) < 1e-9 * fitBig.seHC1[0]);
   assert.ok(Math.abs(fitSmall.seHC1[1] * s - fitBig.seHC1[1]) < 1e-9 * fitBig.seHC1[1]);
@@ -137,9 +132,9 @@ test("M6: ols r2 is null when y is constant (R² undefined, not 1)", () => {
 });
 
 test("ols input validation", () => {
-  assertThrowsCode(() => ols([1, 2], [[1]]), "E_STAT_INPUT");           // length mismatch
-  assertThrowsCode(() => ols([1, 2], [[1], [2, 3]]), "E_STAT_INPUT");   // ragged X
-  assertThrowsCode(() => ols([1, NaN], [[1], [2]]), "E_STAT_INPUT");    // non-finite y
+  assertThrowsCode(() => ols([1, 2], [[1]]), "E_STAT_INPUT"); // length mismatch
+  assertThrowsCode(() => ols([1, 2], [[1], [2, 3]]), "E_STAT_INPUT"); // ragged X
+  assertThrowsCode(() => ols([1, NaN], [[1], [2]]), "E_STAT_INPUT"); // non-finite y
   assertThrowsCode(() => ols([1, 2], [[1], [2]]), "E_STAT_INSUFFICIENT"); // n ≤ p
   assertThrowsCode(() => ols([1, 2, 3], [[1], [1], [1]]), "E_STAT_DEGENERATE"); // collinear (x ≡ const)
 });
@@ -188,8 +183,14 @@ test("logit matches closed form on saturated binary-x model", () => {
   // counts: x=0 → 30 ones / 100; x=1 → 60 ones / 100.
   const X = [];
   const y = [];
-  for (let i = 0; i < 100; i++) { X.push([0]); y.push(i < 30 ? 1 : 0); }
-  for (let i = 0; i < 100; i++) { X.push([1]); y.push(i < 60 ? 1 : 0); }
+  for (let i = 0; i < 100; i++) {
+    X.push([0]);
+    y.push(i < 30 ? 1 : 0);
+  }
+  for (let i = 0; i < 100; i++) {
+    X.push([1]);
+    y.push(i < 60 ? 1 : 0);
+  }
   const fit = logit(y, X);
   const b0 = Math.log(0.3 / 0.7);
   const b1 = Math.log(0.6 / 0.4) - b0;
@@ -202,7 +203,7 @@ test("logit matches closed form on saturated binary-x model", () => {
 
 test("normQuantile golden values", () => {
   assert.ok(Math.abs(normQuantile(0.975) - 1.959964) < 1e-5);
-  assert.ok(Math.abs(normQuantile(0.025) - (-1.959964)) < 1e-5);
+  assert.ok(Math.abs(normQuantile(0.025) - -1.959964) < 1e-5);
   assert.ok(Math.abs(normQuantile(0.5)) < 1e-12);
   assert.ok(Math.abs(normQuantile(0.995) - 2.5758293) < 1e-5);
   assertThrowsCode(() => normQuantile(0), "E_STAT_INPUT");
@@ -247,9 +248,9 @@ test("I1: chi2Cdf small-df golden values stay exact after the iteration fix", ()
 
 test("tCdf golden values", () => {
   assert.ok(Math.abs(tCdf(0, 10) - 0.5) < 1e-12);
-  assert.ok(Math.abs(tCdf(1.812461, 10) - 0.95) < 1e-5);   // t_{0.95,10}
+  assert.ok(Math.abs(tCdf(1.812461, 10) - 0.95) < 1e-5); // t_{0.95,10}
   assert.ok(Math.abs(tCdf(-1.812461, 10) - 0.05) < 1e-5);
-  assert.ok(Math.abs(tCdf(2.228139, 10) - 0.975) < 1e-5);  // t_{0.975,10}
+  assert.ok(Math.abs(tCdf(2.228139, 10) - 0.975) < 1e-5); // t_{0.975,10}
   // large df → normal: tCdf(1.959964, 1e6) ≈ 0.975
   assert.ok(Math.abs(tCdf(1.959964, 1e6) - 0.975) < 1e-4);
   assertThrowsCode(() => tCdf(0, 0), "E_STAT_INPUT");
@@ -367,7 +368,7 @@ test("R3: timeTrend ISO weeks — year-boundary goldens", () => {
   const r = timeTrend(rows, { dateKey: "at", bucket: "week" });
   assert.deepEqual(
     r.buckets.map((b) => b.bucket),
-    ["2020-W53", "2024-W52", "2025-W01"]
+    ["2020-W53", "2024-W52", "2025-W01"],
   );
   for (const b of r.buckets) {
     assert.equal(b.n, 1);
@@ -380,8 +381,8 @@ test("R3: timeTrend month buckets and invalid dates → issues count, not thrown
     { at: "2026-01-15", v: 1 },
     { at: "2026-01-20", v: 3 },
     { at: "not a date", v: 7 }, // issue
-    { at: null, v: 7 },         // issue
-    { v: 7 },                   // missing date → issue
+    { at: null, v: 7 }, // issue
+    { v: 7 }, // missing date → issue
     { at: "2026-02-01", v: "n/a" }, // valid date, non-numeric value → counts in n, not mean
     { at: "2026-02-02", v: 10 },
   ];
@@ -424,8 +425,8 @@ test("correlationMatrix golden: r(x,2x)=1, r(x,−x)=−1, r(x,w)=−1/√5", ()
   assert.deepEqual(names, ["x", "y", "z", "w"]);
   assert.ok(Math.abs(matrix[0][0] - 1) < EPS);
   assert.ok(Math.abs(matrix[0][1] - 1) < EPS);
-  assert.ok(Math.abs(matrix[0][2] - (-1)) < EPS);
-  assert.ok(Math.abs(matrix[0][3] - (-1 / Math.sqrt(5))) < EPS);
+  assert.ok(Math.abs(matrix[0][2] - -1) < EPS);
+  assert.ok(Math.abs(matrix[0][3] - -1 / Math.sqrt(5)) < EPS);
   assert.ok(Math.abs(matrix[3][0] - matrix[0][3]) < EPS); // symmetric
 });
 
@@ -433,7 +434,7 @@ test("correlationMatrix: pairwise-complete on non-finite, null when degenerate",
   const cols = [
     { name: "a", values: [1, 2, 3, NaN] },
     { name: "b", values: [2, 4, 6, 100] }, // pairwise with a → first 3 only → r=1
-    { name: "c", values: [5, 5, 5, 5] },   // zero variance → null vs others
+    { name: "c", values: [5, 5, 5, 5] }, // zero variance → null vs others
   ];
   const { matrix } = correlationMatrix(cols);
   assert.ok(Math.abs(matrix[0][1] - 1) < EPS);

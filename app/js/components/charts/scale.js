@@ -4,7 +4,8 @@
 
 /** [min, max] of finite values (ignores null/NaN). Empty → [0, 1]. */
 export function extent(values) {
-  let lo = Infinity, hi = -Infinity;
+  let lo = Infinity,
+    hi = -Infinity;
   for (const v of values) {
     const n = Number(v);
     if (!Number.isFinite(n)) continue;

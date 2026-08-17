@@ -17,9 +17,23 @@
 import * as apiNs from "./api.js";
 
 const FILES = [
-  "project", "units", "import", "instantread", "brief", "constructs",
-  "instruments", "goldsets", "runs", "analyses", "plan", "settings",
-  "catalog", "evidence", "reports", "columns", "reliability",
+  "project",
+  "units",
+  "import",
+  "instantread",
+  "brief",
+  "constructs",
+  "instruments",
+  "goldsets",
+  "runs",
+  "analyses",
+  "plan",
+  "settings",
+  "catalog",
+  "evidence",
+  "reports",
+  "columns",
+  "reliability",
 ];
 
 let db = null; // in-memory clone of all fixture JSON, mutable for the session
@@ -52,7 +66,9 @@ export function setFixtures(on) {
   try {
     if (on) localStorage.setItem("concordFixtures", "1");
     else localStorage.removeItem("concordFixtures");
-  } catch { /* storage unavailable */ }
+  } catch {
+    /* storage unavailable */
+  }
 }
 
 export function isInstalled() {
@@ -87,7 +103,11 @@ function replaySse(steps, { onStep, onDone, gap = 350, jitter = 250 } = {}) {
     await sleep(gap);
     if (!closed) onDone?.();
   })();
-  return { close() { closed = true; } };
+  return {
+    close() {
+      closed = true;
+    },
+  };
 }
 
 function unitById(id) {
@@ -105,7 +125,16 @@ function goldsetMeta(gs) {
     n: gs.sample?.length ?? 0,
     coders: (gs.coders ?? []).map((c) => c.coderId),
     ...(gs.corpusId ? { corpusId: gs.corpusId } : {}),
-    ...(gs.humanAgreement ? { humanAgreement: { percent: gs.humanAgreement.percent, kappa: gs.humanAgreement.kappa, alpha: gs.humanAgreement.alpha, n: gs.humanAgreement.n } } : {}),
+    ...(gs.humanAgreement
+      ? {
+          humanAgreement: {
+            percent: gs.humanAgreement.percent,
+            kappa: gs.humanAgreement.kappa,
+            alpha: gs.humanAgreement.alpha,
+            n: gs.humanAgreement.n,
+          },
+        }
+      : {}),
     createdAt: gs.createdAt,
   };
 }
@@ -140,8 +169,12 @@ function coderUncodable(c, unitId) {
 // adjudicator instead of riding the remaining labels to consensus.
 function goldLabelMap(gs) {
   const out = new Map();
-  const coders = (gs.coders ?? []).filter((c) =>
-    (c.labels && Object.keys(c.labels).length > 0) || c.uncodable?.length || (c.uncodable && typeof c.uncodable === "object"));
+  const coders = (gs.coders ?? []).filter(
+    (c) =>
+      (c.labels && Object.keys(c.labels).length > 0) ||
+      c.uncodable?.length ||
+      (c.uncodable && typeof c.uncodable === "object"),
+  );
   for (const s of gs.sample ?? []) {
     if (goldsetExcludes(gs, s.unitId)) continue;
     const adj = gs.adjudicated?.[s.unitId];
@@ -163,11 +196,13 @@ function goldLabelMap(gs) {
 export async function installFixtures() {
   if (db) return db;
   const loaded = {};
-  await Promise.all(FILES.map(async (name) => {
-    const res = await fetch(`fixtures/${name}.json`);
-    if (!res.ok) throw new Error(`fixtures/${name}.json → ${res.status}`);
-    loaded[name] = await res.json();
-  }));
+  await Promise.all(
+    FILES.map(async (name) => {
+      const res = await fetch(`fixtures/${name}.json`);
+      if (!res.ok) throw new Error(`fixtures/${name}.json → ${res.status}`);
+      loaded[name] = await res.json();
+    }),
+  );
   db = loaded;
   db.extraProjects = []; // created this session
   patch();
@@ -202,19 +237,47 @@ function patch() {
     return [summary, ...db.extraProjects.map((x) => clone(x.summary))];
   };
   apiNs.projects.create = async ({ name, privacyMode }) => {
-    const slug = String(name).toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, "") || newId("p");
+    const slug =
+      String(name)
+        .toLowerCase()
+        .replace(/[^a-z0-9]+/g, "-")
+        .replace(/^-|-$/g, "") || newId("p");
     const proj = {
-      id: newId("proj"), name, slug, privacyMode: privacyMode ?? "open", createdAt: new Date().toISOString(),
+      id: newId("proj"),
+      name,
+      slug,
+      privacyMode: privacyMode ?? "open",
+      createdAt: new Date().toISOString(),
       budget: { capUSD: null, spentUSD: 0 },
       director: null,
-      corpora: [], constructs: [], instruments: [], goldsets: [], analyses: [], briefs: [], runs: [], plans: [],
+      corpora: [],
+      constructs: [],
+      instruments: [],
+      goldsets: [],
+      analyses: [],
+      briefs: [],
+      runs: [],
+      plans: [],
     };
     db.extraProjects.push({
       slug,
       summary: {
-        id: proj.id, name, slug, createdAt: proj.createdAt, privacyMode: proj.privacyMode,
-        budget: clone(proj.budget), director: null,
-        counts: { corpora: 0, constructs: 0, instruments: 0, goldsets: 0, runs: 0, analyses: 0, briefs: 0 },
+        id: proj.id,
+        name,
+        slug,
+        createdAt: proj.createdAt,
+        privacyMode: proj.privacyMode,
+        budget: clone(proj.budget),
+        director: null,
+        counts: {
+          corpora: 0,
+          constructs: 0,
+          instruments: 0,
+          goldsets: 0,
+          runs: 0,
+          analyses: 0,
+          briefs: 0,
+        },
       },
       _full: proj,
     });
@@ -232,9 +295,11 @@ function patch() {
     if (body.privacyMode !== undefined && body.privacyMode !== proj.privacyMode) {
       const RANK = { open: 0, "no-training": 1, strict: 2 };
       if (RANK[body.privacyMode] < RANK[proj.privacyMode] && body.confirmDowngrade !== true) {
-        throw new apiNs.ApiError("VALIDATION",
+        throw new apiNs.ApiError(
+          "VALIDATION",
           `changing privacy mode from "${proj.privacyMode}" to "${body.privacyMode}" weakens this project's privacy guarantees — repeat the request with {confirmDowngrade: true} to proceed`,
-          { status: 400 });
+          { status: 400 },
+        );
       }
       proj.privacyMode = body.privacyMode;
     }
@@ -267,7 +332,12 @@ function patch() {
       const q = String(params.q).toLowerCase();
       list = list.filter((u) => u.text.toLowerCase().includes(q));
     }
-    return { units: clone(list.slice(offset, offset + limit)), total: db.units.total, offset, limit };
+    return {
+      units: clone(list.slice(offset, offset + limit)),
+      total: db.units.total,
+      offset,
+      limit,
+    };
   };
   // live scopeOf (routes/corpora.js): the scope block follows the live corpus
   // entry, never the cached read — mirrored here so a fixture re-unitize
@@ -295,8 +365,7 @@ function patch() {
   // Re-unitized corpora fall back to their source corpus's columns.
   apiNs.corpora.columns = async (p, c) => {
     const corpus = P.corpora.find((x) => x.id === c);
-    const entry = db.columns[c]
-      ?? (corpus?.derivedFrom ? db.columns[corpus.derivedFrom] : null);
+    const entry = db.columns[c] ?? (corpus?.derivedFrom ? db.columns[corpus.derivedFrom] : null);
     if (!entry) return notFound(`columns for corpus "${c}"`);
     return clone(entry);
   };
@@ -311,9 +380,11 @@ function patch() {
     }
     const known = Object.keys(db.units.units[0]?.meta ?? {});
     if (!known.includes(textColumn)) {
-      throw new apiNs.ApiError("VALIDATION",
+      throw new apiNs.ApiError(
+        "VALIDATION",
         `"${textColumn}" is not a metadata column of this corpus — columns: ${known.join(", ") || "(none)"}`,
-        { status: 400 });
+        { status: 400 },
+      );
     }
     const skipped = 41; // rows empty in the chosen column
     const unitCount = Math.max(1, (src.unitCount ?? db.units.total) - skipped);
@@ -339,17 +410,29 @@ function patch() {
 
   /* -- brief (artifact + SSE) -- */
   apiNs.brief.get = async (p, bid) =>
-    (bid === db.brief.id ? clone(db.brief) : notFound(`brief "${bid}"`));
+    bid === db.brief.id ? clone(db.brief) : notFound(`brief "${bid}"`);
   apiNs.brief.generate = (p, corpusId, handlers = {}) =>
-    replaySse(db.brief.paragraphs.map((para) => ({ event: "para", data: { md: para.md, refs: clone(para.refs) } })), {
-      gap: 550, jitter: 450,
-      onStep: ({ data }) => handlers.onParagraph?.(data),
-      onDone: () => {
-        // live done: {briefId, paragraphs, themes, issues}
-        handlers.onDone?.({ briefId: db.brief.id, paragraphs: db.brief.paragraphs.length, themes: db.brief.themes.length, issues: clone(db.brief.issues) });
-        handlers.onClose?.();
+    replaySse(
+      db.brief.paragraphs.map((para) => ({
+        event: "para",
+        data: { md: para.md, refs: clone(para.refs) },
+      })),
+      {
+        gap: 550,
+        jitter: 450,
+        onStep: ({ data }) => handlers.onParagraph?.(data),
+        onDone: () => {
+          // live done: {briefId, paragraphs, themes, issues}
+          handlers.onDone?.({
+            briefId: db.brief.id,
+            paragraphs: db.brief.paragraphs.length,
+            themes: db.brief.themes.length,
+            issues: clone(db.brief.issues),
+          });
+          handlers.onClose?.();
+        },
       },
-    });
+    );
 
   /* -- questionbar -- */
   // live: POST questionbar → {planId, plan}; the plan is the persisted artifact
@@ -383,10 +466,14 @@ function patch() {
         versionHash: newId("hash").slice(-16).padStart(32, "0"),
         frozen: false,
         payload: {
-          provider: spec.provider, model: spec.model, snapshot: spec.snapshot,
+          provider: spec.provider,
+          model: spec.model,
+          snapshot: spec.snapshot,
           params: { temperature: 0, maxTokens: 256 },
           promptTemplate: "Apply the codebook. {{definition}} {{criteria}} {{examples}} {{unit}}",
-          schema: { type: "binary" }, rationaleFirst: true, workerClass: spec.workerClass,
+          schema: { type: "binary" },
+          rationaleFirst: true,
+          workerClass: spec.workerClass,
         },
         authoredBy: "director",
         humanTouched: false,
@@ -396,7 +483,8 @@ function patch() {
     // live approve also preflights one PENDING run per instrument (routes/
     // questionbar.js) — mirror it so the post-approve delivery view's run
     // links resolve and "Start" works on each created run
-    const planCorpus = P.corpora.find((c) => c.id === db.plan.plan.corpusId) ?? P.corpora.at(-1) ?? null;
+    const planCorpus =
+      P.corpora.find((c) => c.id === db.plan.plan.corpusId) ?? P.corpora.at(-1) ?? null;
     db.plan.plan.instruments.forEach((spec, i) => {
       const runId = r.runIds?.[i];
       if (!runId || db.runs.runs.some((x) => x.id === runId)) return;
@@ -424,7 +512,10 @@ function patch() {
       });
     });
     const stored = (P.plans ?? []).find((x) => x.planId === db.plan.planId);
-    if (stored) { stored.status = "approved"; stored.approvedAt = new Date().toISOString(); }
+    if (stored) {
+      stored.status = "approved";
+      stored.approvedAt = new Date().toISOString();
+    }
     return r;
   };
 
@@ -437,9 +528,14 @@ function patch() {
   };
   apiNs.constructs.create = async (p, construct) => {
     const k = {
-      criteria: { include: [], exclude: [] }, edgeCases: [], examples: [],
-      authoredBy: "human", humanTouched: true, createdAt: new Date().toISOString(),
-      ...clone(construct), id: construct.id ?? newId("c"),
+      criteria: { include: [], exclude: [] },
+      edgeCases: [],
+      examples: [],
+      authoredBy: "human",
+      humanTouched: true,
+      createdAt: new Date().toISOString(),
+      ...clone(construct),
+      id: construct.id ?? newId("c"),
     };
     constructList().push(k);
     return clone(k);
@@ -471,12 +567,18 @@ function patch() {
     await sleep(2400); // one Director call's worth of waiting
     const bank = clone(db.constructs.draftProposals ?? []);
     if (!String(input ?? "").trim()) {
-      throw new apiNs.ApiError("VALIDATION",
-        "draft input is empty — give concept names (one per line, optionally \"name: hint\") or a research question",
-        { status: 400 });
+      throw new apiNs.ApiError(
+        "VALIDATION",
+        'draft input is empty — give concept names (one per line, optionally "name: hint") or a research question',
+        { status: 400 },
+      );
     }
-    const lines = String(input).split(/\r?\n/).map((s) => s.trim()).filter(Boolean);
-    const isQuestion = lines.length === 1 &&
+    const lines = String(input)
+      .split(/\r?\n/)
+      .map((s) => s.trim())
+      .filter(Boolean);
+    const isQuestion =
+      lines.length === 1 &&
       (lines[0].endsWith("?") || (!lines[0].includes(":") && lines[0].split(/\s+/).length > 6));
     if (isQuestion || bank.length === 0) return { constructs: bank, sampleN: 60 };
     const constructs = lines.map((line, i) => {
@@ -502,7 +604,17 @@ function patch() {
     return inst ? clone(inst) : notFound(`instrument "${id}"`);
   };
   apiNs.instruments.create = async (p, instrument) => {
-    const inst = { level: "exploratory", version: 1, versionHash: newId("hash").slice(-16).padStart(32, "0"), frozen: false, authoredBy: "human", humanTouched: true, createdAt: new Date().toISOString(), ...clone(instrument), id: newId("inst") };
+    const inst = {
+      level: "exploratory",
+      version: 1,
+      versionHash: newId("hash").slice(-16).padStart(32, "0"),
+      frozen: false,
+      authoredBy: "human",
+      humanTouched: true,
+      createdAt: new Date().toISOString(),
+      ...clone(instrument),
+      id: newId("inst"),
+    };
     instList().push(inst);
     return clone(inst);
   };
@@ -511,7 +623,11 @@ function patch() {
     const i = list.findIndex((x) => x.id === id);
     if (i < 0) return notFound(`instrument "${id}"`);
     if (list[i].frozen) {
-      throw new apiNs.ApiError("VALIDATION", "frozen instruments are immutable — send a payload to fork a new version", { status: 400 });
+      throw new apiNs.ApiError(
+        "VALIDATION",
+        "frozen instruments are immutable — send a payload to fork a new version",
+        { status: 400 },
+      );
     }
     list[i] = { ...list[i], ...clone(instrument), id, humanTouched: true };
     return clone(list[i]);
@@ -536,24 +652,28 @@ function patch() {
   // alpha, note, costUSD} then done {instrumentId, level, versionHash,
   // stability, curve, cost}
   apiNs.instruments.silverTune = (p, id, _opts = {}, handlers = {}) =>
-    replaySse(db.instruments.silverTune.iterations.map((it) => ({ event: "iteration", data: clone(it) })), {
-      gap: 900, jitter: 500,
-      onStep: ({ data }) => handlers.onIteration?.(data),
-      onDone: () => {
-        const inst = instList().find((x) => x.id === id);
-        const done = clone(db.instruments.silverTune.done);
-        if (inst) {
-          if (inst.level === "exploratory") inst.level = "stabilized";
-          inst.silver = { goldsetId: "silver_theme1", iterations: clone(done.curve) };
-          inst.stability = clone(done.stability);
-          done.instrumentId = inst.id;
-          done.level = inst.level;
-          done.versionHash = inst.versionHash;
-        }
-        handlers.onDone?.(done);
-        handlers.onClose?.();
+    replaySse(
+      db.instruments.silverTune.iterations.map((it) => ({ event: "iteration", data: clone(it) })),
+      {
+        gap: 900,
+        jitter: 500,
+        onStep: ({ data }) => handlers.onIteration?.(data),
+        onDone: () => {
+          const inst = instList().find((x) => x.id === id);
+          const done = clone(db.instruments.silverTune.done);
+          if (inst) {
+            if (inst.level === "exploratory") inst.level = "stabilized";
+            inst.silver = { goldsetId: "silver_theme1", iterations: clone(done.curve) };
+            inst.stability = clone(done.stability);
+            done.instrumentId = inst.id;
+            done.level = inst.level;
+            done.versionHash = inst.versionHash;
+          }
+          handlers.onDone?.(done);
+          handlers.onClose?.();
+        },
       },
-    });
+    );
   // live: → {alpha, pass, level} (k/n persist onto instrument.stability;
   // level = the instrument's level AFTER the check, so the screen never
   // claims a promotion that did not happen)
@@ -600,10 +720,23 @@ function patch() {
     const quarantined = new Set(quarantine.map((q) => q.unitId));
     const outputs = wanted
       .filter((uid) => !quarantined.has(uid))
-      .map((uid) => clone(bank.find((b) => b.unitId === uid))
-        ?? { unitId: uid, juror: inst?.versionHash ?? "fixture", label: "other", confidence: 0.5, rationale: "(no fixture preview for this unit)" })
+      .map(
+        (uid) =>
+          clone(bank.find((b) => b.unitId === uid)) ?? {
+            unitId: uid,
+            juror: inst?.versionHash ?? "fixture",
+            label: "other",
+            confidence: 0.5,
+            rationale: "(no fixture preview for this unit)",
+          },
+      )
       .filter(Boolean);
-    return { outputs, cost: { actualUSD: 0, inputTokens: 0, outputTokens: 0 }, quarantine, missing: [] };
+    return {
+      outputs,
+      cost: { actualUSD: 0, inputTokens: 0, outputTokens: 0 },
+      quarantine,
+      missing: [],
+    };
   };
 
   /* -- goldsets -- */
@@ -620,9 +753,13 @@ function patch() {
     const corpusId = goldset.corpusId ?? P.corpora.at(-1)?.id;
     const corpus = P.corpora.find((c) => c.id === corpusId) ?? null;
     const g = {
-      id: newId("gs"), constructId: goldset.constructId,
-      tier: goldset.tier ?? "gold", design: goldset.design ?? "srs",
-      sample: [], coders: [], status: "sampling",
+      id: newId("gs"),
+      constructId: goldset.constructId,
+      tier: goldset.tier ?? "gold",
+      design: goldset.design ?? "srs",
+      sample: [],
+      coders: [],
+      status: "sampling",
       corpusId,
       // the live GET carries the corpus size so the Sample pane can say
       // "you code n OF populationN"
@@ -666,8 +803,10 @@ function patch() {
     const rec = (g.coders ?? []).find((c) => c.coderId === coder);
     const labeled = new Set(Object.keys(rec?.labels ?? {}));
     const uncodableCount = (g.sample ?? []).filter((s) => coderUncodable(rec, s.unitId)).length;
-    const nextId = (g.sample ?? []).map((s) => s.unitId)
-      .find((uid) => !labeled.has(uid) && !coderUncodable(rec, uid)) ?? null;
+    const nextId =
+      (g.sample ?? [])
+        .map((s) => s.unitId)
+        .find((uid) => !labeled.has(uid) && !coderUncodable(rec, uid)) ?? null;
     const construct = constructList().find((c) => c.id === g.constructId) ?? null;
     const progress = {
       coderId: coder,
@@ -680,7 +819,9 @@ function patch() {
     if (!nextId) return { unit: null, construct: clone(construct), progress };
     const u = unitById(nextId);
     return {
-      unit: u ? { id: u.id, text: u.text, pos: u.pos ?? null } : { id: nextId, text: null, pos: null },
+      unit: u
+        ? { id: u.id, text: u.text, pos: u.pos ?? null }
+        : { id: nextId, text: null, pos: null },
       construct: clone(construct),
       progress,
     };
@@ -693,7 +834,16 @@ function patch() {
     if (!g) return notFound(`gold set "${id}"`);
     let rec = g.coders.find((c) => c.coderId === coder);
     if (!rec) {
-      rec = { coderId: coder, blind: true, labels: {}, uncodable: [], memos: {}, flagged: [], startedAt: new Date().toISOString(), finishedAt: null };
+      rec = {
+        coderId: coder,
+        blind: true,
+        labels: {},
+        uncodable: [],
+        memos: {},
+        flagged: [],
+        startedAt: new Date().toISOString(),
+        finishedAt: null,
+      };
       g.coders.push(rec);
     }
     rec.uncodable = Array.isArray(rec.uncodable) ? rec.uncodable : [];
@@ -712,7 +862,14 @@ function patch() {
     const total = g.sample.length;
     if (done + cantCode >= total) rec.finishedAt = new Date().toISOString();
     if (g.status === "sampling") g.status = "coding";
-    return { coderId: coder, done, uncodable: cantCode, total, remaining: total - done - cantCode, flagged: rec.flagged.length };
+    return {
+      coderId: coder,
+      done,
+      uncodable: cantCode,
+      total,
+      remaining: total - done - cantCode,
+      flagged: rec.flagged.length,
+    };
   };
   // live: → {humanAgreement, perInstrument, goldLabeled}
   apiNs.goldsets.agreement = async (p, id) => {
@@ -727,7 +884,10 @@ function patch() {
     const g = gsList().find((x) => x.id === id);
     if (!g) return notFound(`gold set "${id}"`);
     if (exclude) {
-      g.excluded = (g.excluded && typeof g.excluded === "object" && !Array.isArray(g.excluded)) ? g.excluded : {};
+      g.excluded =
+        g.excluded && typeof g.excluded === "object" && !Array.isArray(g.excluded)
+          ? g.excluded
+          : {};
       g.excluded[unitId] = true;
       if (g.adjudicated) delete g.adjudicated[unitId];
     } else {
@@ -736,7 +896,8 @@ function patch() {
     }
     if (g.status === "coding") g.status = "adjudicating";
     const gold = goldLabelMap(g);
-    if ((g.sample ?? []).every((s) => gold.has(s.unitId) || goldsetExcludes(g, s.unitId))) g.status = "complete";
+    if ((g.sample ?? []).every((s) => gold.has(s.unitId) || goldsetExcludes(g, s.unitId)))
+      g.status = "complete";
     return {
       status: g.status,
       adjudicated: Object.keys(g.adjudicated ?? {}).length,
@@ -750,7 +911,13 @@ function patch() {
     g.sample = g.sample ?? [];
     const already = g.sample.some((s) => s.unitId === unitId);
     if (!already) g.sample.push({ unitId, pi: null, queued: true });
-    return { goldsetId: id, unitId, queued: true, n: g.sample.length, ...(already ? { already: true } : {}) };
+    return {
+      goldsetId: id,
+      unitId,
+      queued: true,
+      n: g.sample.length,
+      ...(already ? { already: true } : {}),
+    };
   };
   // live: → {url, port, coderId, existing?}
   apiNs.goldsets.coderSession = async (p, id, coderId) => {
@@ -759,7 +926,11 @@ function patch() {
     const key = `${id}|${coderId}`;
     const existing = db.coderSessions.get(key);
     if (existing) return { ...existing, existing: true };
-    const session = { url: `http://127.0.0.1:${7400 + db.coderSessions.size}`, port: 7400 + db.coderSessions.size, coderId };
+    const session = {
+      url: `http://127.0.0.1:${7400 + db.coderSessions.size}`,
+      port: 7400 + db.coderSessions.size,
+      coderId,
+    };
     db.coderSessions.set(key, session);
     return { ...session };
   };
@@ -838,37 +1009,59 @@ function patch() {
     });
     if (run && run.status === "complete") {
       // already done — one summary tick then done
-      return replaySse([{ event: "tick", data: { done: run.checkpoint.done, total: run.checkpoint.total, costUSD: run.cost.actualUSD, labelDist: {}, warnings: [], escalations: run.escalation.count } }], {
-        gap: 200,
-        onStep: ({ data }) => handlers.onTick?.(data),
-        onDone: () => { handlers.onDone?.(doneOf("complete")); handlers.onClose?.(); },
-      });
+      return replaySse(
+        [
+          {
+            event: "tick",
+            data: {
+              done: run.checkpoint.done,
+              total: run.checkpoint.total,
+              costUSD: run.cost.actualUSD,
+              labelDist: {},
+              warnings: [],
+              escalations: run.escalation.count,
+            },
+          },
+        ],
+        {
+          gap: 200,
+          onStep: ({ data }) => handlers.onTick?.(data),
+          onDone: () => {
+            handlers.onDone?.(doneOf("complete"));
+            handlers.onClose?.();
+          },
+        },
+      );
     }
     const script = db.runs.monitorScript;
     const scale = run ? run.checkpoint.total / (script.ticks.at(-1)?.total || 1) : 1;
-    return replaySse(script.ticks.map((t) => ({ event: "tick", data: clone(t) })), {
-      gap: 420, jitter: 220,
-      onStep: ({ data }) => {
-        if (run) {
-          if (run.status === "paused") return; // hold the needle while paused
-          data.done = Math.min(run.checkpoint.total, Math.round(data.done * scale));
-          data.total = run.checkpoint.total;
-          run.checkpoint = { done: data.done, total: data.total };
-          run.cost.actualUSD = data.costUSD;
-          run.escalation.count = data.escalations ?? run.escalation.count;
-        }
-        handlers.onTick?.(data);
+    return replaySse(
+      script.ticks.map((t) => ({ event: "tick", data: clone(t) })),
+      {
+        gap: 420,
+        jitter: 220,
+        onStep: ({ data }) => {
+          if (run) {
+            if (run.status === "paused") return; // hold the needle while paused
+            data.done = Math.min(run.checkpoint.total, Math.round(data.done * scale));
+            data.total = run.checkpoint.total;
+            run.checkpoint = { done: data.done, total: data.total };
+            run.cost.actualUSD = data.costUSD;
+            run.escalation.count = data.escalations ?? run.escalation.count;
+          }
+          handlers.onTick?.(data);
+        },
+        onDone: () => {
+          if (run && run.status !== "aborted") {
+            run.status = "complete";
+            run.checkpoint.done = run.checkpoint.total;
+            run.finishedAt = new Date().toISOString();
+          }
+          handlers.onDone?.(doneOf(run?.status ?? "complete"));
+          handlers.onClose?.();
+        },
       },
-      onDone: () => {
-        if (run && run.status !== "aborted") {
-          run.status = "complete";
-          run.checkpoint.done = run.checkpoint.total;
-          run.finishedAt = new Date().toISOString();
-        }
-        handlers.onDone?.(doneOf(run?.status ?? "complete"));
-        handlers.onClose?.();
-      },
-    });
+    );
   };
   // live: → {runId, status}
   apiNs.runs.pause = async (p, r) => {
@@ -883,7 +1076,10 @@ function patch() {
   };
   apiNs.runs.abort = async (p, r) => {
     const run = runList().find((x) => x.id === r);
-    if (run) { run.status = "aborted"; run.finishedAt = new Date().toISOString(); }
+    if (run) {
+      run.status = "aborted";
+      run.finishedAt = new Date().toISOString();
+    }
     return { runId: r, status: "aborted" };
   };
   // live: output LINES with escalated: true
@@ -905,8 +1101,11 @@ function patch() {
     const run = runList().find((x) => x.id === r);
     const inst = run ? instList().find((x) => x.id === run.instrumentId) : null;
     const construct = inst ? constructList().find((x) => x.id === inst.constructId) : null;
-    const cSlug = String(construct?.name ?? "construct").toLowerCase()
-      .replace(/[^a-z0-9]+/g, "-").replace(/^-+|-+$/g, "") || "construct";
+    const cSlug =
+      String(construct?.name ?? "construct")
+        .toLowerCase()
+        .replace(/[^a-z0-9]+/g, "-")
+        .replace(/^-+|-+$/g, "") || "construct";
     const partial = run && run.status !== "complete" ? "-partial" : "";
     const csv = db.runs.exportCsv ?? "unit_id\r\n";
     const blob = new Blob([csv], { type: "text/csv;charset=utf-8" });
@@ -929,7 +1128,10 @@ function patch() {
     if (kind === "descriptive" && spec?.runId && db.runs.explore[spec.runId]) {
       const ex = db.runs.explore[spec.runId];
       return {
-        id: newId("an"), kind, spec: clone(spec), level: "exploratory",
+        id: newId("an"),
+        kind,
+        spec: clone(spec),
+        level: "exploratory",
         results: clone(ex.results),
         evidence: { cells: clone(ex.evidenceCells ?? {}) },
         createdAt: new Date().toISOString(),
@@ -944,7 +1146,15 @@ function patch() {
       return out;
     }
     const tpl = clone(db.analyses.templates.descriptive);
-    return { id: newId("an"), kind, spec: clone(spec ?? {}), level: tpl.level, results: tpl.results, evidence: tpl.evidence ?? { cells: {} }, createdAt: new Date().toISOString() };
+    return {
+      id: newId("an"),
+      kind,
+      spec: clone(spec ?? {}),
+      level: tpl.level,
+      results: tpl.results,
+      evidence: tpl.evidence ?? { cells: {} },
+      createdAt: new Date().toISOString(),
+    };
   };
   // live: GET analyses/:id → the persisted artifact; 404 when absent (the
   // workbench falls back to its recompute state on 404)
@@ -985,7 +1195,10 @@ function patch() {
     return {
       constructId,
       corpusId: P.corpora.at(-1)?.id ?? null,
-      sources: [], pairs: [], notes: [], retestAvailable: false,
+      sources: [],
+      pairs: [],
+      notes: [],
+      retestAvailable: false,
     };
   };
 
@@ -1006,14 +1219,17 @@ function patch() {
     const banner = "> Preview — not an export of record";
     const md = String(out.markdown ?? "");
     const head = md.match(/^(#{1,6} .*\n\n?)/);
-    out.markdown = head ? `${head[1]}${banner}\n\n${md.slice(head[1].length)}` : `${banner}\n\n${md}`;
+    out.markdown = head
+      ? `${head[1]}${banner}\n\n${md.slice(head[1].length)}`
+      : `${banner}\n\n${md}`;
     return out;
   };
   apiNs.exports.replicationContents = async () => clone(db.reports.replication); // fixtures-only helper
   apiNs.exports.download = (p, kind) => {
     // no server to stream a zip in fixtures mode — say so instead of 404ing
     window.concord?.toast?.info?.(
-      `Fixtures mode — the ${kind === "report" ? "standalone report" : "replication zip"} streams from the live server.`);
+      `Fixtures mode — the ${kind === "report" ? "standalone report" : "replication zip"} streams from the live server.`,
+    );
   };
 
   /* -- report (persisted project artifact: project.report.blocks) -- */
@@ -1063,7 +1279,10 @@ function patch() {
       result.port = s.port;
     }
     if (s.project) {
-      const proj = s.project.slug === P.slug ? P : db.extraProjects.find((x) => x.slug === s.project.slug)?._full;
+      const proj =
+        s.project.slug === P.slug
+          ? P
+          : db.extraProjects.find((x) => x.slug === s.project.slug)?._full;
       if (proj && s.project.director !== undefined) proj.director = clone(s.project.director);
       result.project = proj ? (s.project.slug === P.slug ? projectGraph() : clone(proj)) : null;
     }

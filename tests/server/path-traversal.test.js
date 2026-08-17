@@ -23,15 +23,22 @@ before(async () => {
   await mkdir(tmpConfig, { recursive: true });
   // the secret a traversal would target — a sibling of projects/, exactly the
   // real config/keys.json relationship
-  await writeFile(path.join(tmpConfig, "keys.json"), JSON.stringify({ openrouter: SECRET }), "utf8");
+  await writeFile(
+    path.join(tmpConfig, "keys.json"),
+    JSON.stringify({ openrouter: SECRET }),
+    "utf8",
+  );
   process.env.CONCORD_PROJECTS_DIR = tmpProjects;
   process.env.CONCORD_CONFIG_DIR = tmpConfig;
   srv = await startServer({ port: 0 });
   base = `http://127.0.0.1:${srv.port}`;
-  const created = await (await fetch(`${base}/api/projects`, {
-    method: "POST", headers: { "content-type": "application/json" },
-    body: JSON.stringify({ name: "Trav Probe", privacyMode: "no-training" }),
-  })).json();
+  const created = await (
+    await fetch(`${base}/api/projects`, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ name: "Trav Probe", privacyMode: "no-training" }),
+    })
+  ).json();
   slug = created.data.slug;
 });
 
@@ -55,7 +62,9 @@ async function bodyOf(res) {
 
 test("GET analyses/:id — traversal id cannot read the key file", async () => {
   for (const id of ESCAPES) {
-    const { status, text } = await bodyOf(await fetch(`${base}/api/projects/${slug}/analyses/${id}`));
+    const { status, text } = await bodyOf(
+      await fetch(`${base}/api/projects/${slug}/analyses/${id}`),
+    );
     assert.ok(status === 400 || status === 404, `escape ${id} → ${status}, want 400/404`);
     assert.ok(!text.includes(SECRET), `escape ${id} LEAKED the secret`);
   }
@@ -71,7 +80,9 @@ test("GET briefs/:bid — traversal id cannot read the key file", async () => {
 
 test("GET exports/methods?analysisId — traversal id cannot read the key file", async () => {
   for (const id of ESCAPES) {
-    const { status, text } = await bodyOf(await fetch(`${base}/api/projects/${slug}/exports/methods?analysisId=${id}`));
+    const { status, text } = await bodyOf(
+      await fetch(`${base}/api/projects/${slug}/exports/methods?analysisId=${id}`),
+    );
     assert.ok(status === 400 || status === 404, `escape ${id} → ${status}`);
     assert.ok(!text.includes(SECRET), `escape ${id} LEAKED the secret`);
   }
@@ -79,22 +90,29 @@ test("GET exports/methods?analysisId — traversal id cannot read the key file",
 
 test("POST import/confirm — traversal importId cannot read the key file", async () => {
   for (const id of ESCAPES) {
-    const { status, text } = await bodyOf(await fetch(`${base}/api/projects/${slug}/import/confirm`, {
-      method: "POST", headers: { "content-type": "application/json" },
-      body: JSON.stringify({ importId: id, mapping: {}, unitization: {} }),
-    }));
+    const { status, text } = await bodyOf(
+      await fetch(`${base}/api/projects/${slug}/import/confirm`, {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ importId: id, mapping: {}, unitization: {} }),
+      }),
+    );
     assert.ok(status === 400 || status === 404, `escape ${id} → ${status}`);
     assert.ok(!text.includes(SECRET), `escape ${id} LEAKED the secret`);
   }
 });
 
 test("traversal project slug is rejected", async () => {
-  const { status, text } = await bodyOf(await fetch(`${base}/api/projects/${encodeURIComponent("../../config")}`));
+  const { status, text } = await bodyOf(
+    await fetch(`${base}/api/projects/${encodeURIComponent("../../config")}`),
+  );
   assert.ok(status === 400 || status === 404, `slug escape → ${status}`);
   assert.ok(!text.includes(SECRET), "slug escape LEAKED the secret");
 });
 
 test("a normal id still 404s cleanly (guard does not break valid ids)", async () => {
-  const { status } = await bodyOf(await fetch(`${base}/api/projects/${slug}/analyses/an_doesnotexist`));
+  const { status } = await bodyOf(
+    await fetch(`${base}/api/projects/${slug}/analyses/an_doesnotexist`),
+  );
   assert.equal(status, 404, "a well-formed unknown id is NOT_FOUND, not VALIDATION");
 });

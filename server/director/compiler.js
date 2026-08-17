@@ -19,9 +19,16 @@ import * as ledger from "../core/ledger.js";
 import { compile as compileDictionary } from "../instruments/dictionary.js";
 import { callDirector } from "./director.js";
 import {
-  compilePrompt, COMPILE_SCHEMA, dictionarySeedPrompt, DICTIONARY_SEED_SCHEMA,
-  TEMPLATE_SLOTS, SLOT_SECTIONS, SMALL_STRICT_BLOCK, RATIONALE_FIRST_LINE,
-  defaultTemplate, WORKER_CLASSES,
+  compilePrompt,
+  COMPILE_SCHEMA,
+  dictionarySeedPrompt,
+  DICTIONARY_SEED_SCHEMA,
+  TEMPLATE_SLOTS,
+  SLOT_SECTIONS,
+  SMALL_STRICT_BLOCK,
+  RATIONALE_FIRST_LINE,
+  defaultTemplate,
+  WORKER_CLASSES,
 } from "./prompts.js";
 
 // Per-class output budgets for compiled judge instruments. These must cover
@@ -74,10 +81,18 @@ export function enforceTemplateScaffolding(template, workerClass) {
 export async function compileInstrument(project, construct, opts = {}) {
   const { workerClass, provider, model, snapshot = null, promptTemplate, authoredBy } = opts;
   if (!WORKER_CLASSES.includes(workerClass)) {
-    throw new ConcordError("VALIDATION", `workerClass must be one of ${WORKER_CLASSES.join(", ")}; got "${workerClass}"`, { workerClass });
+    throw new ConcordError(
+      "VALIDATION",
+      `workerClass must be one of ${WORKER_CLASSES.join(", ")}; got "${workerClass}"`,
+      { workerClass },
+    );
   }
   if (!provider || !model) {
-    throw new ConcordError("VALIDATION", "compileInstrument requires {provider, model} for the worker", { provider, model });
+    throw new ConcordError(
+      "VALIDATION",
+      "compileInstrument requires {provider, model} for the worker",
+      { provider, model },
+    );
   }
   const outputSchemaFor = await resolveOutputSchemaFor(opts.outputSchemaFor);
 
@@ -91,7 +106,10 @@ export async function compileInstrument(project, construct, opts = {}) {
   } else {
     const { system, user } = compilePrompt(construct, workerClass);
     const res = await callDirector(project, {
-      messages: [{ role: "system", content: system }, { role: "user", content: user }],
+      messages: [
+        { role: "system", content: system },
+        { role: "user", content: user },
+      ],
       schema: COMPILE_SCHEMA,
       // thinking tokens bill against max_tokens on reasoning-class Directors
       // — keep at the reasoning-tolerant floor (≥2048)
@@ -131,7 +149,10 @@ export async function compileInstrument(project, construct, opts = {}) {
 export async function seedDictionary(project, construct, sampleUnits) {
   const { system, user } = dictionarySeedPrompt({ construct, sampleUnits: sampleUnits ?? [] });
   const res = await callDirector(project, {
-    messages: [{ role: "system", content: system }, { role: "user", content: user }],
+    messages: [
+      { role: "system", content: system },
+      { role: "user", content: user },
+    ],
     schema: DICTIONARY_SEED_SCHEMA,
     // thinking tokens bill against max_tokens on reasoning-class Directors
     // — keep at the reasoning-tolerant floor (≥2048)
@@ -142,7 +163,11 @@ export async function seedDictionary(project, construct, sampleUnits) {
   const categories = [];
   for (const cat of res.json.categories) {
     if (cat.name === "empty" || cat.name.startsWith("NOT_")) {
-      dropped.push({ category: cat.name, term: null, reason: `category name "${cat.name}" is reserved by the dictionary engine` });
+      dropped.push({
+        category: cat.name,
+        term: null,
+        reason: `category name "${cat.name}" is reserved by the dictionary engine`,
+      });
       continue;
     }
     const terms = [];
@@ -163,10 +188,15 @@ export async function seedDictionary(project, construct, sampleUnits) {
       }
     }
     if (terms.length > 0) categories.push({ name: cat.name, terms });
-    else dropped.push({ category: cat.name, term: null, reason: "category had no valid terms left" });
+    else
+      dropped.push({ category: cat.name, term: null, reason: "category had no valid terms left" });
   }
   if (categories.length === 0) {
-    throw new ConcordError("VALIDATION", "the Director's proposed dictionary contained no valid categories", { dropped });
+    throw new ConcordError(
+      "VALIDATION",
+      "the Director's proposed dictionary contained no valid categories",
+      { dropped },
+    );
   }
 
   const payload = {
@@ -197,20 +227,30 @@ export async function acceptInstrument(project, instrument) {
   }
   await updateProject(project.slug, (p) => {
     if (p.instruments.some((i) => i.id === instrument.id)) {
-      throw new ConcordError("VALIDATION", `instrument ${instrument.id} already exists on the project`, { instrumentId: instrument.id });
+      throw new ConcordError(
+        "VALIDATION",
+        `instrument ${instrument.id} already exists on the project`,
+        { instrumentId: instrument.id },
+      );
     }
     p.instruments.push(instrument);
   });
-  await ledger.append(projectDir(project.slug), "human", "instrument.compiled", {
-    instrumentId: instrument.id,
-    constructId: instrument.constructId,
-  }, {
-    kind: instrument.kind,
-    versionHash: instrument.versionHash,
-    workerClass: instrument.payload.workerClass ?? null,
-    provider: instrument.payload.provider ?? null,
-    model: instrument.payload.model ?? null,
-    authoredBy: instrument.authoredBy,
-  });
+  await ledger.append(
+    projectDir(project.slug),
+    "human",
+    "instrument.compiled",
+    {
+      instrumentId: instrument.id,
+      constructId: instrument.constructId,
+    },
+    {
+      kind: instrument.kind,
+      versionHash: instrument.versionHash,
+      workerClass: instrument.payload.workerClass ?? null,
+      provider: instrument.payload.provider ?? null,
+      model: instrument.payload.model ?? null,
+      authoredBy: instrument.authoredBy,
+    },
+  );
   return instrument.id;
 }

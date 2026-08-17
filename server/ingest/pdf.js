@@ -20,12 +20,21 @@ function loadPdfjs() {
 // with no rotation or column detection.
 export function pageParagraphs(items) {
   const placed = items
-    .filter((it) => it.str && it.str.trim().length > 0 && Array.isArray(it.transform) && it.transform.length >= 6)
+    .filter(
+      (it) =>
+        it.str &&
+        it.str.trim().length > 0 &&
+        Array.isArray(it.transform) &&
+        it.transform.length >= 6,
+    )
     .map((it) => ({ str: it.str, x: it.transform[4], y: it.transform[5], h: it.height || 0 }));
   if (placed.length === 0) return [];
   // Cluster into lines by y (tolerance: half the median glyph height, min 2pt)
   placed.sort((a, b) => b.y - a.y || a.x - b.x);
-  const heights = placed.map((p) => p.h).filter((h) => h > 0).sort((a, b) => a - b);
+  const heights = placed
+    .map((p) => p.h)
+    .filter((h) => h > 0)
+    .sort((a, b) => a - b);
   const medH = heights.length ? heights[Math.floor(heights.length / 2)] : 10;
   const tol = Math.max(2, medH / 2);
   const lines = [];
@@ -39,7 +48,11 @@ export function pageParagraphs(items) {
   }
   for (const line of lines) {
     line.parts.sort((a, b) => a.x - b.x);
-    line.text = line.parts.map((p) => p.str).join(" ").replace(/\s+/g, " ").trim();
+    line.text = line.parts
+      .map((p) => p.str)
+      .join(" ")
+      .replace(/\s+/g, " ")
+      .trim();
   }
   // Group lines into paragraphs by vertical gap. Normal leading is ~1.2-1.5x
   // font size, so a gap beyond ~2.2x glyph height means a paragraph break.
@@ -111,6 +124,7 @@ export async function parse(filePath) {
   } finally {
     await loadingTask.destroy().catch(() => {});
   }
-  if (paras.length === 0) issues.push({ kind: "empty", detail: "no extractable text (scanned/image-only PDF?)" });
+  if (paras.length === 0)
+    issues.push({ kind: "empty", detail: "no extractable text (scanned/image-only PDF?)" });
   return { docs: [{ name: basename(filePath), paras, pages }], issues };
 }

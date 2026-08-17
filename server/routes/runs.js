@@ -20,9 +20,21 @@ import { makeEscalator } from "../director/escalate.js";
 import { directorCosts } from "../director/director.js";
 import { entropy as panelEntropy } from "../instruments/panel.js";
 import {
-  findOr404, requireBody, pdirOf, readCorpusUnits, unitsById, readGoldset,
-  goldLabelMap, addSpend, readNdjson, runOutputsFile, round6, labelKey,
-  writeJsonAtomic, corpusDisplayName, validateName,
+  findOr404,
+  requireBody,
+  pdirOf,
+  readCorpusUnits,
+  unitsById,
+  readGoldset,
+  goldLabelMap,
+  addSpend,
+  readNdjson,
+  runOutputsFile,
+  round6,
+  labelKey,
+  writeJsonAtomic,
+  corpusDisplayName,
+  validateName,
 } from "./_shared.js";
 // the replication archive's CSV writer is the single home for RFC-4180
 // quoting + formula-injection hardening — reused here, never duplicated
@@ -54,7 +66,14 @@ function jurorPayloadsOf(instrument) {
 
 async function estimateInstrument(project, instrument, units) {
   if (instrument.kind === "dictionary") {
-    return { calls: units.length, inputTokens: 0, outputTokens: 0, estUSD: 0, etaMin: 0, privacyOk: true };
+    return {
+      calls: units.length,
+      inputTokens: 0,
+      outputTokens: 0,
+      estUSD: 0,
+      etaMin: 0,
+      privacyOk: true,
+    };
   }
   let est = { calls: 0, inputTokens: 0, outputTokens: 0, estUSD: 0, etaMin: 0 };
   let privacyOk = true;
@@ -107,7 +126,9 @@ function armDrift(project, instrument, runId) {
     const goldOutputs = [...found.values()].map((u) => ({ unit: u, label: gold.get(u.id) }));
     if (goldOutputs.length === 0) return;
     monitor.armDriftTripwire(runId, { project, goldOutputs, instrument });
-  })().catch(() => { /* best-effort: a missing goldset never blocks a run */ });
+  })().catch(() => {
+    /* best-effort: a missing goldset never blocks a run */
+  });
 }
 
 // Synchronously claim the live-registry slot for a run, with NO await between
@@ -145,7 +166,9 @@ function startExecution(slug, runId, { escalate, slot } = {}) {
       projectForMeter = project;
       cost0 = (project.runs ?? []).find((r) => r.id === runId)?.cost?.actualUSD ?? 0;
       dir0 = directorCosts(project).usd;
-    } catch { /* metered roll-up degrades gracefully */ }
+    } catch {
+      /* metered roll-up degrades gracefully */
+    }
 
     let outcome;
     try {
@@ -158,13 +181,20 @@ function startExecution(slug, runId, { escalate, slot } = {}) {
         onTick: (s) => {
           st.last = s;
           for (const sub of st.subs) {
-            try { sub.tick(s); } catch { /* subscriber gone */ }
+            try {
+              sub.tick(s);
+            } catch {
+              /* subscriber gone */
+            }
           }
         },
       });
       outcome = { status: run.status };
     } catch (err) {
-      outcome = { status: "failed", error: { code: err?.code ?? "INTERNAL", message: err?.message ?? String(err) } };
+      outcome = {
+        status: "failed",
+        error: { code: err?.code ?? "INTERNAL", message: err?.message ?? String(err) },
+      };
       // Backstop: the engine persists its own terminal statuses, but a throw
       // BEFORE that persistence (validation/config faults in setup) would
       // strand the disk record at "running" — Pause/Abort would 400 and the
@@ -184,7 +214,9 @@ function startExecution(slug, runId, { escalate, slot } = {}) {
               r.error = outcome.error;
             }
           });
-        } catch { /* best-effort — the registry outcome still reports failed */ }
+        } catch {
+          /* best-effort — the registry outcome still reports failed */
+        }
       }
     }
 
@@ -197,12 +229,18 @@ function startExecution(slug, runId, { escalate, slot } = {}) {
       const delta = Math.max(0, (run?.cost?.actualUSD ?? 0) - cost0) + dirDelta;
       if (delta > 0) await addSpend(slug, delta);
       outcome.run = run ?? null;
-    } catch { /* roll-up is best-effort */ }
+    } catch {
+      /* roll-up is best-effort */
+    }
     outcome.run = (await snapshotRun(slug, runId)) ?? outcome.run ?? null;
 
     st.terminal = outcome;
     for (const sub of [...st.subs]) {
-      try { sub.done(outcome); } catch { /* subscriber gone */ }
+      try {
+        sub.done(outcome);
+      } catch {
+        /* subscriber gone */
+      }
     }
     st.subs.clear();
     return outcome;
@@ -245,11 +283,16 @@ async function launchRunValidated(params, runId, slot, resume) {
   // the SAME gate — same estimator, same checkBudget, same BUDGET_EXCEEDED
   // shape the start path produces. Refusal happens BEFORE any status write,
   // so a refused resume leaves the run exactly as it was.
-  const units = await readCorpusUnits(params.p, run.corpusId,
-    run.unitFilter ? { filter: engineMod.parseUnitFilter(run.unitFilter) } : {});
+  const units = await readCorpusUnits(
+    params.p,
+    run.corpusId,
+    run.unitFilter ? { filter: engineMod.parseUnitFilter(run.unitFilter) } : {},
+  );
   const fin = engineMod.finalJurorOfRun(run, instrument);
   const doneIds = new Set(
-    (await readNdjson(runOutputsFile(params.p, run.id), { filter: (o) => o.juror === fin })).map((o) => o.unitId),
+    (await readNdjson(runOutputsFile(params.p, run.id), { filter: (o) => o.juror === fin })).map(
+      (o) => o.unitId,
+    ),
   );
   const remaining = units.filter((u) => !doneIds.has(u.id));
   const est = await estimateInstrument(project, instrument, remaining);
@@ -319,7 +362,11 @@ export default [
       for (const j of jurorPayloadsOf(instrument)) getAdapter(project, j.provider);
 
       // budget: spent + estimate against the project cap → 400 BUDGET_EXCEEDED
-      const units = await readCorpusUnits(params.p, body.corpusId, body.unitFilter ? { filter: engineMod.parseUnitFilter(body.unitFilter) } : {});
+      const units = await readCorpusUnits(
+        params.p,
+        body.corpusId,
+        body.unitFilter ? { filter: engineMod.parseUnitFilter(body.unitFilter) } : {},
+      );
       const est = await estimateInstrument(project, instrument, units);
       checkBudget((project.budget?.spentUSD ?? 0) + est.estUSD, project.budget?.capUSD ?? null);
 
@@ -351,7 +398,8 @@ export default [
       let updated = null;
       await updateProject(params.p, (p) => {
         const run = (p.runs ?? []).find((x) => x.id === params.r);
-        if (!run) throw new ConcordError("NOT_FOUND", `run '${params.r}' not found`, { id: params.r });
+        if (!run)
+          throw new ConcordError("NOT_FOUND", `run '${params.r}' not found`, { id: params.r });
         run.name = name;
         updated = run;
       });
@@ -407,12 +455,14 @@ export default [
         // settle race: if the run terminated between the check above and the
         // subscription, deliver done from the settled promise instead of
         // waiting on a notification that already fired
-        st.promise.then((outcome) => {
-          if (st.subs.has(sub)) {
-            st.subs.delete(sub);
-            sub.done(outcome);
-          }
-        }).catch(() => {});
+        st.promise
+          .then((outcome) => {
+            if (st.subs.has(sub)) {
+              st.subs.delete(sub);
+              sub.done(outcome);
+            }
+          })
+          .catch(() => {});
         return;
       }
       if (st?.terminal) {
@@ -435,7 +485,8 @@ export default [
             r.status = "paused";
             r.error = {
               code: "ORPHANED",
-              message: "the server stopped while this run was executing; resume continues from the checkpoint",
+              message:
+                "the server stopped while this run was executing; resume continues from the checkpoint",
             };
           }
         });
@@ -462,7 +513,11 @@ export default [
         return { runId: params.r, status: outcome?.status ?? "paused" };
       }
       if (run.status === "paused") return { runId: params.r, status: "paused" };
-      throw new ConcordError("VALIDATION", `run '${params.r}' is not executing (status: ${run.status})`, { status: run.status });
+      throw new ConcordError(
+        "VALIDATION",
+        `run '${params.r}' is not executing (status: ${run.status})`,
+        { status: run.status },
+      );
     },
   },
   {
@@ -482,7 +537,9 @@ export default [
         const outcome = await st.promise.catch(() => null);
         if (outcome?.status === "aborted") {
           // the engine wrote the status; the human event is the route's to ledger
-          await ledger.append(pdirOf(params.p), "human", "run.aborted", { runId: params.r }, { by: "human" }).catch(() => {});
+          await ledger
+            .append(pdirOf(params.p), "human", "run.aborted", { runId: params.r }, { by: "human" })
+            .catch(() => {});
         }
         return { runId: params.r, status: outcome?.status ?? "aborted" };
       }
@@ -494,7 +551,13 @@ export default [
           const r = (p.runs ?? []).find((x) => x.id === params.r);
           if (r) r.status = "aborted";
         });
-        await ledger.append(pdirOf(params.p), "human", "run.aborted", { runId: params.r }, { by: "human" });
+        await ledger.append(
+          pdirOf(params.p),
+          "human",
+          "run.aborted",
+          { runId: params.r },
+          { by: "human" },
+        );
         await snapshotRun(params.p, params.r);
       }
       return { runId: params.r, status: "aborted" };
@@ -506,7 +569,9 @@ export default [
     handler: async (req, res, params) => {
       const project = await loadProject(params.p);
       findOr404(project.runs, params.r, "run");
-      return readNdjson(runOutputsFile(params.p, params.r), { filter: (o) => o.escalated === true });
+      return readNdjson(runOutputsFile(params.p, params.r), {
+        filter: (o) => o.escalated === true,
+      });
     },
   },
   {
@@ -526,18 +591,27 @@ export default [
       const instrument = findOr404(project.instruments, run.instrumentId, "instrument");
       const construct = findOr404(project.constructs, instrument.constructId, "construct");
       const corpus = findOr404(project.corpora, run.corpusId, "corpus");
-      const units = await readCorpusUnits(params.p, run.corpusId,
-        run.unitFilter ? { filter: engineMod.parseUnitFilter(run.unitFilter) } : {});
+      const units = await readCorpusUnits(
+        params.p,
+        run.corpusId,
+        run.unitFilter ? { filter: engineMod.parseUnitFilter(run.unitFilter) } : {},
+      );
 
       // One final verdict per unit: the judge line, or the aggregate line for
       // panels — keyed on the hash the run RAN under (run.versionHash), never
       // the instrument's current hash: an unfrozen instrument edited after the
       // run would otherwise export every label blank.
       const fin = engineMod.finalJurorOfRun(run, instrument);
-      const outputs = await readNdjson(runOutputsFile(params.p, params.r), { filter: (o) => o.juror === fin });
+      const outputs = await readNdjson(runOutputsFile(params.p, params.r), {
+        filter: (o) => o.juror === fin,
+      });
       const finals = new Map(outputs.map((o) => [o.unitId, o]));
-      const quarantined = new Map(engineMod.normalizeQuarantine(run.quarantine).map((q) => [q.unitId, q.code ?? ""]));
-      const anyConfidence = outputs.some((o) => o.confidence !== undefined && o.confidence !== null);
+      const quarantined = new Map(
+        engineMod.normalizeQuarantine(run.quarantine).map((q) => [q.unitId, q.code ?? ""]),
+      );
+      const anyConfidence = outputs.some(
+        (o) => o.confidence !== undefined && o.confidence !== null,
+      );
 
       // meta columns keep their original names and first-seen order — this is
       // the researcher's own file coming back, not a merge artifact
@@ -582,7 +656,11 @@ export default [
         rows.push(row);
       }
 
-      const constructSlug = String(construct.name).toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-+|-+$/g, "") || "construct";
+      const constructSlug =
+        String(construct.name)
+          .toLowerCase()
+          .replace(/[^a-z0-9]+/g, "-")
+          .replace(/^-+|-+$/g, "") || "construct";
       const partial = run.status === "complete" ? "" : "-partial";
       const body = toCsv(rows);
       res.writeHead(200, {
@@ -634,19 +712,21 @@ export default [
       }
       byEntropy.sort((a, b) => b.entropy - a.entropy || (a.unitId < b.unitId ? -1 : 1));
 
-      const matrix = jurors.map((a) => jurors.map((b) => {
-        if (a === b) return 1;
-        let agree = 0;
-        let n = 0;
-        for (const m of byUnit.values()) {
-          const oa = m.get(a);
-          const ob = m.get(b);
-          if (!oa || !ob || oa.label === undefined || ob.label === undefined) continue;
-          n++;
-          if (labelKey(oa.label) === labelKey(ob.label)) agree++;
-        }
-        return n > 0 ? Math.round((agree / n) * 1000) / 1000 : null;
-      }));
+      const matrix = jurors.map((a) =>
+        jurors.map((b) => {
+          if (a === b) return 1;
+          let agree = 0;
+          let n = 0;
+          for (const m of byUnit.values()) {
+            const oa = m.get(a);
+            const ob = m.get(b);
+            if (!oa || !ob || oa.label === undefined || ob.label === undefined) continue;
+            n++;
+            if (labelKey(oa.label) === labelKey(ob.label)) agree++;
+          }
+          return n > 0 ? Math.round((agree / n) * 1000) / 1000 : null;
+        }),
+      );
 
       return { byEntropy: byEntropy.slice(0, 200), jurorMatrix: { jurors, matrix } };
     },

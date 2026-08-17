@@ -17,7 +17,16 @@ import { estimateRun } from "../providers/costs.js";
 import { getAdapter } from "../providers/registry.js";
 import { briefSampleTarget } from "../director/brief.js";
 import { metaColumnsOf } from "./import.js";
-import { findOr404, readCorpusUnits, requireBody, pdirOf, writeTextAtomic, corpusUnitsFile, readJsonFile, writeJsonAtomic } from "./_shared.js";
+import {
+  findOr404,
+  readCorpusUnits,
+  requireBody,
+  pdirOf,
+  writeTextAtomic,
+  corpusUnitsFile,
+  readJsonFile,
+  writeJsonAtomic,
+} from "./_shared.js";
 
 // ------------------------------------------------------------------- scope
 
@@ -58,35 +67,39 @@ function unitFilterFrom(query) {
 // Spanish function words PLUS the connective/adverbial glue that survey prose
 // (and our demo generator) leans on — "meanwhile", "honestly", "plus", "on
 // top of that" — which raw frequency would otherwise rank above theme words.
-const EN_STOP = new Set((
-  "the a an and or but of to in on at for with from by is are was were be been being it its this that these those " +
-  "i you he she we they them me him her us my your our their as not no nor do does did done have has had having " +
-  "will would can could should shall may might must about so if then than there here what which who whom whose when " +
-  "where why how all any both each few more most other some such only own same too very just also even still yet " +
-  "again further once because while during before after above below beyond between into through over under out off up down " +
-  "against am isn isnt arent wasnt werent dont doesnt didnt wont wouldnt cant couldnt shouldnt im ive youre theyre " +
-  "weve youve id youd hed shed wed theyd ill youll well thats whats lets one two three first second third never " +
-  "always often sometimes usually really actually honestly frankly truly simply basically literally meanwhile plus " +
-  "anyway anyhow besides instead moreover however therefore thus hence otherwise although though despite regarding " +
-  "since until unless whether either neither around across along within without toward towards onto upon per via " +
-  "top made make makes making get gets got getting go goes going went gone come comes coming came say says said " +
-  "saying see sees seen saw look looks looked looking way ways thing things stuff lot lots bit kind sort like liked " +
-  "want wanted wants know knows knew known think thinks thought feel feels felt time times year years month months " +
-  "week weeks day days people person someone anyone everyone nothing something anything everything none much many " +
-  "back end ended start started keep keeps kept put puts let need needs needed asked ask asks new old last next " +
-  "every another able sure right left good bad better best worse worst big small long short high low real own"
-).split(/\s+/));
-const ES_STOP = new Set((
-  "el la los las un una unos unas de del que y o u e en es son fue era eran ser está están estaba estaban estar " +
-  "por para con sin no ni se su sus lo le les al como más menos pero este esta estos estas ese esa esos esas aquel " +
-  "aquella yo tú usted él ella nosotros nosotras ellos ellas mi mis tu tus nuestro nuestra nuestros nuestras hay " +
-  "muy ya todo toda todos todas nada algo alguien nadie cada cual cuales quien quienes cuando donde mientras aunque " +
-  "porque pues entonces también tampoco además luego después antes desde hasta entre sobre bajo contra durante " +
-  "sino siempre nunca jamás casi sólo solo bien mal mucho mucha muchos muchas poco poca pocos pocas otro otra otros " +
-  "otras mismo misma mismos mismas vez veces año años mes meses día días gente persona cosa cosas fui fue eso esto " +
-  "aquí allí ahí así tan tanto tanta tantos tantas qué cómo dónde cuándo me te nos os les uno dos tres haber tener " +
-  "tenía tenían tiene tienen hacer hace hacen hacía hicieron hizo decir dice dicen dijo ir va van iba fueron"
-).split(/\s+/));
+const EN_STOP = new Set(
+  (
+    "the a an and or but of to in on at for with from by is are was were be been being it its this that these those " +
+    "i you he she we they them me him her us my your our their as not no nor do does did done have has had having " +
+    "will would can could should shall may might must about so if then than there here what which who whom whose when " +
+    "where why how all any both each few more most other some such only own same too very just also even still yet " +
+    "again further once because while during before after above below beyond between into through over under out off up down " +
+    "against am isn isnt arent wasnt werent dont doesnt didnt wont wouldnt cant couldnt shouldnt im ive youre theyre " +
+    "weve youve id youd hed shed wed theyd ill youll well thats whats lets one two three first second third never " +
+    "always often sometimes usually really actually honestly frankly truly simply basically literally meanwhile plus " +
+    "anyway anyhow besides instead moreover however therefore thus hence otherwise although though despite regarding " +
+    "since until unless whether either neither around across along within without toward towards onto upon per via " +
+    "top made make makes making get gets got getting go goes going went gone come comes coming came say says said " +
+    "saying see sees seen saw look looks looked looking way ways thing things stuff lot lots bit kind sort like liked " +
+    "want wanted wants know knows knew known think thinks thought feel feels felt time times year years month months " +
+    "week weeks day days people person someone anyone everyone nothing something anything everything none much many " +
+    "back end ended start started keep keeps kept put puts let need needs needed asked ask asks new old last next " +
+    "every another able sure right left good bad better best worse worst big small long short high low real own"
+  ).split(/\s+/),
+);
+const ES_STOP = new Set(
+  (
+    "el la los las un una unos unas de del que y o u e en es son fue era eran ser está están estaba estaban estar " +
+    "por para con sin no ni se su sus lo le les al como más menos pero este esta estos estas ese esa esos esas aquel " +
+    "aquella yo tú usted él ella nosotros nosotras ellos ellas mi mis tu tus nuestro nuestra nuestros nuestras hay " +
+    "muy ya todo toda todos todas nada algo alguien nadie cada cual cuales quien quienes cuando donde mientras aunque " +
+    "porque pues entonces también tampoco además luego después antes desde hasta entre sobre bajo contra durante " +
+    "sino siempre nunca jamás casi sólo solo bien mal mucho mucha muchos muchas poco poca pocos pocas otro otra otros " +
+    "otras mismo misma mismos mismas vez veces año años mes meses día días gente persona cosa cosas fui fue eso esto " +
+    "aquí allí ahí así tan tanto tanta tantos tantas qué cómo dónde cuándo me te nos os les uno dos tres haber tener " +
+    "tenía tenían tiene tienen hacer hace hacen hacía hicieron hizo decir dice dicen dijo ir va van iba fueron"
+  ).split(/\s+/),
+);
 
 // Top distinctive terms: tokenize with the dictionary engine's tokenizer
 // (lowercased, apostrophe-normalized), drop stopwords and tokens shorter
@@ -97,7 +110,7 @@ const ES_STOP = new Set((
 // concentrates in a fraction of units keeps its weight. Top 20 [{term, count}].
 function topDistinctiveTerms(tokensPer, { limit = 20, minLength = 3 } = {}) {
   const count = new Map(); // term → total occurrences
-  const df = new Map();    // term → number of units containing the term
+  const df = new Map(); // term → number of units containing the term
   const nUnits = tokensPer.length || 1;
   for (const toks of tokensPer) {
     const seen = new Set();
@@ -121,7 +134,9 @@ let vaderPayload = null; // built once from the bundled lexicon
 
 async function getVaderPayload() {
   if (vaderPayload) return vaderPayload;
-  const raw = JSON.parse(await readFile(new URL("../lexicons/vader.json", import.meta.url), "utf8"));
+  const raw = JSON.parse(
+    await readFile(new URL("../lexicons/vader.json", import.meta.url), "utf8"),
+  );
   const pos = [];
   const neg = [];
   for (const [term, valence] of Object.entries(raw.terms ?? {})) {
@@ -192,18 +207,28 @@ async function computeInstantRead(slug, corpusId) {
   const tokensPer = units.map((u) => tokenizeWords(u.text));
 
   // length histogram (word counts), each bin carrying its unit ids
-  const lengthHist = lengthHistogram(tokensPer.map((t) => t.length), units.map((u) => u.id));
+  const lengthHist = lengthHistogram(
+    tokensPer.map((t) => t.length),
+    units.map((u) => u.id),
+  );
 
   // language mix — shares for the chart, {n, unitIds} per language for the
   // evidence doors (exact counts, never back-derived from rounded shares)
-  const langUnits = { en: { n: 0, unitIds: [] }, es: { n: 0, unitIds: [] }, other: { n: 0, unitIds: [] } };
+  const langUnits = {
+    en: { n: 0, unitIds: [] },
+    es: { n: 0, unitIds: [] },
+    other: { n: 0, unitIds: [] },
+  };
   tokensPer.forEach((toks, i) => {
     const bucket = langUnits[languageOf(toks)];
     bucket.n += 1;
     pushCapped(bucket.unitIds, units[i].id);
   });
   const langMix = Object.fromEntries(
-    Object.entries(langUnits).map(([k, { n }]) => [k, Math.round((n / units.length) * 1000) / 1000]),
+    Object.entries(langUnits).map(([k, { n }]) => [
+      k,
+      Math.round((n / units.length) * 1000) / 1000,
+    ]),
   );
 
   // top distinctive terms — tf·idf over the dictionary tokenizer (see above)
@@ -212,7 +237,10 @@ async function computeInstantRead(slug, corpusId) {
   // sentiment sketch via the dictionary engine over the VADER lexicon —
   // shares for the chart, {n, unitIds} per bucket for the evidence doors
   const payload = await getVaderPayload();
-  const scores = dictScore(units.map((u) => u.text), payload);
+  const scores = dictScore(
+    units.map((u) => u.text),
+    payload,
+  );
   const sentimentUnits = {
     positive: { n: 0, unitIds: [] },
     neutral: { n: 0, unitIds: [] },
@@ -221,9 +249,15 @@ async function computeInstantRead(slug, corpusId) {
   let valenceSum = 0;
   scores.forEach((s, i) => {
     // negated positive terms count as negative signal and vice versa
-    const val = (s.positive ?? 0) + (s.NOT_negative ?? 0) - (s.negative ?? 0) - (s.NOT_positive ?? 0);
+    const val =
+      (s.positive ?? 0) + (s.NOT_negative ?? 0) - (s.negative ?? 0) - (s.NOT_positive ?? 0);
     valenceSum += val;
-    const bucket = val > 0 ? sentimentUnits.positive : val < 0 ? sentimentUnits.negative : sentimentUnits.neutral;
+    const bucket =
+      val > 0
+        ? sentimentUnits.positive
+        : val < 0
+          ? sentimentUnits.negative
+          : sentimentUnits.neutral;
     bucket.n += 1;
     pushCapped(bucket.unitIds, units[i].id);
   });
@@ -295,7 +329,12 @@ async function computeColumns(slug, corpusId, corpus) {
   const out = [];
   for (const c of columns) {
     if (c.name === textColumn) continue; // the unit text is not a variable
-    const entry = { name: c.name, role: c.role, distinct: c.stats.distinct, missing: c.stats.missing };
+    const entry = {
+      name: c.name,
+      role: c.role,
+      distinct: c.stats.distinct,
+      missing: c.stats.missing,
+    };
     if (c.role === "categorical") {
       const counts = new Map();
       for (const u of units) {
@@ -325,9 +364,9 @@ async function computeColumns(slug, corpusId, corpus) {
 // length plus the prompt overhead, emitting ~3000 output tokens.
 
 const BRIEF_PROMPT_OVERHEAD_CHARS = 2500; // preamble + task framing (prompts.js briefPrompt)
-const BRIEF_PER_UNIT_FRAME_CHARS = 40;    // "unit u_… (meta): " framing per sampled unit
-const BRIEF_OUTPUT_TOKENS = 3000;         // a long structured memo
-const BRIEF_CALL_SECONDS = 60;            // one big call ≈ a minute of wall clock
+const BRIEF_PER_UNIT_FRAME_CHARS = 40; // "unit u_… (meta): " framing per sampled unit
+const BRIEF_OUTPUT_TOKENS = 3000; // a long structured memo
+const BRIEF_CALL_SECONDS = 60; // one big call ≈ a minute of wall clock
 
 // Director slot pricing via the adapter catalog, cached per provider/model
 // (same recipe as director/director.js — an unreachable catalog degrades to
@@ -343,7 +382,9 @@ async function directorSlotPricing(project, slot) {
     const cat = await adapter.catalog();
     const entry = cat.find((m) => m.id === slot.model || m.snapshot === slot.model);
     if (entry?.pricing) pricing = entry.pricing;
-  } catch { /* unreachable catalog → zero pricing (local backends cost $0 anyway) */ }
+  } catch {
+    /* unreachable catalog → zero pricing (local backends cost $0 anyway) */
+  }
   briefPricingCache.set(key, pricing);
   return pricing;
 }
@@ -388,7 +429,11 @@ export default [
       const offset = Math.max(0, Number(req.query.offset ?? 0) || 0);
       const limit = Math.min(500, Math.max(1, Number(req.query.limit ?? 50) || 50));
       const filter = unitFilterFrom(req.query);
-      const units = await readCorpusUnits(params.p, params.c, { offset, limit, ...(filter ? { filter } : {}) });
+      const units = await readCorpusUnits(params.p, params.c, {
+        offset,
+        limit,
+        ...(filter ? { filter } : {}),
+      });
       const total = (await readCorpusUnits(params.p, params.c, filter ? { filter } : {})).length;
       return { units, total, offset, limit };
     },
@@ -429,10 +474,14 @@ export default [
       // the brief price overlays per request (it follows the CURRENT Director
       // slot and catalog pricing) — it is never persisted into the cache, and
       // neither is the scope block (it follows the live corpus entry)
-      const meanUnitChars = typeof read.meanUnitChars === "number"
-        ? read.meanUnitChars
-        : await meanUnitCharsOf(params.p, params.c);
-      const briefEstimate = await briefEstimateFor(project, { unitCount: read.unitCount, meanUnitChars });
+      const meanUnitChars =
+        typeof read.meanUnitChars === "number"
+          ? read.meanUnitChars
+          : await meanUnitCharsOf(params.p, params.c);
+      const briefEstimate = await briefEstimateFor(project, {
+        unitCount: read.unitCount,
+        meanUnitChars,
+      });
       return { ...read, briefEstimate, scope: scopeOf(corpus) };
     },
   },
@@ -449,11 +498,17 @@ export default [
       const { textColumn } = requireBody(req, ["textColumn"]);
       const units = await readCorpusUnits(params.p, params.c);
       if (units.length === 0) {
-        throw new ConcordError("VALIDATION", `corpus '${params.c}' has no units to re-unitize`, { corpusId: params.c });
+        throw new ConcordError("VALIDATION", `corpus '${params.c}' has no units to re-unitize`, {
+          corpusId: params.c,
+        });
       }
       if (!(textColumn in (units[0].meta ?? {}))) {
         const known = Object.keys(units[0].meta ?? {});
-        throw new ConcordError("VALIDATION", `"${textColumn}" is not a metadata column of this corpus — columns: ${known.join(", ") || "(none)"}`, { textColumn, known });
+        throw new ConcordError(
+          "VALIDATION",
+          `"${textColumn}" is not a metadata column of this corpus — columns: ${known.join(", ") || "(none)"}`,
+          { textColumn, known },
+        );
       }
 
       // the old text survives under the old corpus's text column name when
@@ -477,7 +532,11 @@ export default [
         next.push({ id: unitId(corpusId, i, text), text, meta, pos: u.pos });
       });
       if (next.length === 0) {
-        throw new ConcordError("VALIDATION", `every unit's "${textColumn}" is empty — nothing to re-unitize onto`, { textColumn });
+        throw new ConcordError(
+          "VALIDATION",
+          `every unit's "${textColumn}" is empty — nothing to re-unitize onto`,
+          { textColumn },
+        );
       }
 
       // PII — the derived corpus RE-RUNS the source's mode (absent record =
@@ -487,9 +546,10 @@ export default [
       // otherwise put raw identifiers in unit text and silently bypass the
       // masking chosen at import. Same order as import/confirm: pii BEFORE
       // the junk scan, before anything persists.
-      const piiMode = source.pii?.mode === "pseudonymize" || source.pii?.mode === "off"
-        ? source.pii.mode
-        : "scan";
+      const piiMode =
+        source.pii?.mode === "pseudonymize" || source.pii?.mode === "off"
+          ? source.pii.mode
+          : "scan";
       let pii = { mode: piiMode };
       let piiVault = null;
       if (piiMode === "scan") {
@@ -568,19 +628,31 @@ export default [
         p.corpora.push(entry);
       });
       const pdir = pdirOf(project.slug);
-      await ledger.append(pdir, "human", "corpus.unitized", { corpusId }, {
-        textColumn,
-        derivedFrom: source.id,
-        unitCount: next.length,
-        skipped,
-        pii,
-      });
+      await ledger.append(
+        pdir,
+        "human",
+        "corpus.unitized",
+        { corpusId },
+        {
+          textColumn,
+          derivedFrom: source.id,
+          unitCount: next.length,
+          skipped,
+          pii,
+        },
+      );
       if (piiMode === "pseudonymize") {
         // the taxonomy's reserved event, same as import/confirm
-        await ledger.append(pdir, "human", "pii.pseudonymized", { corpusId }, {
-          counts: piiVault.counts,
-          tokenCount: piiVault.tokenCount,
-        });
+        await ledger.append(
+          pdir,
+          "human",
+          "pii.pseudonymized",
+          { corpusId },
+          {
+            counts: piiVault.counts,
+            tokenCount: piiVault.tokenCount,
+          },
+        );
       }
       return { corpusId, unitCount: next.length, junk: junk.counts, textColumn, skipped, pii };
     },

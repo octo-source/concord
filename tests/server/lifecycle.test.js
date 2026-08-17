@@ -29,7 +29,10 @@ import os from "node:os";
 import path from "node:path";
 
 import {
-  startServer, startCoderListener, attachServerErrorLogger, installProcessGuards,
+  startServer,
+  startCoderListener,
+  attachServerErrorLogger,
+  installProcessGuards,
 } from "../../server/index.js";
 import { getAdapter } from "../../server/providers/registry.js";
 import { appendNdjson, updateProject } from "../../server/core/store.js";
@@ -38,7 +41,10 @@ import { aggregate } from "../../server/instruments/panel.js";
 import * as methods from "../../server/reporting/methods.js";
 import * as ledger from "../../server/core/ledger.js";
 import {
-  createProject, createConstruct, createInstrument, createAnalysis,
+  createProject,
+  createConstruct,
+  createInstrument,
+  createAnalysis,
 } from "../../server/core/objects.js";
 import { saveProject } from "../../server/core/store.js";
 import { ConcordError } from "../../server/core/errors.js";
@@ -98,13 +104,18 @@ test("bug1: the running http.Server has a persistent 'error' listener — a synt
   // after a successful listen, startServer swaps the reject-on-error wiring
   // for the persistent logger; with it attached, emitting 'error' is caught by
   // the listener instead of being rethrown by EventEmitter as an exception
-  assert.ok(srv.server.listenerCount("error") >= 1,
-    "the live server must carry at least one persistent 'error' listener");
+  assert.ok(
+    srv.server.listenerCount("error") >= 1,
+    "the live server must carry at least one persistent 'error' listener",
+  );
   // emitting on an EventEmitter with >=1 'error' listener does NOT throw; with
   // zero listeners it WOULD throw (the pre-fix crash). This asserts no throw
   // escapes — equivalent to "the process survives a runtime accept failure".
-  assert.doesNotThrow(() => srv.server.emit("error", Object.assign(new Error("synthetic EMFILE"), { code: "EMFILE" })),
-    "a runtime server error must be swallowed by the persistent handler, not rethrown");
+  assert.doesNotThrow(
+    () =>
+      srv.server.emit("error", Object.assign(new Error("synthetic EMFILE"), { code: "EMFILE" })),
+    "a runtime server error must be swallowed by the persistent handler, not rethrown",
+  );
 });
 
 test("bug1: attachServerErrorLogger installs a non-throwing handler on an arbitrary server", () => {
@@ -112,8 +123,10 @@ test("bug1: attachServerErrorLogger installs a non-throwing handler on an arbitr
   assert.equal(s.listenerCount("error"), 0, "a fresh server starts with no error listener");
   attachServerErrorLogger(s, "unit");
   assert.equal(s.listenerCount("error"), 1);
-  assert.doesNotThrow(() => s.emit("error", new Error("boom")),
-    "the attached handler logs and returns — the error does not propagate");
+  assert.doesNotThrow(
+    () => s.emit("error", new Error("boom")),
+    "the attached handler logs and returns — the error does not propagate",
+  );
   s.close();
 });
 
@@ -128,10 +141,16 @@ test("bug1: installProcessGuards is idempotent and registers the last-resort log
   // at least one guard of each kind is present
   assert.ok(process.listenerCount("uncaughtException") >= 1, "uncaughtException guard present");
   assert.ok(process.listenerCount("unhandledRejection") >= 1, "unhandledRejection guard present");
-  assert.equal(process.listenerCount("uncaughtException"), before_.unc,
-    "repeated installProcessGuards must not stack uncaughtException listeners");
-  assert.equal(process.listenerCount("unhandledRejection"), before_.unh,
-    "repeated installProcessGuards must not stack unhandledRejection listeners");
+  assert.equal(
+    process.listenerCount("uncaughtException"),
+    before_.unc,
+    "repeated installProcessGuards must not stack uncaughtException listeners",
+  );
+  assert.equal(
+    process.listenerCount("unhandledRejection"),
+    before_.unh,
+    "repeated installProcessGuards must not stack unhandledRejection listeners",
+  );
 });
 
 // =========================================================================
@@ -145,7 +164,10 @@ test("bug3: a coder listener that loses its server marks the session dead and fi
   let evicted = null;
   let evictions = 0;
   const session = await startCoderListener("any-slug", "gs_x", "coder_1", {
-    onDead: (s) => { evictions += 1; evicted = s; },
+    onDead: (s) => {
+      evictions += 1;
+      evicted = s;
+    },
   });
   assert.equal(session.dead, false, "a fresh session is alive");
   assert.equal(typeof session.port, "number");
@@ -171,29 +193,46 @@ test("bug4: confidenceWeighted aggregation throws on a negative-confidence juror
   const payload = { aggregation: "confidenceWeighted" };
   // a well-formed positive-confidence panel still aggregates
   const okVerdict = aggregate(
-    [{ juror: "a", label: "yes", confidence: 0.9 }, { juror: "b", label: "no", confidence: 0.2 }],
+    [
+      { juror: "a", label: "yes", confidence: 0.9 },
+      { juror: "b", label: "no", confidence: 0.2 },
+    ],
     payload,
   );
   assert.equal(okVerdict.label, "yes", "valid confidences still produce a weighted verdict");
 
   // a negative confidence must fail rather than vote against its own label
   assert.throws(
-    () => aggregate(
-      [{ juror: "a", label: "yes", confidence: -1 }, { juror: "b", label: "no", confidence: 0.5 }],
-      payload,
-    ),
-    (e) => e instanceof ConcordError && e.code === "VALIDATION" && /confidence weights must be numbers >= 0/.test(e.message),
+    () =>
+      aggregate(
+        [
+          { juror: "a", label: "yes", confidence: -1 },
+          { juror: "b", label: "no", confidence: 0.5 },
+        ],
+        payload,
+      ),
+    (e) =>
+      e instanceof ConcordError &&
+      e.code === "VALIDATION" &&
+      /confidence weights must be numbers >= 0/.test(e.message),
     "a negative confidence weight must be rejected (parity with reliabilityWeighted)",
   );
 
   // reliabilityWeighted's pre-existing guard still holds (regression anchor)
   assert.throws(
-    () => aggregate(
-      [{ juror: "a", label: "yes" }, { juror: "b", label: "no" }],
-      { aggregation: "reliabilityWeighted" },
-      { a: -2 },
-    ),
-    (e) => e instanceof ConcordError && e.code === "VALIDATION" && /reliability weights must be numbers >= 0/.test(e.message),
+    () =>
+      aggregate(
+        [
+          { juror: "a", label: "yes" },
+          { juror: "b", label: "no" },
+        ],
+        { aggregation: "reliabilityWeighted" },
+        { a: -2 },
+      ),
+    (e) =>
+      e instanceof ConcordError &&
+      e.code === "VALIDATION" &&
+      /reliability weights must be numbers >= 0/.test(e.message),
   );
 });
 
@@ -210,16 +249,34 @@ async function buildBriefProject() {
     name: "Brief Abort Demo",
     slug: BRIEF.slug,
     privacyMode: "open",
-    corpora: [{
-      id: BRIEF.corpusId, name: "Survey", source: { filename: "s.csv", format: "csv", rows: 6 },
-      unitization: { scheme: "response" }, unitCount: 6, textColumn: "response", metaColumns: 1,
-    }],
-    director: { provider: "mock", model: "mock-1", snapshot: "mock-1", systemSuffix: "[[handler:lifecycle]]" },
+    corpora: [
+      {
+        id: BRIEF.corpusId,
+        name: "Survey",
+        source: { filename: "s.csv", format: "csv", rows: 6 },
+        unitization: { scheme: "response" },
+        unitCount: 6,
+        textColumn: "response",
+        metaColumns: 1,
+      },
+    ],
+    director: {
+      provider: "mock",
+      model: "mock-1",
+      snapshot: "mock-1",
+      systemSuffix: "[[handler:lifecycle]]",
+    },
   });
   await saveProject(project, tmpProjects);
   for (let i = 0; i < 6; i++) {
-    await appendNdjson(path.join(tmpProjects, BRIEF.slug, "corpora", BRIEF.corpusId, "units.ndjson"),
-      { id: `u_${"0".repeat(13)}${i.toString(16)}`, text: `Pay was too low and the salary never improved ${i}.`, meta: { dept: i % 2 ? "sales" : "ops" } });
+    await appendNdjson(
+      path.join(tmpProjects, BRIEF.slug, "corpora", BRIEF.corpusId, "units.ndjson"),
+      {
+        id: `u_${"0".repeat(13)}${i.toString(16)}`,
+        text: `Pay was too low and the salary never improved ${i}.`,
+        meta: { dept: i % 2 ? "sales" : "ops" },
+      },
+    );
   }
   return project;
 }
@@ -235,8 +292,11 @@ test("bug2-brief: an already-aborted signal stops generateBrief BEFORE the Direc
     (e) => e instanceof ConcordError && e.code === "ABORTED",
     "generateBrief must throw ABORTED when the signal is already aborted",
   );
-  assert.equal(DIRECTOR.calls, callsBefore,
-    "no Director call may be spent once the client has disconnected (count unchanged)");
+  assert.equal(
+    DIRECTOR.calls,
+    callsBefore,
+    "no Director call may be spent once the client has disconnected (count unchanged)",
+  );
 });
 
 test("bug2-brief: without an abort, generateBrief makes exactly one Director call and returns a brief", async () => {
@@ -259,12 +319,17 @@ test("bug2-brief: aborting after the first stage and before the call still spend
   await assert.rejects(
     generateBrief(project, BRIEF.corpusId, {
       signal: ac.signal,
-      onStage: (event) => { if (event === "sampling") ac.abort(); },
+      onStage: (event) => {
+        if (event === "sampling") ac.abort();
+      },
     }),
     (e) => e instanceof ConcordError && e.code === "ABORTED",
   );
-  assert.equal(DIRECTOR.calls, callsBefore,
-    "a disconnect during sampling/prompt composition must not reach the Director call");
+  assert.equal(
+    DIRECTOR.calls,
+    callsBefore,
+    "a disconnect during sampling/prompt composition must not reach the Director call",
+  );
 });
 
 // =========================================================================
@@ -277,52 +342,111 @@ async function buildStateHashProject() {
   const dir = path.join(tmpProjects, HASH.slug);
   const corpusId = "corp_sh";
   const construct = createConstruct({
-    id: "c_sh", name: "Pay concern", type: "binary",
+    id: "c_sh",
+    name: "Pay concern",
+    type: "binary",
     definition: "Mentions of pay as a concern.",
-    criteria: { include: ["pay complaints"], exclude: [] }, edgeCases: [], examples: [],
-    authoredBy: "human", humanTouched: true,
+    criteria: { include: ["pay complaints"], exclude: [] },
+    edgeCases: [],
+    examples: [],
+    authoredBy: "human",
+    humanTouched: true,
   });
   const instrument = createInstrument({
-    id: "inst_sh", constructId: construct.id, kind: "judge", name: "Pay judge",
+    id: "inst_sh",
+    constructId: construct.id,
+    kind: "judge",
+    name: "Pay judge",
     payload: {
-      provider: "mock", model: "mock-1", snapshot: "mock-1",
+      provider: "mock",
+      model: "mock-1",
+      snapshot: "mock-1",
       params: { temperature: 0, maxTokens: 64 },
       promptTemplate: "Judge. {{definition}} {{criteria}} {{examples}} {{unit}}",
-      schema: { type: "binary" }, rationaleFirst: true, workerClass: "mid",
+      schema: { type: "binary" },
+      rationaleFirst: true,
+      workerClass: "mid",
     },
-    authoredBy: "director", humanTouched: true,
+    authoredBy: "director",
+    humanTouched: true,
   });
   // a silver curve whose last agreement the methods prose prints (§5)
   instrument.silver = {
     goldsetId: "gs_sh",
-    iterations: [{ versionHash: instrument.versionHash, agreement: 0.80, note: "baseline" }],
+    iterations: [{ versionHash: instrument.versionHash, agreement: 0.8, note: "baseline" }],
   };
   instrument.level = "stabilized";
 
   const analysis = createAnalysis({
-    id: "an_sh", kind: "descriptive",
+    id: "an_sh",
+    kind: "descriptive",
     spec: { instrumentId: instrument.id, corpusId, measure: "prevalence" },
-    results: { estimator: "naive-proportion", outcome: "pay", groupBy: null, cells: [{ group: "all", n: 6, est: 0.5 }] },
+    results: {
+      estimator: "naive-proportion",
+      outcome: "pay",
+      groupBy: null,
+      cells: [{ group: "all", n: 6, est: 0.5 }],
+    },
     level: "exploratory",
     createdAt: "2026-06-02T11:00:00.000Z",
   });
 
   const project = createProject({
-    id: "p_sh", name: "StateHash Demo", slug: HASH.slug, privacyMode: "open",
-    corpora: [{ id: corpusId, name: "Survey", source: { filename: "s.csv", format: "csv", rows: 6 }, unitization: { scheme: "response" }, unitCount: 6 }],
+    id: "p_sh",
+    name: "StateHash Demo",
+    slug: HASH.slug,
+    privacyMode: "open",
+    corpora: [
+      {
+        id: corpusId,
+        name: "Survey",
+        source: { filename: "s.csv", format: "csv", rows: 6 },
+        unitization: { scheme: "response" },
+        unitCount: 6,
+      },
+    ],
     constructs: [construct],
     instruments: [instrument],
-    analyses: [{ id: analysis.id, kind: analysis.kind, level: analysis.level, createdAt: analysis.createdAt }],
+    analyses: [
+      {
+        id: analysis.id,
+        kind: analysis.kind,
+        level: analysis.level,
+        createdAt: analysis.createdAt,
+      },
+    ],
   });
   await saveProject(project, tmpProjects);
   // generate() needs the analysis on disk (loadAnalysis prefers the file) and
   // at least one ledger event to anchor citations
   const { mkdir, writeFile } = await import("node:fs/promises");
   await mkdir(path.join(dir, "analyses"), { recursive: true });
-  await writeFile(path.join(dir, "analyses", "an_sh.json"), JSON.stringify(analysis, null, 2), "utf8");
-  await ledger.append(dir, "system", "project.created", { projectId: project.id }, { name: project.name });
-  await ledger.append(dir, "human", "instrument.created", { instrumentId: instrument.id }, { kind: "judge" });
-  await ledger.append(dir, "system", "analysis.created", { analysisId: analysis.id }, { kind: "descriptive", level: "exploratory" });
+  await writeFile(
+    path.join(dir, "analyses", "an_sh.json"),
+    JSON.stringify(analysis, null, 2),
+    "utf8",
+  );
+  await ledger.append(
+    dir,
+    "system",
+    "project.created",
+    { projectId: project.id },
+    { name: project.name },
+  );
+  await ledger.append(
+    dir,
+    "human",
+    "instrument.created",
+    { instrumentId: instrument.id },
+    { kind: "judge" },
+  );
+  await ledger.append(
+    dir,
+    "system",
+    "analysis.created",
+    { analysisId: analysis.id },
+    { kind: "descriptive", level: "exploratory" },
+  );
 
   HASH.dir = dir;
   return project;
@@ -350,7 +474,11 @@ test("bug5: two instruments differing ONLY in silver.iterations produce differen
 
   // adding a silver iteration likewise changes it
   const moreIters = structuredClone(project);
-  moreIters.instruments[0].silver.iterations.push({ versionHash: "x", agreement: 0.91, note: "added" });
+  moreIters.instruments[0].silver.iterations.push({
+    versionHash: "x",
+    agreement: 0.91,
+    note: "added",
+  });
   const h3 = await hashOf(moreIters);
   assert.notEqual(h1, h3, "appending a silver iteration must change the stateHash");
 

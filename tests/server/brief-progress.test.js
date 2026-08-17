@@ -66,7 +66,11 @@ async function call(method, p, body) {
   const res = await fetch(base + p, init);
   const text = await res.text();
   let json = null;
-  try { json = JSON.parse(text); } catch { /* non-JSON body */ }
+  try {
+    json = JSON.parse(text);
+  } catch {
+    /* non-JSON body */
+  }
   return { status: res.status, json, text };
 }
 
@@ -82,7 +86,11 @@ async function upload(p, filename, content) {
   form.append("file", new Blob([content]), filename);
   const res = await fetch(base + p, { method: "POST", body: form });
   const json = JSON.parse(await res.text());
-  assert.equal(res.status, 200, `upload ${p} → ${res.status}: ${JSON.stringify(json).slice(0, 300)}`);
+  assert.equal(
+    res.status,
+    200,
+    `upload ${p} → ${res.status}: ${JSON.stringify(json).slice(0, 300)}`,
+  );
   assert.equal(json.ok, true);
   return json.data;
 }
@@ -119,7 +127,9 @@ async function readSse(p, { method = "GET", body } = {}) {
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 const mock = () => getAdapter({ privacyMode: "open" }, "mock").adapter;
 const lastUser = (req) => [...req.messages].reverse().find((m) => m.role === "user")?.content ?? "";
-const shownUnitIds = (t) => [...new Set([...String(t).matchAll(/unit (u_[0-9a-f]{16})/g)].map((m) => m[1]))];
+const shownUnitIds = (t) => [
+  ...new Set([...String(t).matchAll(/unit (u_[0-9a-f]{16})/g)].map((m) => m[1])),
+];
 
 // A schema-valid brief citing only shown units, after `delayMs` in flight —
 // long enough for the route's ~2s ticker to fire at least once.
@@ -131,7 +141,9 @@ function briefAnswer(req) {
       { md: "Respondents talk mostly about compensation.", refs: [ids[0]] },
       { md: "A second cluster praises the team.", refs: [ids[1]] },
     ],
-    themes: [{ name: "Pay", definition: "Complaints about compensation level.", quoteRefs: [ids[0]] }],
+    themes: [
+      { name: "Pay", definition: "Complaints about compensation level.", quoteRefs: [ids[0]] },
+    ],
     redFlags: [],
     suggestedQuestions: ["Which departments complain about pay?"],
   };
@@ -144,9 +156,10 @@ const UNIT_ROWS = 12;
 function makeCsv() {
   const lines = ["respondent_id,dept,response"];
   for (let i = 0; i < UNIT_ROWS; i++) {
-    const text = i % 3 === 0
-      ? `the salary is too low for this work and it never improves around here ${i}`
-      : `the office is comfortable and the team is genuinely kind to newcomers ${i}`;
+    const text =
+      i % 3 === 0
+        ? `the salary is too low for this work and it never improves around here ${i}`
+        : `the office is comfortable and the team is genuinely kind to newcomers ${i}`;
     lines.push(`r${i},${i % 2 ? "sales" : "ops"},${text}`);
   }
   return lines.join("\n") + "\n";
@@ -160,7 +173,12 @@ async function setup() {
   await ok("PUT", "/api/settings", {
     project: {
       slug: SLUG,
-      director: { provider: "mock", model: "mock-1", snapshot: "mock-1", systemSuffix: "[[handler:brief-progress]]" },
+      director: {
+        provider: "mock",
+        model: "mock-1",
+        snapshot: "mock-1",
+        systemSuffix: "[[handler:brief-progress]]",
+      },
     },
   });
   const up = await upload(`/api/projects/${SLUG}/import`, "survey.csv", makeCsv());
@@ -201,14 +219,21 @@ test("brief route: SSE reports sampling → prompt-composed → director-called 
   const ticks = events.filter((e) => e.event === "tick");
   assert.ok(ticks.length >= 1, `≥1 tick during a ~2.6s call (got ${ticks.length})`);
   for (const t of ticks) {
-    assert.equal(typeof t.data.elapsed, "number", `tick carries numeric elapsed (got ${JSON.stringify(t.data)})`);
+    assert.equal(
+      typeof t.data.elapsed,
+      "number",
+      `tick carries numeric elapsed (got ${JSON.stringify(t.data)})`,
+    );
     assert.ok(Number.isFinite(t.data.elapsed) && t.data.elapsed >= 0);
   }
   const calledAt = names.indexOf("director-called");
   const validatingAt = names.indexOf("validating");
   for (let i = 0; i < names.length; i++) {
     if (names[i] === "tick") {
-      assert.ok(i > calledAt && i < validatingAt, `tick at ${i} sits inside the call window (${calledAt}..${validatingAt})`);
+      assert.ok(
+        i > calledAt && i < validatingAt,
+        `tick at ${i} sits inside the call window (${calledAt}..${validatingAt})`,
+      );
     }
   }
 
@@ -247,7 +272,10 @@ test("a failing Director call clears the ticker — no orphaned interval keeps t
   );
 
   const names = staged.map((s) => s.event);
-  assert.ok(names.includes("director-called"), `stages reported up to the failure (got ${names.join(", ")})`);
+  assert.ok(
+    names.includes("director-called"),
+    `stages reported up to the failure (got ${names.join(", ")})`,
+  );
   assert.ok(!names.includes("validating"), "the failed call never reaches validation");
   const ticksAtFailure = staged.filter((s) => s.event === "tick").length;
   assert.ok(ticksAtFailure >= 1, `≥1 tick before the failure (got ${ticksAtFailure})`);

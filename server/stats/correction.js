@@ -214,16 +214,27 @@ export function dslLogit(units, k) {
   if (n <= p) throw insufficient("need n > k + 1 for DSL logit", { n, k });
   const fit = logit(pseudo, X, { allowRealY: true });
   if (!fit.converged) {
-    throw new ConcordError("E_STAT_DEGENERATE", "DSL logistic estimating equation did not converge", { n, k });
+    throw new ConcordError(
+      "E_STAT_DEGENERATE",
+      "DSL logistic estimating equation did not converge",
+      { n, k },
+    );
   }
   const naiveFit = logit(yhat, X, { allowRealY: true });
   if (!naiveFit.converged) {
-    throw new ConcordError("E_STAT_DEGENERATE", "naive logistic regression did not converge", { n, k });
+    throw new ConcordError("E_STAT_DEGENERATE", "naive logistic regression did not converge", {
+      n,
+      k,
+    });
   }
   const hc0 = Math.sqrt((n - p) / n);
   const names = coefNames(k);
   return {
-    coef: coefRows(names, fit.coef, fit.seHC1.map((s) => s * hc0)),
+    coef: coefRows(
+      names,
+      fit.coef,
+      fit.seHC1.map((s) => s * hc0),
+    ),
     naive: coefRows(names, naiveFit.coef, naiveFit.seHC1),
   };
 }
@@ -303,7 +314,7 @@ export function ppiMean(units, { lambda } = { lambda: "classical" }) {
     throw bad(
       "PPI assumes an equal-probability (SRS) gold sample; " +
         "for stratified or uncertainty designs use the DSL estimator",
-      { piMin, piMax }
+      { piMin, piMax },
     );
   }
   const vF = sampleVar(yhat);

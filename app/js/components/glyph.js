@@ -15,12 +15,14 @@ export const TIP = "Drafted by the Director — edit to adopt.";
  */
 export function render({ humanTouched = false, authoredBy = "director" } = {}) {
   if (humanTouched || authoredBy !== "director") return null;
-  return el("span", {
-    class: "dglyph",
-    role: "img",
-    tabindex: "0",
-    aria: { label: TIP },
-  },
+  return el(
+    "span",
+    {
+      class: "dglyph",
+      role: "img",
+      tabindex: "0",
+      aria: { label: TIP },
+    },
     el("span", { class: "dglyph__mark", aria: { hidden: "true" } }, GLYPH),
     // visual only — aria-label above carries the text
     el("span", { class: "dglyph__pop", role: "tooltip", aria: { hidden: "true" } }, TIP),

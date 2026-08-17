@@ -18,15 +18,15 @@ This document translates the v0.2 spec into a buildable system. It records every
 
 ## 2. Deviations from spec §9
 
-| Spec | v1 | Spec intent preserved by |
-|---|---|---|
-| Tauri + Rust core | Node server + browser | Local-first, data residency, offline dictionaries all hold. UI is web tech either way; Tauri later wraps this app. |
-| SQLite + DuckDB | NDJSON/JSON project bundles | Single portable folder per project; append-only ledger; crash consistency via atomic temp-file renames. Honest limit: fluid to ~100k units, not 1M. |
-| OS keychain | `config/keys.json`, gitignored, outside project bundles | Keys never enter project files or replication archives. |
-| E2E-encrypted relay | Shared-drive sync (bundles are plain folders) + Coder launch profile | Spec allows shared drive. Coder role enforces blindness by serving only the coding screen and masking machine/other-coder labels server-side. |
-| Local Whisper | Transcript import only (VTT/SRT/JSON) | Strict mode still ingests transcripts; audio transcription can attach later via any local OpenAI-compatible endpoint. |
-| Embedded Python statistics | Pure-JS statistics engine | Validated against hand-derived golden numbers and by simulation (see §10). Replication packages emit R/Python that reproduces every number outside Concord — that code targets the reference `dsl` package, preserving the auditability guarantee. |
-| Local embedding models | Ollama embeddings when available; otherwise Director-suggested expansion + character-ngram similarity | Dictionary expansion degrades gracefully; the product states which method produced suggestions. |
+| Spec                       | v1                                                                                                    | Spec intent preserved by                                                                                                                                                                                                                           |
+| -------------------------- | ----------------------------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Tauri + Rust core          | Node server + browser                                                                                 | Local-first, data residency, offline dictionaries all hold. UI is web tech either way; Tauri later wraps this app.                                                                                                                                 |
+| SQLite + DuckDB            | NDJSON/JSON project bundles                                                                           | Single portable folder per project; append-only ledger; crash consistency via atomic temp-file renames. Honest limit: fluid to ~100k units, not 1M.                                                                                                |
+| OS keychain                | `config/keys.json`, gitignored, outside project bundles                                               | Keys never enter project files or replication archives.                                                                                                                                                                                            |
+| E2E-encrypted relay        | Shared-drive sync (bundles are plain folders) + Coder launch profile                                  | Spec allows shared drive. Coder role enforces blindness by serving only the coding screen and masking machine/other-coder labels server-side.                                                                                                      |
+| Local Whisper              | Transcript import only (VTT/SRT/JSON)                                                                 | Strict mode still ingests transcripts; audio transcription can attach later via any local OpenAI-compatible endpoint.                                                                                                                              |
+| Embedded Python statistics | Pure-JS statistics engine                                                                             | Validated against hand-derived golden numbers and by simulation (see §10). Replication packages emit R/Python that reproduces every number outside Concord — that code targets the reference `dsl` package, preserving the auditability guarantee. |
+| Local embedding models     | Ollama embeddings when available; otherwise Director-suggested expansion + character-ngram similarity | Dictionary expansion degrades gracefully; the product states which method produced suggestions.                                                                                                                                                    |
 
 Everything else in the spec ships as written.
 
@@ -199,9 +199,11 @@ Six-step loop, reachable from any ladder badge:
 ## 9. Statistics
 
 ### Agreement (`agreement.js`)
+
 Percent agreement, Cohen's κ (+ weighted), Krippendorff's α for nominal/ordinal/interval data with any number of coders and missing values, Gwet's AC1/AC2, per-class precision/recall/F1, confusion matrices. Bootstrap CIs (unit resampling). McNemar's exact/χ² test between instrument versions. TOST equivalence on leave-one-coder-out α.
 
 ### Correction (`correction.js`) — the differentiator
+
 **DSL (design-based supervised learning), default wherever gold with π exists.** For estimand defined by moment condition E[m(Y, X; θ)] = 0, with machine labels Ŷ on all n units and gold Y on sampled units (R_i = 1, inclusion probability π_i):
 
 - Pseudo-outcome: `Ỹ_i = Ŷ_i + (R_i/π_i)(Y_i − Ŷ_i)`
@@ -214,6 +216,7 @@ Percent agreement, Cohen's κ (+ weighted), Krippendorff's α for nominal/ordina
 **Predictor-side measurement error** ships exactly as the spec demands: documented honestly. v1 computes outcome-side correction; predictor-side renders with an advisory stating what is and is not guaranteed.
 
 ### Models (`models.js`)
+
 OLS and logistic regression (IRLS) with HC1 sandwich SEs, weighted variants for DSL pseudo-outcomes. Descriptives: crosstabs with χ², co-occurrence matrices, time trends, correlation matrices across instruments. Honesty rails: BH q-values on demand, small-n warnings, no significance stars on ◌ results.
 
 ## 10. Testing

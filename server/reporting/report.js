@@ -9,7 +9,14 @@
 import path from "node:path";
 import { ConcordError } from "../core/errors.js";
 import { readNdjson } from "../core/store.js";
-import { generate as generateMethods, generatePreview as previewMethods, loadAnalysis, fmt, LEVEL_MARKS, LEVEL_NAMES } from "./methods.js";
+import {
+  generate as generateMethods,
+  generatePreview as previewMethods,
+  loadAnalysis,
+  fmt,
+  LEVEL_MARKS,
+  LEVEL_NAMES,
+} from "./methods.js";
 
 const KINDS = new Set(["chart", "table", "quote", "text", "methods-excerpt"]);
 
@@ -23,8 +30,11 @@ function fail(message, details = {}) {
 
 export function esc(s) {
   return String(s ?? "")
-    .replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;")
-    .replace(/"/g, "&quot;").replace(/'/g, "&#39;");
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;")
+    .replace(/"/g, "&quot;")
+    .replace(/'/g, "&#39;");
 }
 
 // ---------------------------------------------------------------- data prep
@@ -81,8 +91,13 @@ function rowsFrom(analysis, content) {
       title: content.title ?? "",
       level: content.level ?? "exploratory",
       rows: content.bars.map((b) => ({
-        key: String(b.label), label: String(b.label), value: b.value,
-        ciLo: b.ci?.lo, ciHi: b.ci?.hi, naive: b.naive, n: b.n,
+        key: String(b.label),
+        label: String(b.label),
+        value: b.value,
+        ciLo: b.ci?.lo,
+        ciHi: b.ci?.hi,
+        naive: b.naive,
+        n: b.n,
       })),
       diff: null,
     };
@@ -93,7 +108,9 @@ function rowsFrom(analysis, content) {
   // hatched beside it. The intercept is dropped from the PLOT when slopes exist
   // (its magnitude crushes the slopes' range; the table block keeps every
   // term). Mirrors the workbench coefficient forest so screen and export agree.
-  const coef = Array.isArray(r.coef) ? r.coef.filter((c) => typeof c.est === "number" && Number.isFinite(c.est)) : [];
+  const coef = Array.isArray(r.coef)
+    ? r.coef.filter((c) => typeof c.est === "number" && Number.isFinite(c.est))
+    : [];
   if (coef.length > 0) {
     const isIntercept = (name) => INTERCEPT_NAMES.has(String(name).toLowerCase());
     const hasSlopes = coef.some((c) => !isIntercept(c.name));
@@ -106,7 +123,9 @@ function rowsFrom(analysis, content) {
         const se = typeof c.se === "number" && Number.isFinite(c.se) && c.se > 0 ? c.se : null;
         const naive = naiveByName.get(c.name);
         return {
-          key: String(c.name), label: String(c.name), value: c.est,
+          key: String(c.name),
+          label: String(c.name),
+          value: c.est,
           ciLo: se !== null ? c.est - 1.96 * se : undefined,
           ciHi: se !== null ? c.est + 1.96 * se : undefined,
           naive: typeof naive?.est === "number" ? naive.est : undefined,
@@ -117,7 +136,9 @@ function rowsFrom(analysis, content) {
   }
   const cells = Array.isArray(r.cells) ? r.cells : [];
   if (cells.length === 0) {
-    throw new ConcordError("VALIDATION", "block has no renderable cells", { analysisId: analysis?.id });
+    throw new ConcordError("VALIDATION", "block has no renderable cells", {
+      analysisId: analysis?.id,
+    });
   }
   const outcome = r.outcome ?? analysis.spec?.rows ?? "estimate";
   const title = `${outcome}${r.groupBy ? ` by ${r.groupBy}` : ""}`;
@@ -125,8 +146,13 @@ function rowsFrom(analysis, content) {
     title,
     level: analysis.level ?? "exploratory",
     rows: cells.map((c) => ({
-      key: String(c.group), label: String(c.group), value: c.est,
-      ciLo: c.ciLo, ciHi: c.ciHi, naive: c.naive?.est, n: c.n,
+      key: String(c.group),
+      label: String(c.group),
+      value: c.est,
+      ciLo: c.ciLo,
+      ciHi: c.ciHi,
+      naive: c.naive?.est,
+      n: c.n,
     })),
     diff: r.diff ?? null,
   };
@@ -164,10 +190,14 @@ function svgChart({ rows, level, idx }) {
   const H = top + rows.reduce((a, r) => a + rowH(r), 0) + 6;
   const hatchId = `hatch-${idx}`;
   const p = [];
-  p.push(`<svg viewBox="0 0 ${W} ${H}" width="${W}" height="${H}" role="img" aria-label="bar chart">`);
-  p.push(`<defs><pattern id="${hatchId}" width="6" height="6" patternUnits="userSpaceOnUse" patternTransform="rotate(45)">` +
-    `<rect width="6" height="6" fill="#FAF7F2"></rect>` +
-    `<line x1="0" y1="0" x2="0" y2="6" stroke="#2B4C7E" stroke-width="2"></line></pattern></defs>`);
+  p.push(
+    `<svg viewBox="0 0 ${W} ${H}" width="${W}" height="${H}" role="img" aria-label="bar chart">`,
+  );
+  p.push(
+    `<defs><pattern id="${hatchId}" width="6" height="6" patternUnits="userSpaceOnUse" patternTransform="rotate(45)">` +
+      `<rect width="6" height="6" fill="#FAF7F2"></rect>` +
+      `<line x1="0" y1="0" x2="0" y2="6" stroke="#2B4C7E" stroke-width="2"></line></pattern></defs>`,
+  );
   let y = top;
   for (const r of rows) {
     const yBar = y;
@@ -175,26 +205,44 @@ function svgChart({ rows, level, idx }) {
     const x0 = x(Math.min(0, v));
     const x1 = x(Math.max(0, v));
     p.push(`<g data-evidence="${esc(r.key)}">`);
-    p.push(`<text x="${gutter - 10}" y="${yBar + barH - 4}" text-anchor="end" class="bar-label">${esc(r.label)}</text>`);
-    p.push(`<rect x="${x0}" y="${yBar}" width="${Math.max(1, x1 - x0)}" height="${barH}" fill="${corrected ? "#1F6F6B" : `url(#${hatchId})`}" stroke="#1F6F6B" stroke-width="1"></rect>`);
+    p.push(
+      `<text x="${gutter - 10}" y="${yBar + barH - 4}" text-anchor="end" class="bar-label">${esc(r.label)}</text>`,
+    );
+    p.push(
+      `<rect x="${x0}" y="${yBar}" width="${Math.max(1, x1 - x0)}" height="${barH}" fill="${corrected ? "#1F6F6B" : `url(#${hatchId})`}" stroke="#1F6F6B" stroke-width="1"></rect>`,
+    );
     if (typeof r.ciLo === "number" && typeof r.ciHi === "number") {
       const cy = yBar + barH / 2;
-      p.push(`<line x1="${x(r.ciLo)}" y1="${cy}" x2="${x(r.ciHi)}" y2="${cy}" stroke="#1A1815" stroke-width="1.2"></line>`);
-      p.push(`<line x1="${x(r.ciLo)}" y1="${cy - 4}" x2="${x(r.ciLo)}" y2="${cy + 4}" stroke="#1A1815" stroke-width="1.2"></line>`);
-      p.push(`<line x1="${x(r.ciHi)}" y1="${cy - 4}" x2="${x(r.ciHi)}" y2="${cy + 4}" stroke="#1A1815" stroke-width="1.2"></line>`);
+      p.push(
+        `<line x1="${x(r.ciLo)}" y1="${cy}" x2="${x(r.ciHi)}" y2="${cy}" stroke="#1A1815" stroke-width="1.2"></line>`,
+      );
+      p.push(
+        `<line x1="${x(r.ciLo)}" y1="${cy - 4}" x2="${x(r.ciLo)}" y2="${cy + 4}" stroke="#1A1815" stroke-width="1.2"></line>`,
+      );
+      p.push(
+        `<line x1="${x(r.ciHi)}" y1="${cy - 4}" x2="${x(r.ciHi)}" y2="${cy + 4}" stroke="#1A1815" stroke-width="1.2"></line>`,
+      );
     }
-    p.push(`<text x="${Math.max(x1, typeof r.ciHi === "number" ? x(r.ciHi) : x1) + 8}" y="${yBar + barH - 4}" class="bar-value">${fmt(v, 2)} <tspan class="mark">${mark}</tspan></text>`);
+    p.push(
+      `<text x="${Math.max(x1, typeof r.ciHi === "number" ? x(r.ciHi) : x1) + 8}" y="${yBar + barH - 4}" class="bar-value">${fmt(v, 2)} <tspan class="mark">${mark}</tspan></text>`,
+    );
     if (typeof r.naive === "number") {
       const yN = yBar + barH + 3;
       const nx0 = x(Math.min(0, r.naive));
       const nx1 = x(Math.max(0, r.naive));
-      p.push(`<rect x="${nx0}" y="${yN}" width="${Math.max(1, nx1 - nx0)}" height="${naiveH}" fill="url(#${hatchId})" stroke="#2B4C7E" stroke-width="1"></rect>`);
-      p.push(`<text x="${nx1 + 8}" y="${yN + naiveH}" class="bar-naive">${fmt(r.naive, 2)} uncorrected</text>`);
+      p.push(
+        `<rect x="${nx0}" y="${yN}" width="${Math.max(1, nx1 - nx0)}" height="${naiveH}" fill="url(#${hatchId})" stroke="#2B4C7E" stroke-width="1"></rect>`,
+      );
+      p.push(
+        `<text x="${nx1 + 8}" y="${yN + naiveH}" class="bar-naive">${fmt(r.naive, 2)} uncorrected</text>`,
+      );
     }
     p.push("</g>");
     y += rowH(r);
   }
-  p.push(`<line x1="${x(0)}" y1="${top - 4}" x2="${x(0)}" y2="${H - 4}" stroke="#1A1815" stroke-width="1"></line>`);
+  p.push(
+    `<line x1="${x(0)}" y1="${top - 4}" x2="${x(0)}" y2="${H - 4}" stroke="#1A1815" stroke-width="1"></line>`,
+  );
   p.push("</svg>");
   return p.join("");
 }
@@ -207,7 +255,13 @@ function svgChart({ rows, level, idx }) {
 // ring, and every cell a drill-through door (data-evidence keyed
 // "<keyPrefix><r>,<c>"). Pure string builder — no library. Returns "" for an
 // empty matrix.
-function confusionSvg({ labels = [], matrix = [], rowAxis = "Gold", colAxis = "Machine", keyPrefix = "" }) {
+function confusionSvg({
+  labels = [],
+  matrix = [],
+  rowAxis = "Gold",
+  colAxis = "Machine",
+  keyPrefix = "",
+}) {
   const k = matrix.length;
   if (k === 0) return "";
   const max = Math.max(1, ...matrix.flat().map((v) => Number(v) || 0));
@@ -221,18 +275,28 @@ function confusionSvg({ labels = [], matrix = [], rowAxis = "Gold", colAxis = "M
   const x0 = labelW;
   const y0 = labelTop;
   const p = [];
-  p.push(`<svg viewBox="0 0 ${W} ${H}" width="${W}" height="${H}" role="img" aria-label="${esc(`Confusion matrix: ${rowAxis} rows by ${colAxis} columns`)}">`);
+  p.push(
+    `<svg viewBox="0 0 ${W} ${H}" width="${W}" height="${H}" role="img" aria-label="${esc(`Confusion matrix: ${rowAxis} rows by ${colAxis} columns`)}">`,
+  );
 
   // axis captions
-  p.push(`<text x="${x0 + gridW / 2}" y="14" text-anchor="middle" class="conf-axis">${esc(colAxis)} →</text>`);
-  p.push(`<text x="12" y="${y0 + gridW / 2}" text-anchor="middle" class="conf-axis" transform="rotate(-90 12 ${y0 + gridW / 2})">${esc(rowAxis)} ↓</text>`);
+  p.push(
+    `<text x="${x0 + gridW / 2}" y="14" text-anchor="middle" class="conf-axis">${esc(colAxis)} →</text>`,
+  );
+  p.push(
+    `<text x="12" y="${y0 + gridW / 2}" text-anchor="middle" class="conf-axis" transform="rotate(-90 12 ${y0 + gridW / 2})">${esc(rowAxis)} ↓</text>`,
+  );
 
   // column labels (top) + row labels (left)
   for (let c = 0; c < k; c++) {
-    p.push(`<text x="${x0 + c * cell + cell / 2}" y="${y0 - 6}" text-anchor="middle" class="conf-collabel">${esc(String(labels[c] ?? c))}</text>`);
+    p.push(
+      `<text x="${x0 + c * cell + cell / 2}" y="${y0 - 6}" text-anchor="middle" class="conf-collabel">${esc(String(labels[c] ?? c))}</text>`,
+    );
   }
   for (let r = 0; r < k; r++) {
-    p.push(`<text x="${x0 - 8}" y="${y0 + r * cell + cell / 2}" text-anchor="end" dominant-baseline="middle" class="conf-rowlabel">${esc(String(labels[r] ?? r))}</text>`);
+    p.push(
+      `<text x="${x0 - 8}" y="${y0 + r * cell + cell / 2}" text-anchor="end" dominant-baseline="middle" class="conf-rowlabel">${esc(String(labels[r] ?? r))}</text>`,
+    );
   }
 
   // cells
@@ -247,12 +311,18 @@ function confusionSvg({ labels = [], matrix = [], rowAxis = "Gold", colAxis = "M
       const fillOpacity = (t * 0.62).toFixed(3);
       const textFill = t > 0.62 ? "#FAF7F2" : "#1A1815";
       p.push(`<g data-evidence="${esc(`${keyPrefix}${r},${c}`)}" class="conf-cell">`);
-      p.push(`<rect x="${cx}" y="${cy}" width="${cell}" height="${cell}" fill="#2B4C7E" fill-opacity="${fillOpacity}" stroke="#E4DCCB" stroke-width="1"></rect>`);
+      p.push(
+        `<rect x="${cx}" y="${cy}" width="${cell}" height="${cell}" fill="#2B4C7E" fill-opacity="${fillOpacity}" stroke="#E4DCCB" stroke-width="1"></rect>`,
+      );
       if (diag) {
         // inset ring marking the agreement diagonal
-        p.push(`<rect x="${cx + 2.5}" y="${cy + 2.5}" width="${cell - 5}" height="${cell - 5}" fill="none" stroke="#1F6F6B" stroke-width="1.4"></rect>`);
+        p.push(
+          `<rect x="${cx + 2.5}" y="${cy + 2.5}" width="${cell - 5}" height="${cell - 5}" fill="none" stroke="#1F6F6B" stroke-width="1.4"></rect>`,
+        );
       }
-      p.push(`<text x="${cx + cell / 2}" y="${cy + cell / 2}" text-anchor="middle" dominant-baseline="central" class="conf-count" fill="${textFill}">${count}</text>`);
+      p.push(
+        `<text x="${cx + cell / 2}" y="${cy + cell / 2}" text-anchor="middle" dominant-baseline="central" class="conf-count" fill="${textFill}">${count}</text>`,
+      );
       p.push("</g>");
     }
   }
@@ -298,7 +368,9 @@ function confusionBlock(payload, idx, exploratoryFlag) {
   const total = matrix.flat().reduce((s, v) => s + (Number(v) || 0), 0);
   const parts = [];
   parts.push(`<section class="block block-chart block-confusion" data-level="${esc(level)}">`);
-  parts.push(`<h3 class="block-title">${esc(title)} <span class="mark" title="${esc(LEVEL_NAMES[level] ?? level)}">${mark}</span></h3>`);
+  parts.push(
+    `<h3 class="block-title">${esc(title)} <span class="mark" title="${esc(LEVEL_NAMES[level] ?? level)}">${mark}</span></h3>`,
+  );
   parts.push(confusionSvg({ labels, matrix, rowAxis, colAxis, keyPrefix: `conf:${idx}:` }));
   parts.push(`<p class="annot">n = ${total} · the teal ring marks the agreement diagonal.</p>`);
   parts.push(`<p class="hint">Click a cell to open its units</p>`);
@@ -315,8 +387,10 @@ function confusionPayloadOf(analysis, content) {
     return {
       title: content.title ?? "Confusion matrix",
       level: content.level ?? analysis?.level ?? "exploratory",
-      labels: cf.labels ?? [], matrix: cf.matrix,
-      rowAxis: cf.rowAxis ?? "Gold", colAxis: cf.colAxis ?? "Machine",
+      labels: cf.labels ?? [],
+      matrix: cf.matrix,
+      rowAxis: cf.rowAxis ?? "Gold",
+      colAxis: cf.colAxis ?? "Machine",
     };
   }
   const r = analysis?.results ?? {};
@@ -324,8 +398,10 @@ function confusionPayloadOf(analysis, content) {
     return {
       title: content?.title ?? `${r.outcome ? `${r.outcome} — ` : ""}confusion vs gold`,
       level: analysis.level ?? "exploratory",
-      labels: r.labels ?? [], matrix: r.confusion,
-      rowAxis: "Gold", colAxis: "Machine",
+      labels: r.labels ?? [],
+      matrix: r.confusion,
+      rowAxis: "Gold",
+      colAxis: "Machine",
     };
   }
   return null;
@@ -341,10 +417,14 @@ function chartBlock(analysis, content, idx, exploratoryFlag) {
   const mark = LEVEL_MARKS[level] ?? "◌";
   const parts = [];
   parts.push(`<section class="block block-chart" data-level="${esc(level)}">`);
-  parts.push(`<h3 class="block-title">${esc(title)} <span class="mark" title="${esc(LEVEL_NAMES[level] ?? level)}">${mark}</span></h3>`);
+  parts.push(
+    `<h3 class="block-title">${esc(title)} <span class="mark" title="${esc(LEVEL_NAMES[level] ?? level)}">${mark}</span></h3>`,
+  );
   parts.push(svgChart({ rows, level, idx }));
   if (diff && typeof diff.est === "number") {
-    parts.push(`<p class="annot">Δ ${esc(String(diff.a))} − ${esc(String(diff.b))} = ${fmt(diff.est, 3)} <span class="mark">${mark}</span>, 95% CI [${fmt(diff.ciLo, 3)}, ${fmt(diff.ciHi, 3)}]${diff.naive ? `; naive ${fmt(diff.naive.est, 3)}` : ""}</p>`);
+    parts.push(
+      `<p class="annot">Δ ${esc(String(diff.a))} − ${esc(String(diff.b))} = ${fmt(diff.est, 3)} <span class="mark">${mark}</span>, 95% CI [${fmt(diff.ciLo, 3)}, ${fmt(diff.ciHi, 3)}]${diff.naive ? `; naive ${fmt(diff.naive.est, 3)}` : ""}</p>`,
+    );
   }
   parts.push(`<p class="hint">Click a bar to open its evidence quotes</p>`);
   parts.push("</section>");
@@ -355,8 +435,11 @@ function tableBlock(analysis, content, exploratoryFlag) {
   if (content?.columns && content?.rows) {
     const parts = [`<section class="block block-table">`];
     if (content.title) parts.push(`<h3 class="block-title">${esc(content.title)}</h3>`);
-    parts.push(`<table class="data"><thead><tr>${content.columns.map((c) => `<th>${esc(c)}</th>`).join("")}</tr></thead><tbody>`);
-    for (const row of content.rows) parts.push(`<tr>${row.map((c) => `<td>${esc(c)}</td>`).join("")}</tr>`);
+    parts.push(
+      `<table class="data"><thead><tr>${content.columns.map((c) => `<th>${esc(c)}</th>`).join("")}</tr></thead><tbody>`,
+    );
+    for (const row of content.rows)
+      parts.push(`<tr>${row.map((c) => `<td>${esc(c)}</td>`).join("")}</tr>`);
     parts.push("</tbody></table></section>");
     return parts.join("\n");
   }
@@ -370,22 +453,34 @@ function tableBlock(analysis, content, exploratoryFlag) {
   const parts = [];
   parts.push(`<section class="block block-table" data-level="${esc(level)}">`);
   parts.push(`<h3 class="block-title">${esc(title)} <span class="mark">${mark}</span></h3>`);
-  parts.push(`<table class="data"><thead><tr><th>Group</th>${hasN ? "<th>n</th>" : ""}<th>${corrected ? "Corrected estimate" : "Estimate"}</th>${hasCi ? "<th>95% CI</th>" : ""}${hasNaive ? "<th>Uncorrected</th>" : ""}</tr></thead><tbody>`);
+  parts.push(
+    `<table class="data"><thead><tr><th>Group</th>${hasN ? "<th>n</th>" : ""}<th>${corrected ? "Corrected estimate" : "Estimate"}</th>${hasCi ? "<th>95% CI</th>" : ""}${hasNaive ? "<th>Uncorrected</th>" : ""}</tr></thead><tbody>`,
+  );
   for (const r of rows) {
-    parts.push(`<tr><td data-evidence="${esc(r.key)}" class="evident">${esc(r.label)}</td>` +
-      (hasN ? `<td>${r.n ?? ""}</td>` : "") +
-      `<td class="${corrected ? "num" : "num uncorrected"}">${fmt(r.value, 3)} <span class="mark">${mark}</span></td>` +
-      (hasCi ? `<td class="num">${typeof r.ciLo === "number" ? `[${fmt(r.ciLo, 2)}, ${fmt(r.ciHi, 2)}]` : ""}</td>` : "") +
-      (hasNaive ? `<td class="num uncorrected">${typeof r.naive === "number" ? fmt(r.naive, 3) : ""}</td>` : "") +
-      "</tr>");
+    parts.push(
+      `<tr><td data-evidence="${esc(r.key)}" class="evident">${esc(r.label)}</td>` +
+        (hasN ? `<td>${r.n ?? ""}</td>` : "") +
+        `<td class="${corrected ? "num" : "num uncorrected"}">${fmt(r.value, 3)} <span class="mark">${mark}</span></td>` +
+        (hasCi
+          ? `<td class="num">${typeof r.ciLo === "number" ? `[${fmt(r.ciLo, 2)}, ${fmt(r.ciHi, 2)}]` : ""}</td>`
+          : "") +
+        (hasNaive
+          ? `<td class="num uncorrected">${typeof r.naive === "number" ? fmt(r.naive, 3) : ""}</td>`
+          : "") +
+        "</tr>",
+    );
   }
   if (diff && typeof diff.est === "number") {
-    parts.push(`<tr class="diff-row"><td>Δ ${esc(String(diff.a))} − ${esc(String(diff.b))}</td>` +
-      (hasN ? "<td></td>" : "") +
-      `<td class="num">${fmt(diff.est, 3)} <span class="mark">${mark}</span></td>` +
-      (hasCi ? `<td class="num">[${fmt(diff.ciLo, 2)}, ${fmt(diff.ciHi, 2)}]</td>` : "") +
-      (hasNaive ? `<td class="num uncorrected">${diff.naive ? fmt(diff.naive.est, 3) : ""}</td>` : "") +
-      "</tr>");
+    parts.push(
+      `<tr class="diff-row"><td>Δ ${esc(String(diff.a))} − ${esc(String(diff.b))}</td>` +
+        (hasN ? "<td></td>" : "") +
+        `<td class="num">${fmt(diff.est, 3)} <span class="mark">${mark}</span></td>` +
+        (hasCi ? `<td class="num">[${fmt(diff.ciLo, 2)}, ${fmt(diff.ciHi, 2)}]</td>` : "") +
+        (hasNaive
+          ? `<td class="num uncorrected">${diff.naive ? fmt(diff.naive.est, 3) : ""}</td>`
+          : "") +
+        "</tr>",
+    );
   }
   parts.push("</tbody></table></section>");
   return parts.join("\n");
@@ -394,14 +489,23 @@ function tableBlock(analysis, content, exploratoryFlag) {
 // ------------------------------------------------------- prose-like blocks
 
 function textBlock(content) {
-  const paras = String(content).split(/\n{2,}/).map((t) => `<p>${esc(t.trim())}</p>`).join("\n");
+  const paras = String(content)
+    .split(/\n{2,}/)
+    .map((t) => `<p>${esc(t.trim())}</p>`)
+    .join("\n");
   return `<section class="block block-text">\n${paras}\n</section>`;
 }
 
 function quoteBlock(unit) {
-  const meta = unit.meta ? Object.entries(unit.meta).map(([k, v]) => `${esc(k)}: ${esc(v)}`).join(" · ") : "";
-  return `<section class="block block-quote">\n<blockquote class="quote"><p>${esc(unit.text)}</p>` +
-    `<footer>${esc(unit.id)}${meta ? ` · ${meta}` : ""}</footer></blockquote>\n</section>`;
+  const meta = unit.meta
+    ? Object.entries(unit.meta)
+        .map(([k, v]) => `${esc(k)}: ${esc(v)}`)
+        .join(" · ")
+    : "";
+  return (
+    `<section class="block block-quote">\n<blockquote class="quote"><p>${esc(unit.text)}</p>` +
+    `<footer>${esc(unit.id)}${meta ? ` · ${meta}` : ""}</footer></blockquote>\n</section>`
+  );
 }
 
 function inlineMd(text) {
@@ -429,7 +533,10 @@ function mdToHtml(md) {
         inTable = true;
       }
       if (/^\|[\s\-|:]+\|$/.test(t)) continue;
-      const cells = t.replace(/^\||\|$/g, "").split("|").map((c) => inlineMd(c.trim()));
+      const cells = t
+        .replace(/^\||\|$/g, "")
+        .split("|")
+        .map((c) => inlineMd(c.trim()));
       out.push(`<tr>${cells.map((c) => `<td>${c}</td>`).join("")}</tr>`);
       continue;
     }
@@ -505,9 +612,13 @@ table.md-table td{border-bottom:1px solid var(--rule);padding:.25rem .6rem;font-
 #evidence-close{background:none;border:1px solid var(--ink);border-radius:3px;font:inherit;font-size:.75rem;padding:.15rem .6rem;cursor:pointer}
 #evidence-body blockquote{font-family:"Fraunces",Georgia,serif;margin:0 0 1.1rem;padding-left:.9rem;border-left:3px solid var(--accent);white-space:pre-line}
 #evidence-body footer{font-family:"IBM Plex Mono",Consolas,monospace;font-size:.68rem;color:var(--muted);margin-top:.3rem}
-${withWatermark ? `
+${
+  withWatermark
+    ? `
 .watermark-band{position:sticky;top:0;z-index:50;background:repeating-linear-gradient(-45deg,#C75000 0 14px,#A84500 14px 28px);color:#FFF6EC;font-family:"IBM Plex Mono",Consolas,monospace;font-size:.78rem;letter-spacing:.12em;text-transform:uppercase;text-align:center;padding:.45rem .8rem}
-` : ""}
+`
+    : ""
+}
 @media print{
 body{background:#fff;font-size:11pt}
 #evidence-panel{display:none !important}
@@ -567,7 +678,8 @@ const DRILLDOWN_JS = `
 // ------------------------------------------------------------------ render
 
 export async function render(project, layout, { projectDir } = {}) {
-  if (!project || typeof project !== "object" || !project.id) fail("render requires a project object");
+  if (!project || typeof project !== "object" || !project.id)
+    fail("render requires a project object");
   if (!Array.isArray(layout)) fail("render requires layout to be an array of blocks");
   if (typeof projectDir !== "string" || !projectDir) fail("render requires options.projectDir");
 
@@ -576,7 +688,8 @@ export async function render(project, layout, { projectDir } = {}) {
     if (!b || typeof b !== "object" || !KINDS.has(b.kind)) {
       fail(`layout[${i}] has unknown kind`, { block: i, kind: b?.kind });
     }
-    if (b.kind === "text" && typeof b.content !== "string") fail(`layout[${i}] text block needs string content`, { block: i });
+    if (b.kind === "text" && typeof b.content !== "string")
+      fail(`layout[${i}] text block needs string content`, { block: i });
     if (b.kind !== "text" && b.ref === undefined && b.content === undefined) {
       fail(`layout[${i}] ${b.kind} block needs a ref or inline content`, { block: i });
     }
@@ -596,11 +709,23 @@ export async function render(project, layout, { projectDir } = {}) {
     }
     if (b.kind === "quote") {
       if (b.content !== undefined) {
-        blocksHtml.push(quoteBlock({ id: b.content.attribution ?? "quote", text: b.content.text ?? String(b.content), meta: null }));
+        blocksHtml.push(
+          quoteBlock({
+            id: b.content.attribution ?? "quote",
+            text: b.content.text ?? String(b.content),
+            meta: null,
+          }),
+        );
         continue;
       }
       const unit = unitsMap.get(b.ref);
-      if (!unit) throw new ConcordError("NOT_FOUND", `Unit '${b.ref}' not found in any corpus`, { unitId: b.ref }, { status: 404 });
+      if (!unit)
+        throw new ConcordError(
+          "NOT_FOUND",
+          `Unit '${b.ref}' not found in any corpus`,
+          { unitId: b.ref },
+          { status: 404 },
+        );
       blocksHtml.push(quoteBlock(unit));
       continue;
     }
@@ -611,9 +736,14 @@ export async function render(project, layout, { projectDir } = {}) {
       // export with {sideEffectFree: false}; the exports route uses
       // methods.generate directly.
       const sideEffectFree = b.sideEffectFree !== false;
-      const md = typeof b.content === "string"
-        ? b.content
-        : (await (sideEffectFree ? previewMethods : generateMethods)(project, b.ref, { projectDir })).markdown;
+      const md =
+        typeof b.content === "string"
+          ? b.content
+          : (
+              await (sideEffectFree ? previewMethods : generateMethods)(project, b.ref, {
+                projectDir,
+              })
+            ).markdown;
       blocksHtml.push(`<section class="block block-methods">\n${mdToHtml(md)}\n</section>`);
       continue;
     }
@@ -623,11 +753,20 @@ export async function render(project, layout, { projectDir } = {}) {
     // an inline confusion block carries its own per-cell evidence — register it
     // under the block's key prefix so the same drill-through opens its units
     if (b.kind === "chart" && b.content?.confusion?.evidence) {
-      await confusionEvidence(b.content, `conf:${i}:`, projectDir, unitsMap, outputsCache, evidence);
+      await confusionEvidence(
+        b.content,
+        `conf:${i}:`,
+        projectDir,
+        unitsMap,
+        outputsCache,
+        evidence,
+      );
     }
-    blocksHtml.push(b.kind === "chart"
-      ? chartBlock(analysis, b.content, i, exploratoryFlag)
-      : tableBlock(analysis, b.content, exploratoryFlag));
+    blocksHtml.push(
+      b.kind === "chart"
+        ? chartBlock(analysis, b.content, i, exploratoryFlag)
+        : tableBlock(analysis, b.content, exploratoryFlag),
+    );
   }
 
   const watermark = exploratoryFlag.any;
@@ -647,18 +786,24 @@ export async function render(project, layout, { projectDir } = {}) {
   html.push("</head>");
   html.push("<body>");
   if (watermark) {
-    html.push(`<div class="watermark-band">${LEVEL_MARKS.exploratory} EXPLORATORY — contains estimates with no human validation</div>`);
+    html.push(
+      `<div class="watermark-band">${LEVEL_MARKS.exploratory} EXPLORATORY — contains estimates with no human validation</div>`,
+    );
   }
   html.push('<header class="masthead">');
   html.push('<div class="kicker">Concord evidence report</div>');
   html.push(`<h1>${esc(project.name)}</h1>`);
-  html.push(`<div class="legend">Evidence ladder: ${legend}. Every number is a door: click bars and group cells for verbatim evidence.</div>`);
+  html.push(
+    `<div class="legend">Evidence ladder: ${legend}. Every number is a door: click bars and group cells for verbatim evidence.</div>`,
+  );
   html.push("</header>");
   html.push("<main>");
   html.push(blocksHtml.join("\n"));
   html.push("</main>");
   html.push('<aside id="evidence-panel" hidden>');
-  html.push('<div class="evidence-head"><strong id="evidence-title">Evidence</strong><button id="evidence-close" type="button">Close</button></div>');
+  html.push(
+    '<div class="evidence-head"><strong id="evidence-title">Evidence</strong><button id="evidence-close" type="button">Close</button></div>',
+  );
   html.push('<div id="evidence-body"></div>');
   html.push("</aside>");
   html.push(`<script type="application/json" id="concord-evidence">${evidenceJson}</script>`);

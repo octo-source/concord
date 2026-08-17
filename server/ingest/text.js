@@ -6,26 +6,71 @@ import { basename, extname } from "node:path";
 import { ConcordError } from "../core/errors.js";
 
 const BLOCK_TAGS = new Set([
-  "p", "div", "br", "li", "ul", "ol", "table", "tr", "td", "th",
-  "h1", "h2", "h3", "h4", "h5", "h6", "blockquote", "pre", "section",
-  "article", "header", "footer", "nav", "aside", "main", "figure",
-  "figcaption", "hr", "form", "fieldset", "address", "dt", "dd", "dl",
+  "p",
+  "div",
+  "br",
+  "li",
+  "ul",
+  "ol",
+  "table",
+  "tr",
+  "td",
+  "th",
+  "h1",
+  "h2",
+  "h3",
+  "h4",
+  "h5",
+  "h6",
+  "blockquote",
+  "pre",
+  "section",
+  "article",
+  "header",
+  "footer",
+  "nav",
+  "aside",
+  "main",
+  "figure",
+  "figcaption",
+  "hr",
+  "form",
+  "fieldset",
+  "address",
+  "dt",
+  "dd",
+  "dl",
 ]);
 
 const ENTITIES = {
-  amp: "&", lt: "<", gt: ">", quot: '"', apos: "'", nbsp: " ",
-  mdash: "—", ndash: "–", rsquo: "’", lsquo: "‘",
-  ldquo: "“", rdquo: "”", hellip: "…",
+  amp: "&",
+  lt: "<",
+  gt: ">",
+  quot: '"',
+  apos: "'",
+  nbsp: " ",
+  mdash: "—",
+  ndash: "–",
+  rsquo: "’",
+  lsquo: "‘",
+  ldquo: "“",
+  rdquo: "”",
+  hellip: "…",
 };
 
 function decodeEntities(s) {
   return s.replace(/&(#x?[0-9a-fA-F]+|[a-zA-Z]+);/g, (m, body) => {
     if (body[0] === "#") {
-      const code = body[1] === "x" || body[1] === "X" ? parseInt(body.slice(2), 16) : parseInt(body.slice(1), 10);
+      const code =
+        body[1] === "x" || body[1] === "X"
+          ? parseInt(body.slice(2), 16)
+          : parseInt(body.slice(1), 10);
       // Guard the code-point range: String.fromCodePoint throws a RangeError on
       // values above 0x10FFFF (e.g. malformed "&#x110000;"); emit the literal
       // source text instead of crashing the import.
-      return Number.isFinite(code) && code >= 0 && code <= 0x10ffff ? String.fromCodePoint(code) : m;
+      return Number.isFinite(code) && code >= 0 && code <= 0x10ffff
+        ? String.fromCodePoint(code)
+        : m;
     }
     return ENTITIES[body.toLowerCase()] ?? m;
   });
@@ -77,7 +122,12 @@ export function htmlToParas(html) {
   }
   return decodeEntities(out)
     .split(/\n[ \t]*\n+/)
-    .map((p) => p.replace(/[ \t]+/g, " ").replace(/ ?\n ?/g, "\n").trim())
+    .map((p) =>
+      p
+        .replace(/[ \t]+/g, " ")
+        .replace(/ ?\n ?/g, "\n")
+        .trim(),
+    )
     .filter((p) => p.length > 0);
 }
 

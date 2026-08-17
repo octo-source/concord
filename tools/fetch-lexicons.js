@@ -75,7 +75,7 @@ async function main() {
   mkdirSync(OUT_DIR, { recursive: true });
   writeFileSync(OUT_DIR + "vader.json", JSON.stringify(out, null, 1) + "\n", "utf8");
   console.log(
-    `Wrote server/lexicons/vader.json: ${count} terms (${skipped} malformed lines skipped, ${droppedNonWord} non-word entries dropped).`
+    `Wrote server/lexicons/vader.json: ${count} terms (${skipped} malformed lines skipped, ${droppedNonWord} non-word entries dropped).`,
   );
 }
 
@@ -83,7 +83,7 @@ main().catch((err) => {
   console.error(`VADER fetch FAILED: ${err.message}`);
   console.error(
     "No file written. Either re-run with network access, or author a clearly-labeled" +
-      ' fallback subset: {name: "VADER-mini (subset)", note: "fetch failed; starter subset", ...}.'
+      ' fallback subset: {name: "VADER-mini (subset)", note: "fetch failed; starter subset", ...}.',
   );
   process.exit(1);
 });

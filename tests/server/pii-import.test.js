@@ -62,7 +62,11 @@ async function call(method, p, body) {
   const res = await fetch(base + p, init);
   const text = await res.text();
   let json = null;
-  try { json = JSON.parse(text); } catch { /* non-JSON body */ }
+  try {
+    json = JSON.parse(text);
+  } catch {
+    /* non-JSON body */
+  }
   return { status: res.status, json, text };
 }
 
@@ -75,9 +79,14 @@ async function ok(method, p, body) {
 
 async function fail(method, p, body, status, code) {
   const r = await call(method, p, body);
-  assert.equal(r.status, status, `${method} ${p} expected ${status}, got ${r.status}: ${r.text?.slice(0, 300)}`);
+  assert.equal(
+    r.status,
+    status,
+    `${method} ${p} expected ${status}, got ${r.status}: ${r.text?.slice(0, 300)}`,
+  );
   assert.equal(r.json?.ok, false);
-  if (code) assert.equal(r.json.error.code, code, `expected error code ${code}, got ${r.json.error.code}`);
+  if (code)
+    assert.equal(r.json.error.code, code, `expected error code ${code}, got ${r.json.error.code}`);
   return r.json.error;
 }
 
@@ -86,7 +95,11 @@ async function upload(p, filename, content) {
   form.append("file", new Blob([content]), filename);
   const res = await fetch(base + p, { method: "POST", body: form });
   const json = JSON.parse(await res.text());
-  assert.equal(res.status, 200, `upload ${p} → ${res.status}: ${JSON.stringify(json).slice(0, 300)}`);
+  assert.equal(
+    res.status,
+    200,
+    `upload ${p} → ${res.status}: ${JSON.stringify(json).slice(0, 300)}`,
+  );
   assert.equal(json.ok, true);
   return json.data;
 }
@@ -101,18 +114,21 @@ const RAW_PHONE_2 = "(212) 555-0143";
 // 6 rows, 2 emails + 2 phone numbers; all lowercase prose so the capitalized-
 // bigram name heuristic stays quiet and the email/phone counts are exact.
 function makePiiCsv() {
-  return [
-    "respondent_id,dept,response",
-    `r0,ops,you can reach me directly at ${RAW_EMAIL} if the survey portal stays broken for the whole team`,
-    `r1,sales,my manager said to call ${RAW_PHONE} before friday because the onboarding paperwork never arrived`,
-    "r2,ops,the office is comfortable and the team is genuinely kind to everyone who joins the rotation",
-    `r3,sales,second inbox ${RAW_EMAIL_2} sits unread and the phone tree at ${RAW_PHONE_2} rings forever`,
-    "r4,ops,the deadline pressure is constant and nobody upstairs wants to hear about it this quarter",
-    "r5,sales,pay is fine but the commute eats two hours every day and the parking situation is hopeless",
-  ].join("\n") + "\n";
+  return (
+    [
+      "respondent_id,dept,response",
+      `r0,ops,you can reach me directly at ${RAW_EMAIL} if the survey portal stays broken for the whole team`,
+      `r1,sales,my manager said to call ${RAW_PHONE} before friday because the onboarding paperwork never arrived`,
+      "r2,ops,the office is comfortable and the team is genuinely kind to everyone who joins the rotation",
+      `r3,sales,second inbox ${RAW_EMAIL_2} sits unread and the phone tree at ${RAW_PHONE_2} rings forever`,
+      "r4,ops,the deadline pressure is constant and nobody upstairs wants to hear about it this quarter",
+      "r5,sales,pay is fine but the commute eats two hours every day and the parking situation is hopeless",
+    ].join("\n") + "\n"
+  );
 }
 
-const unitsFile = (slug, corpusId) => path.join(projectDir(slug), "corpora", corpusId, "units.ndjson");
+const unitsFile = (slug, corpusId) =>
+  path.join(projectDir(slug), "corpora", corpusId, "units.ndjson");
 const vaultFile = (slug, corpusId) => path.join(projectDir(slug), "vault", `${corpusId}.json`);
 
 // create a project, upload the fixture, confirm with the given pii mode
@@ -150,7 +166,10 @@ test("confirm without pii defaults to scan: counts surface, raw text persists, u
   assert.ok(raw.includes(RAW_PHONE), "scan leaves phone numbers on disk");
   const units = await readNdjson(unitsFile(slug, confirmed.corpusId));
   const emailUnit = units.find((u) => u.text.includes(RAW_EMAIL));
-  assert.ok(emailUnit?.flags?.pii?.includes("email"), `email unit flagged (got ${JSON.stringify(emailUnit?.flags)})`);
+  assert.ok(
+    emailUnit?.flags?.pii?.includes("email"),
+    `email unit flagged (got ${JSON.stringify(emailUnit?.flags)})`,
+  );
   const phoneUnit = units.find((u) => u.text.includes(RAW_PHONE));
   assert.ok(phoneUnit?.flags?.pii?.includes("phone"), "phone unit flagged");
   const cleanUnit = units.find((u) => u.text.includes("comfortable"));
@@ -193,7 +212,10 @@ test("pseudonymize: masked units persist, vault maps token→original at the pin
   const entry = Object.entries(vault.tokens).find(([, original]) => original === RAW_EMAIL);
   assert.ok(entry, `vault maps a token back to ${RAW_EMAIL}`);
   assert.match(entry[0], /^\[EMAIL_\d+\]$/);
-  assert.ok(units.some((u) => u.text.includes(entry[0])), "persisted text carries exactly the vault's token");
+  assert.ok(
+    units.some((u) => u.text.includes(entry[0])),
+    "persisted text carries exactly the vault's token",
+  );
 
   // corpus record carries pii.mode + counts
   const p = await ok("GET", `/api/projects/${slug}`);
@@ -220,8 +242,14 @@ test("pii off: no flags, no vault, response and corpus record say off", async ()
   const raw = await readFile(unitsFile(slug, confirmed.corpusId), "utf8");
   assert.ok(raw.includes(RAW_EMAIL), "off leaves text untouched");
   const units = await readNdjson(unitsFile(slug, confirmed.corpusId));
-  assert.ok(units.every((u) => u.flags?.pii === undefined), "no unit carries a pii flag in off mode");
-  await assert.rejects(access(path.join(projectDir(slug), "vault")), "off mode creates no vault dir");
+  assert.ok(
+    units.every((u) => u.flags?.pii === undefined),
+    "no unit carries a pii flag in off mode",
+  );
+  await assert.rejects(
+    access(path.join(projectDir(slug), "vault")),
+    "off mode creates no vault dir",
+  );
 
   const p = await ok("GET", `/api/projects/${slug}`);
   const corpus = p.corpora.find((c) => c.id === confirmed.corpusId);
@@ -232,12 +260,18 @@ test("unknown pii value → VALIDATION", async () => {
   const slug = "pii-bad";
   await ok("POST", "/api/projects", { name: `Project ${slug}`, slug });
   const up = await upload(`/api/projects/${slug}/import`, "pii-fixture.csv", makePiiCsv());
-  await fail("POST", `/api/projects/${slug}/import/confirm`, {
-    importId: up.importId,
-    mapping: { textColumn: "response" },
-    unitization: { scheme: "response" },
-    pii: "mask",
-  }, 400, "VALIDATION");
+  await fail(
+    "POST",
+    `/api/projects/${slug}/import/confirm`,
+    {
+      importId: up.importId,
+      mapping: { textColumn: "response" },
+      unitization: { scheme: "response" },
+      pii: "mask",
+    },
+    400,
+    "VALIDATION",
+  );
 });
 
 test("replication archive lists no vault/ member — the re-identification key stays local", async () => {
@@ -249,7 +283,12 @@ test("replication archive lists no vault/ member — the re-identification key s
   // (loadAnalysis falls back to project.analyses entries carrying a spec)
   await updateProject(slug, (p) => {
     p.analyses = p.analyses ?? [];
-    p.analyses.push({ id: "an_pin", spec: { corpusId: S.maskCorpus }, level: "exploratory", results: {} });
+    p.analyses.push({
+      id: "an_pin",
+      spec: { corpusId: S.maskCorpus },
+      level: "exploratory",
+      results: {},
+    });
   });
 
   const res = await fetch(`${base}/api/projects/${slug}/exports/replication?analyses=an_pin`);
@@ -278,12 +317,14 @@ const META_EMAIL = "meta.owner@example.net";
 const META_PHONE = "(212) 555-0143";
 
 function makeMetaPiiCsv() {
-  return [
-    "respondent_id,contact,response",
-    `m0,${META_EMAIL},the survey portal stayed broken for the whole team this quarter`,
-    `m1,${META_PHONE},my onboarding paperwork never arrived and nobody answered upstairs`,
-    "m2,,the office is comfortable and the team is genuinely kind to newcomers",
-  ].join("\n") + "\n";
+  return (
+    [
+      "respondent_id,contact,response",
+      `m0,${META_EMAIL},the survey portal stayed broken for the whole team this quarter`,
+      `m1,${META_PHONE},my onboarding paperwork never arrived and nobody answered upstairs`,
+      "m2,,the office is comfortable and the team is genuinely kind to newcomers",
+    ].join("\n") + "\n"
+  );
 }
 
 async function importMetaWith(slug, pii) {
@@ -301,13 +342,20 @@ test("scan counts identifiers riding metadata columns", async () => {
   const slug = "pii-meta-scan";
   const confirmed = await importMetaWith(slug, undefined); // default scan
   assert.equal(confirmed.pii?.mode, "scan");
-  assert.equal(confirmed.pii.counts.email, 1, `meta email counted: ${JSON.stringify(confirmed.pii.counts)}`);
+  assert.equal(
+    confirmed.pii.counts.email,
+    1,
+    `meta email counted: ${JSON.stringify(confirmed.pii.counts)}`,
+  );
   assert.equal(confirmed.pii.counts.phone, 1);
 
   const units = await readNdjson(unitsFile(slug, confirmed.corpusId));
   const emailUnit = units.find((u) => u.meta?.contact === META_EMAIL);
   assert.ok(emailUnit, "scan leaves the metadata value in place");
-  assert.ok(emailUnit.flags?.pii?.includes("email"), `unit flagged for its meta email (got ${JSON.stringify(emailUnit.flags)})`);
+  assert.ok(
+    emailUnit.flags?.pii?.includes("email"),
+    `unit flagged for its meta email (got ${JSON.stringify(emailUnit.flags)})`,
+  );
 });
 
 test("pseudonymize masks metadata column values — tokens persist, vault maps them back", async () => {
@@ -322,11 +370,18 @@ test("pseudonymize masks metadata column values — tokens persist, vault maps t
   assert.ok(!raw.includes(META_PHONE), "raw metadata phone never reaches disk");
   const units = await readNdjson(unitsFile(slug, confirmed.corpusId));
   const masked = units.find((u) => /^\[EMAIL_\d+\]$/.test(u.meta?.contact ?? ""));
-  assert.ok(masked, `a unit's contact column carries a token (got ${JSON.stringify(units.map((u) => u.meta?.contact))})`);
+  assert.ok(
+    masked,
+    `a unit's contact column carries a token (got ${JSON.stringify(units.map((u) => u.meta?.contact))})`,
+  );
   assert.ok(masked.flags?.pii?.includes("email"));
 
   const vault = JSON.parse(await readFile(vaultFile(slug, confirmed.corpusId), "utf8"));
-  assert.equal(vault.tokens[masked.meta.contact], META_EMAIL, "vault maps the meta token back to the original");
+  assert.equal(
+    vault.tokens[masked.meta.contact],
+    META_EMAIL,
+    "vault maps the meta token back to the original",
+  );
 
   S.metaMaskSlug = slug;
   S.metaMaskCorpus = confirmed.corpusId;
@@ -337,13 +392,21 @@ test("replication units CSV exports masked metadata — tokens, never raw identi
   assert.ok(slug, "meta pseudonymize test ran first");
   await updateProject(slug, (p) => {
     p.analyses = p.analyses ?? [];
-    p.analyses.push({ id: "an_meta", spec: { corpusId: S.metaMaskCorpus }, level: "exploratory", results: {} });
+    p.analyses.push({
+      id: "an_meta",
+      spec: { corpusId: S.metaMaskCorpus },
+      level: "exploratory",
+      results: {},
+    });
   });
   const res = await fetch(`${base}/api/projects/${slug}/exports/replication?analyses=an_meta`);
   assert.equal(res.status, 200, `replication export → ${res.status}`);
   const files = unzipSync(new Uint8Array(await res.arrayBuffer()));
   const csv = strFromU8(files[`units/${S.metaMaskCorpus}.csv`]);
-  assert.ok(csv.includes("meta_contact"), `units CSV still carries the contact column: ${csv.split("\n")[0]}`);
+  assert.ok(
+    csv.includes("meta_contact"),
+    `units CSV still carries the contact column: ${csv.split("\n")[0]}`,
+  );
   assert.ok(!csv.includes(META_EMAIL), "raw email must not leak through the units CSV");
   assert.ok(!csv.includes(META_PHONE), "raw phone must not leak through the units CSV");
   assert.match(csv, /\[EMAIL_\d+\]/, "the masked token rides in the export instead");

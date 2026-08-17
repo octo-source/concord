@@ -57,7 +57,7 @@ export function createStore(initial = {}) {
     if (subPath === changedPath || subPath === "" || changedPath === "") return true;
     return (
       subPath.startsWith(changedPath + ".") || // ancestor replaced wholesale
-      changedPath.startsWith(subPath + ".")    // descendant changed
+      changedPath.startsWith(subPath + ".") // descendant changed
     );
   }
 
@@ -80,16 +80,16 @@ export function createStore(initial = {}) {
 
 // the app store, with the shell's resting shape
 export const store = createStore({
-  project: null,        // full project graph once one is open
-  projects: [],         // summaries for the switcher
+  project: null, // full project graph once one is open
+  projects: [], // summaries for the switcher
   ui: {
-    theme: "auto",      // "auto" | "light" | "dark"
+    theme: "auto", // "auto" | "light" | "dark"
     inspectorOpen: false,
     fullbleed: false,
     route: null,
-    serverOk: null,     // null = unknown, true/false after health ping
-    costUSD: 0,         // running session cost (chip in the top bar)
-    privacyMode: null,  // mirrors project.privacyMode for the chip
+    serverOk: null, // null = unknown, true/false after health ping
+    costUSD: 0, // running session cost (chip in the top bar)
+    privacyMode: null, // mirrors project.privacyMode for the chip
   },
 });
 

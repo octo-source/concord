@@ -39,7 +39,9 @@ const truncate = (text, max = 700) => {
 
 export function renderUnit(u, { maxChars = 700 } = {}) {
   const metaEntries = Object.entries(u.meta ?? {}).slice(0, 6);
-  const meta = metaEntries.length ? ` (${metaEntries.map(([k, v]) => `${k}=${v}`).join(", ")})` : "";
+  const meta = metaEntries.length
+    ? ` (${metaEntries.map(([k, v]) => `${k}=${v}`).join(", ")})`
+    : "";
   return `--- unit ${u.id}${meta} ---\n${truncate(u.text, maxChars)}`;
 }
 
@@ -106,7 +108,11 @@ export function judgeResponseSchema(construct) {
     case "ordinal": {
       const options = enumOf();
       if (!options) {
-        throw new ConcordError("VALIDATION", `construct "${construct.name}" is ${construct.type} but declares no categories`, { constructId: construct.id });
+        throw new ConcordError(
+          "VALIDATION",
+          `construct "${construct.name}" is ${construct.type} but declares no categories`,
+          { constructId: construct.id },
+        );
       }
       label = { type: "string", enum: options };
       break;
@@ -114,19 +120,29 @@ export function judgeResponseSchema(construct) {
     case "multilabel": {
       const options = enumOf();
       if (!options) {
-        throw new ConcordError("VALIDATION", `construct "${construct.name}" is multilabel but declares no categories`, { constructId: construct.id });
+        throw new ConcordError(
+          "VALIDATION",
+          `construct "${construct.name}" is multilabel but declares no categories`,
+          { constructId: construct.id },
+        );
       }
       label = { type: "array", items: { type: "string", enum: options } };
       break;
     }
     case "continuous":
-      label = { type: "number", minimum: construct.scale?.min ?? 0, maximum: construct.scale?.max ?? 100 };
+      label = {
+        type: "number",
+        minimum: construct.scale?.min ?? 0,
+        maximum: construct.scale?.max ?? 100,
+      };
       break;
     case "extraction":
       label = { type: "array", items: { type: "string" } };
       break;
     default:
-      throw new ConcordError("VALIDATION", `unknown construct type "${construct.type}"`, { type: construct.type });
+      throw new ConcordError("VALIDATION", `unknown construct type "${construct.type}"`, {
+        type: construct.type,
+      });
   }
   properties.label = label;
   properties.confidence = { type: "number", minimum: 0, maximum: 1 };
@@ -189,7 +205,10 @@ export const BRIEF_SCHEMA = {
         additionalProperties: false,
         required: ["kind", "detail", "refs"],
         properties: {
-          kind: { type: "string", enum: ["duplicates", "bots", "pii", "junk", "language", "coverage", "other"] },
+          kind: {
+            type: "string",
+            enum: ["duplicates", "bots", "pii", "junk", "language", "coverage", "other"],
+          },
           detail: { type: "string" },
           refs: { type: "array", items: { type: "string" } },
         },
@@ -300,7 +319,7 @@ const CODEBOOK_CRAFT_BASE =
 const CODEBOOK_CRAFT =
   `${CODEBOOK_CRAFT_BASE}\n` +
   "- WORKED EXAMPLES: choose them ONLY from the sample units supplied in this message, quoting the text verbatim (you may trim, never alter words). " +
-  "For each construct aim for one positive, one negative, and one near-miss (kind: \"nearmiss\") — the near-miss is the most instructive: " +
+  'For each construct aim for one positive, one negative, and one near-miss (kind: "nearmiss") — the near-miss is the most instructive: ' +
   "something that looks codable but is excluded, with the label it actually deserves.";
 
 const CODEBOOK_CRAFT_IMPORT =
@@ -308,7 +327,11 @@ const CODEBOOK_CRAFT_IMPORT =
   "- WORKED EXAMPLES: carry over the document's own examples verbatim with your best-judgment labels and kinds; " +
   "where the document supplies none, leave examples empty — never invent any.";
 
-export function constructDraftPrompt({ themesOrQuestion, sampleUnits, existingConstructNames = [] }) {
+export function constructDraftPrompt({
+  themesOrQuestion,
+  sampleUnits,
+  existingConstructNames = [],
+}) {
   const system =
     `${DIRECTOR_PREAMBLE}\n\n` +
     "For this task you are drafting formal codebook entries (constructs) that human coders and model judges will both apply. " +
@@ -318,7 +341,9 @@ export function constructDraftPrompt({ themesOrQuestion, sampleUnits, existingCo
     : `Draft the construct(s) needed to answer this research question:\n"${themesOrQuestion}"`;
   const user =
     `${source}\n\n` +
-    (existingConstructNames.length ? `Constructs that already exist (do not duplicate them): ${existingConstructNames.join(", ")}.\n\n` : "") +
+    (existingConstructNames.length
+      ? `Constructs that already exist (do not duplicate them): ${existingConstructNames.join(", ")}.\n\n`
+      : "") +
     `${CODEBOOK_CRAFT}\n\n` +
     "Worked examples must be mined verbatim from these sample units — never invented, never edited beyond trimming:\n\n" +
     `${renderUnits(sampleUnits)}`;
@@ -453,7 +478,12 @@ export function compilePrompt(construct, workerClass) {
 
 // ------------------------------------------------ confusion-driven rewrite
 
-export function confusionRewritePrompt({ construct, currentTemplate, confusionSummary, agreement }) {
+export function confusionRewritePrompt({
+  construct,
+  currentTemplate,
+  confusionSummary,
+  agreement,
+}) {
   const system =
     `${DIRECTOR_PREAMBLE}\n\n` +
     "For this task you are revising a worker's prompt template after watching it disagree with your own silver labels. " +
@@ -512,7 +542,14 @@ export function escalationPrompt({ construct, unit, output }) {
 
 // ----------------------------------------------------------- panel design
 
-export const AGGREGATIONS = ["majority", "mean", "median", "unanimityOrFlag", "confidenceWeighted", "reliabilityWeighted"];
+export const AGGREGATIONS = [
+  "majority",
+  "mean",
+  "median",
+  "unanimityOrFlag",
+  "confidenceWeighted",
+  "reliabilityWeighted",
+];
 
 export const PANEL_SCHEMA = {
   type: "object",
@@ -545,15 +582,20 @@ export function panelPrompt({ construct, candidates, budgetUSDper1k, privacyMode
     "For this task you are designing a judging panel: 3-5 worker models whose aggregated judgments measure one construct. " +
     "Disagreement between independent jurors is signal, so independence is the design constraint that cannot be traded away.";
   const candidateLines = candidates
-    .map((c) => `- provider=${c.provider} model=${c.id} family=${c.family} ` +
-      `in=$${c.pricing.inUSDper1M}/1M out=$${c.pricing.outUSDper1M}/1M (~$${c.estPer1kUSD} per 1k units)`)
+    .map(
+      (c) =>
+        `- provider=${c.provider} model=${c.id} family=${c.family} ` +
+        `in=$${c.pricing.inUSDper1M}/1M out=$${c.pricing.outUSDper1M}/1M (~$${c.estPer1kUSD} per 1k units)`,
+    )
     .join("\n");
   const user =
     `Recommend a panel for this construct:\n\n${codebookBlock(construct)}\n\n` +
     `AVAILABLE MODELS (the project's privacy mode is "${privacyMode}"; this list is already filtered to what that mode permits — ` +
     "choose ONLY from it):\n" +
     `${candidateLines}\n\n` +
-    (budgetUSDper1k != null ? `Budget guidance: aim at or under ~$${budgetUSDper1k} per 1,000 units across all jurors combined.\n\n` : "") +
+    (budgetUSDper1k != null
+      ? `Budget guidance: aim at or under ~$${budgetUSDper1k} per 1,000 units across all jurors combined.\n\n`
+      : "") +
     "Hard requirements:\n" +
     "- 3 to 5 jurors, every one from a DIFFERENT model family (the family field above) — same-family models share failure modes and fake consensus.\n" +
     "- Match worker class to model capability: frontier models get lean prompts, small models get heavy scaffolding (workerClass per juror).\n" +
@@ -607,12 +649,21 @@ export const ANALYST_SCHEMA = {
   },
 };
 
-export function analystPrompt({ construct, run, labelDist, metaColumns, outputsSample, unitsById }) {
+export function analystPrompt({
+  construct,
+  run,
+  labelDist,
+  metaColumns,
+  outputsSample,
+  unitsById,
+}) {
   const system =
     `${DIRECTOR_PREAMBLE}\n\n` +
     "For this task you are suggesting next analyses after a completed run. Every suggestion is dismissible and must earn its click: " +
     "propose only what the label distribution and metadata in front of you make genuinely interesting, and anchor each suggestion in real coded units.";
-  const distLines = Object.entries(labelDist).map(([l, n]) => `- ${l}: ${n}`).join("\n");
+  const distLines = Object.entries(labelDist)
+    .map(([l, n]) => `- ${l}: ${n}`)
+    .join("\n");
   const sampleLines = outputsSample
     .slice(0, 30)
     .map((o) => {
@@ -672,14 +723,24 @@ export const QUESTION_PLAN_SCHEMA = {
   },
 };
 
-export function questionPrompt({ question, corpusName, unitCount, sampleUnits, metaColumns, candidates }) {
+export function questionPrompt({
+  question,
+  corpusName,
+  unitCount,
+  sampleUnits,
+  metaColumns,
+  candidates,
+}) {
   const system =
     `${DIRECTOR_PREAMBLE}\n\n` +
     "For this task you are compiling a plain-language research question into a visible, editable measurement plan: " +
     "which construct(s) to measure, which worker model codes each, and which analysis answers the question. " +
     "You are a compiler, not an oracle: you produce the plan that WOULD answer the question, never the answer itself.";
   const candidateLines = candidates
-    .map((c) => `- provider=${c.provider} model=${c.id} family=${c.family} in=$${c.pricing.inUSDper1M}/1M out=$${c.pricing.outUSDper1M}/1M`)
+    .map(
+      (c) =>
+        `- provider=${c.provider} model=${c.id} family=${c.family} in=$${c.pricing.inUSDper1M}/1M out=$${c.pricing.outUSDper1M}/1M`,
+    )
     .join("\n");
   const user =
     `The researcher asked:\n"${question}"\n\n` +
@@ -746,8 +807,7 @@ export function dictionarySeedPrompt({ construct, sampleUnits }) {
 const CLASS_TEMPLATE_HEAD = {
   frontier:
     "You are coding one unit of text against a formal codebook. Apply the codebook as written; where it is silent, choose the reading a careful human coder would defend.",
-  mid:
-    "You are coding one unit of text against a formal codebook. Procedure: read the unit; check every include criterion; check every exclude criterion; study the worked examples; decide.",
+  mid: "You are coding one unit of text against a formal codebook. Procedure: read the unit; check every include criterion; check every exclude criterion; study the worked examples; decide.",
   small:
     "Code one unit of text using the codebook below. Follow the criteria exactly. Imitate the worked examples. Do not guess beyond the text.",
 };
@@ -757,7 +817,10 @@ const CLASS_TEMPLATE_HEAD = {
 // the compiler's structural baseline. Contains all four slots.
 export function defaultTemplate(workerClass) {
   if (!WORKER_CLASSES.includes(workerClass)) {
-    throw new ConcordError("VALIDATION", `unknown workerClass "${workerClass}"`, { workerClass, known: WORKER_CLASSES });
+    throw new ConcordError("VALIDATION", `unknown workerClass "${workerClass}"`, {
+      workerClass,
+      known: WORKER_CLASSES,
+    });
   }
   const parts = [
     CLASS_TEMPLATE_HEAD[workerClass],

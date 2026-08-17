@@ -37,12 +37,32 @@ export const N_ROWS = 2500;
 // ------------------------------------------------------------- demographics
 
 const DEPTS = [
-  ["Engineering", 0.30], ["Sales", 0.20], ["Operations", 0.16],
-  ["Support", 0.14], ["Marketing", 0.10], ["People", 0.10],
+  ["Engineering", 0.3],
+  ["Sales", 0.2],
+  ["Operations", 0.16],
+  ["Support", 0.14],
+  ["Marketing", 0.1],
+  ["People", 0.1],
 ];
-const ROLES = [["IC", 0.62], ["Lead", 0.16], ["Manager", 0.15], ["Director", 0.07]];
-const REGIONS = [["NA", 0.45], ["EMEA", 0.25], ["APAC", 0.20], ["LATAM", 0.10]];
-const SATISFACTION = [[1, 0.12], [2, 0.22], [3, 0.28], [4, 0.24], [5, 0.14]];
+const ROLES = [
+  ["IC", 0.62],
+  ["Lead", 0.16],
+  ["Manager", 0.15],
+  ["Director", 0.07],
+];
+const REGIONS = [
+  ["NA", 0.45],
+  ["EMEA", 0.25],
+  ["APAC", 0.2],
+  ["LATAM", 0.1],
+];
+const SATISFACTION = [
+  [1, 0.12],
+  [2, 0.22],
+  [3, 0.28],
+  [4, 0.24],
+  [5, 0.14],
+];
 
 function pickWeighted(rand, pairs) {
   let r = rand();
@@ -76,7 +96,7 @@ const THEME_PROBS = {
   // E = 0.235 + 0.15·P(Sales=0.20) + 0.08·P(sat≤2=0.34) ≈ 0.292 pre-dirt
   pay: (m) => 0.235 + (m.dept === "Sales" ? 0.15 : 0) + (m.satisfaction <= 2 ? 0.08 : 0),
   // E = 0.20 + 0.15·P(Ops=0.16) + 0.02·P(sat≤2=0.34) ≈ 0.231 (≈0.225 after dirt)
-  management: (m) => 0.20 + (m.dept === "Operations" ? 0.15 : 0) + (m.satisfaction <= 2 ? 0.02 : 0),
+  management: (m) => 0.2 + (m.dept === "Operations" ? 0.15 : 0) + (m.satisfaction <= 2 ? 0.02 : 0),
   // E = 0.195 + 0.115·P(tenure<2≈0.35) ≈ 0.235 pre-dirt
   workload: (m) => 0.195 + (m.tenure_years < 2 ? 0.115 : 0),
   // E = 0.13 + 0.08·P(IC=0.62) ≈ 0.180
@@ -90,7 +110,12 @@ const THEME_PROBS = {
 const quitIntentProb = (m) => (m.satisfaction <= 2 ? 0.42 : 0.04);
 
 export const THEME_TARGETS = {
-  pay: 0.28, management: 0.22, workload: 0.25, growth: 0.18, remote: 0.12, quitRegret: 0.06,
+  pay: 0.28,
+  management: 0.22,
+  workload: 0.25,
+  growth: 0.18,
+  remote: 0.12,
+  quitRegret: 0.06,
 };
 const THEME_NAMES = ["pay", "management", "workload", "growth", "remote", "quitRegret"];
 const ALL_FLAGS = [...THEME_NAMES, "quitIntent"];
@@ -685,7 +710,16 @@ export function generate({ n = N_ROWS, seed = SEED } = {}) {
 
 // ------------------------------------------------------------- CSV writer
 
-const COLUMNS = ["respondent_id", "dept", "tenure_years", "role_level", "region", "exit_date", "satisfaction", "response"];
+const COLUMNS = [
+  "respondent_id",
+  "dept",
+  "tenure_years",
+  "role_level",
+  "region",
+  "exit_date",
+  "satisfaction",
+  "response",
+];
 
 function csvField(v) {
   const s = String(v);
@@ -716,11 +750,15 @@ function main() {
   };
   writeFileSync(path.join(here, "techcorp-exit-survey.csv"), csv, "utf8");
   writeFileSync(path.join(here, "oracle.json"), JSON.stringify(oracleDoc, null, 1) + "\n", "utf8");
-  console.log(`wrote demo/techcorp-exit-survey.csv (${rows.length} rows, ${(csv.length / 1024).toFixed(0)} KB)`);
+  console.log(
+    `wrote demo/techcorp-exit-survey.csv (${rows.length} rows, ${(csv.length / 1024).toFixed(0)} KB)`,
+  );
   console.log(`wrote demo/oracle.json`);
   console.log("realized theme rates vs targets:");
   for (const [f, s] of Object.entries(stats.themes)) {
-    console.log(`  ${f.padEnd(11)} realized ${s.realized.toFixed(4)}${s.target !== undefined ? `  (target ${s.target})` : ""}`);
+    console.log(
+      `  ${f.padEnd(11)} realized ${s.realized.toFixed(4)}${s.target !== undefined ? `  (target ${s.target})` : ""}`,
+    );
   }
   console.log(`dirt: junk=${stats.junkRows} bot=${stats.botRows} spanish≈${stats.spanishRows}`);
 }

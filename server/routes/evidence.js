@@ -23,11 +23,13 @@ export default [
       const found = await unitsById(project, [params.unitId], corpusId ? { corpusId } : {});
       const unit = found.get(params.unitId);
       if (!unit) {
-        throw new ConcordError("NOT_FOUND",
+        throw new ConcordError(
+          "NOT_FOUND",
           corpusId
             ? `unit '${params.unitId}' not found in corpus '${corpusId}'`
             : `unit '${params.unitId}' not found in any corpus`,
-          { unitId: params.unitId, ...(corpusId ? { corpusId } : {}) });
+          { unitId: params.unitId, ...(corpusId ? { corpusId } : {}) },
+        );
       }
 
       // dictionary hits per dictionary instrument (highlight spans)
@@ -40,7 +42,9 @@ export default [
             versionHash: inst.versionHash,
             hits: dictHits(unit, inst.payload),
           });
-        } catch { /* malformed payload → skip, never block the dossier */ }
+        } catch {
+          /* malformed payload → skip, never block the dossier */
+        }
       }
 
       // outputs grouped by run

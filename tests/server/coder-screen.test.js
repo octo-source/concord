@@ -62,7 +62,11 @@ async function call(method, url, body) {
   const res = await fetch(url, init);
   const text = await res.text();
   let json = null;
-  try { json = JSON.parse(text); } catch { /* non-JSON (static files) */ }
+  try {
+    json = JSON.parse(text);
+  } catch {
+    /* non-JSON (static files) */
+  }
   return { status: res.status, json, text, type: res.headers.get("content-type") ?? "" };
 }
 
@@ -78,16 +82,21 @@ async function upload(p, filename, content) {
   form.append("file", new Blob([content]), filename);
   const res = await fetch(base + p, { method: "POST", body: form });
   const json = JSON.parse(await res.text());
-  assert.equal(res.status, 200, `upload ${p} → ${res.status}: ${JSON.stringify(json).slice(0, 300)}`);
+  assert.equal(
+    res.status,
+    200,
+    `upload ${p} → ${res.status}: ${JSON.stringify(json).slice(0, 300)}`,
+  );
   return json.data;
 }
 
 function makeCsv(n = 30) {
   const lines = ["respondent_id,response"];
   for (let i = 0; i < n; i++) {
-    const text = i % 2 === 0
-      ? `the salary is too low for this work and it never improves around here (${i})`
-      : `the office is comfortable and the team is genuinely kind to everyone (${i})`;
+    const text =
+      i % 2 === 0
+        ? `the salary is too low for this work and it never improves around here (${i})`
+        : `the office is comfortable and the team is genuinely kind to everyone (${i})`;
     lines.push(`r${i},${text}`);
   }
   return lines.join("\n") + "\n";
@@ -110,7 +119,9 @@ function rawGet(port, pathname, hostHeader) {
       { host: "127.0.0.1", port, path: pathname, method: "GET", headers: { host: hostHeader } },
       (res) => {
         let body = "";
-        res.on("data", (c) => { body += c; });
+        res.on("data", (c) => {
+          body += c;
+        });
         res.on("end", () => resolve({ status: res.statusCode, body }));
       },
     );
@@ -126,9 +137,9 @@ const S = {
   corpusId: null,
   constructId: null,
   gsId: null,
-  units: [],       // sampled unitIds in order
+  units: [], // sampled unitIds in order
   listenerUrl: null, // base of pat's listener (no path)
-  toClose: [],     // listener handles to close in after()
+  toClose: [], // listener handles to close in after()
 };
 
 const G = (rest = "") => `/api/projects/${S.slug}/goldsets${rest}`;
@@ -152,10 +163,16 @@ test("setup: project + corpus + construct + sampled gold set, with planted unbli
     name: "Pay complaint",
     type: "binary",
     definition: "The unit complains about compensation level or fairness.",
-    criteria: { include: ["names compensation as a problem"], exclude: ["benefits-only complaints"] },
+    criteria: {
+      include: ["names compensation as a problem"],
+      exclude: ["benefits-only complaints"],
+    },
     edgeCases: ["sarcastic praise of pay counts as a complaint"],
     examples: [{ text: "What they pay us is insulting.", label: "yes", kind: "positive" }],
-    categories: [{ value: "yes", label: "Yes" }, { value: "no", label: "No" }],
+    categories: [
+      { value: "yes", label: "Yes" },
+      { value: "no", label: "No" },
+    ],
   });
   S.constructId = construct.id;
 
@@ -177,7 +194,10 @@ test("setup: project + corpus + construct + sampled gold set, with planted unbli
 test("coder session: the URL points at /coder.html?coder=<id>; the listener serves the page and its module, which drives /api/coder/*", async () => {
   const session = await ok("POST", G(`/${S.gsId}/coder-session`), { coderId: "pat" });
   assert.ok(session.url.startsWith("http://127.0.0.1:"), `localhost url (got ${session.url})`);
-  assert.ok(session.url.endsWith("/coder.html?coder=pat"), `session url is the coding page (got ${session.url})`);
+  assert.ok(
+    session.url.endsWith("/coder.html?coder=pat"),
+    `session url is the coding page (got ${session.url})`,
+  );
   S.listenerUrl = `http://127.0.0.1:${session.port}`;
 
   const page = await call("GET", `${S.listenerUrl}/coder.html`);
@@ -185,7 +205,11 @@ test("coder session: the URL points at /coder.html?coder=<id>; the listener serv
   assert.match(page.type, /text\/html/);
   assert.match(page.text, /js\/coder\.js/, "the page loads its module with a relative path");
   assert.ok(!/src="\/js\/coder\.js"/.test(page.text), "module path is relative, not absolute");
-  assert.match(page.text.toLowerCase(), /you cannot see other coders/, "the page states the blind contract");
+  assert.match(
+    page.text.toLowerCase(),
+    /you cannot see other coders/,
+    "the page states the blind contract",
+  );
 
   const mod = await call("GET", `${S.listenerUrl}/js/coder.js`);
   assert.equal(mod.status, 200, `GET /js/coder.js → ${mod.status}`);
@@ -203,18 +227,48 @@ test("listener API: /api/coder/next is blind for the bound coder; /api/projects/
   assert.equal(r.status, 200, r.text?.slice(0, 300));
   assert.equal(r.json?.ok, true);
   const data = r.json.data;
-  assert.deepEqual(Object.keys(data).sort(), ["construct", "progress", "unit"], "lean one-unit contract");
-  assert.deepEqual(Object.keys(data.unit).sort(), ["id", "pos", "text"], "unit is id/text/pos only");
-  assert.equal(data.unit.id, S.units[0], "pat starts at the first sampled unit despite rival's progress");
+  assert.deepEqual(
+    Object.keys(data).sort(),
+    ["construct", "progress", "unit"],
+    "lean one-unit contract",
+  );
+  assert.deepEqual(
+    Object.keys(data.unit).sort(),
+    ["id", "pos", "text"],
+    "unit is id/text/pos only",
+  );
+  assert.equal(
+    data.unit.id,
+    S.units[0],
+    "pat starts at the first sampled unit despite rival's progress",
+  );
   assert.equal(data.progress.coderId, "pat");
-  assert.deepEqual(data.construct.categories.map((c) => c.value), ["yes", "no"]);
-  for (const marker of ['"juror"', '"machine', '"adjudicated"', '"labels"', '"rationale"', '"confidence"', "rival"]) {
-    assert.ok(!r.text.includes(marker), `blind payload must not contain ${marker}: ${r.text.slice(0, 400)}`);
+  assert.deepEqual(
+    data.construct.categories.map((c) => c.value),
+    ["yes", "no"],
+  );
+  for (const marker of [
+    '"juror"',
+    '"machine',
+    '"adjudicated"',
+    '"labels"',
+    '"rationale"',
+    '"confidence"',
+    "rival",
+  ]) {
+    assert.ok(
+      !r.text.includes(marker),
+      `blind payload must not contain ${marker}: ${r.text.slice(0, 400)}`,
+    );
   }
 
   for (const p of ["/api/projects", `/api/projects/${S.slug}/goldsets/${S.gsId}`, "/api/health"]) {
     const blocked = await call("GET", `${S.listenerUrl}${p}`);
-    assert.equal(blocked.status, 404, `${p} must not exist on the coder listener (got ${blocked.status})`);
+    assert.equal(
+      blocked.status,
+      404,
+      `${p} must not exist on the coder listener (got ${blocked.status})`,
+    );
   }
 });
 
@@ -224,7 +278,10 @@ test("listener API: /api/coder/next is blind for the bound coder; /api/projects/
 
 test("label through the listener: lands in the gold set under the bound coder; a body-supplied coder id is ignored", async () => {
   const r = await call("POST", `${S.listenerUrl}/api/coder/label`, {
-    unitId: S.units[0], label: "no", memo: "borderline", flag: true,
+    unitId: S.units[0],
+    label: "no",
+    memo: "borderline",
+    flag: true,
     coder: "intruder", // must be ignored — the listener binds pat
   });
   assert.equal(r.status, 200, r.text?.slice(0, 300));
@@ -236,7 +293,10 @@ test("label through the listener: lands in the gold set under the bound coder; a
   assert.equal(pat.labels[S.units[0]], "no");
   assert.equal(pat.memos[S.units[0]], "borderline");
   assert.ok(pat.flagged.includes(S.units[0]));
-  assert.ok(!(artifact.coders ?? []).some((c) => c.coderId === "intruder"), "the body's coder id never becomes a coder");
+  assert.ok(
+    !(artifact.coders ?? []).some((c) => c.coderId === "intruder"),
+    "the body's coder id never becomes a coder",
+  );
 
   const next = await call("GET", `${S.listenerUrl}/api/coder/next`);
   assert.equal(next.json.data.progress.done, 1);
@@ -270,12 +330,19 @@ test("host opt-in: {host: '0.0.0.0'} binds all interfaces, answers LAN-addressed
   // a LAN client addresses the machine by its LAN ip — the shared listener
   // must answer that Host, not 403 it
   const foreign = await rawGet(h.port, "/api/coder/next", `192.168.50.50:${h.port}`);
-  assert.equal(foreign.status, 200, `shared listener answers a LAN host (got ${foreign.status}: ${foreign.body.slice(0, 200)})`);
+  assert.equal(
+    foreign.status,
+    200,
+    `shared listener answers a LAN host (got ${foreign.status}: ${foreign.body.slice(0, 200)})`,
+  );
 
   const lan = firstLanIPv4();
   if (lan) {
-    assert.equal(h.lanUrl, `http://${lan}:${h.port}/coder.html?coder=lan-coder`,
-      "lanUrl is built from the first non-internal IPv4");
+    assert.equal(
+      h.lanUrl,
+      `http://${lan}:${h.port}/coder.html?coder=lan-coder`,
+      "lanUrl is built from the first non-internal IPv4",
+    );
   } else {
     assert.equal(h.lanUrl, undefined, "no external IPv4 — no lanUrl to hand out");
   }
@@ -290,7 +357,11 @@ test("share through the session route: {share: true} yields a lanUrl (when the m
   if (lan) {
     assert.equal(session.lanUrl, `http://${lan}:${session.port}/coder.html?coder=sam`);
   } else {
-    assert.equal(session.lanUrl, undefined, "no external IPv4 on this machine — assertion skipped gracefully");
+    assert.equal(
+      session.lanUrl,
+      undefined,
+      "no external IPv4 on this machine — assertion skipped gracefully",
+    );
   }
   const closed = await ok("DELETE", G(`/${S.gsId}/coder-session?coderId=sam`));
   assert.equal(closed.closed, 1);

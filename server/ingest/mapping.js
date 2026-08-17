@@ -16,8 +16,10 @@ export function looksNumeric(s) {
 const ISO_RE = /^\d{4}-\d{1,2}-\d{1,2}([T ]\d{2}:\d{2}(:\d{2}(\.\d+)?)?(Z|[+-]\d{2}:?\d{2})?)?$/;
 const US_EU_SLASH_RE = /^(\d{1,2})\/(\d{1,2})\/(\d{2}|\d{4})$/;
 const EU_DOT_RE = /^(\d{1,2})\.(\d{1,2})\.(\d{2}|\d{4})$/;
-const MON_RE = /^\d{1,2}[- ](jan|feb|mar|apr|may|jun|jul|aug|sep|oct|nov|dec)[a-z]*[- .,]+\d{2,4}$/i;
-const MONTH_FIRST_RE = /^(jan|feb|mar|apr|may|jun|jul|aug|sep|oct|nov|dec)[a-z]*[ .]+\d{1,2},?\s+\d{2,4}$/i;
+const MON_RE =
+  /^\d{1,2}[- ](jan|feb|mar|apr|may|jun|jul|aug|sep|oct|nov|dec)[a-z]*[- .,]+\d{2,4}$/i;
+const MONTH_FIRST_RE =
+  /^(jan|feb|mar|apr|may|jun|jul|aug|sep|oct|nov|dec)[a-z]*[ .]+\d{1,2},?\s+\d{2,4}$/i;
 
 export function looksDate(s) {
   const t = s.trim();

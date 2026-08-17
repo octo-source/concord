@@ -38,7 +38,13 @@ import * as store from "../../server/core/store.js";
 import projectsRoutes from "../../server/routes/projects.js";
 import { DEFAULT_TEMPLATE } from "../../server/instruments/judge.js";
 import { createProject, createConstruct, createInstrument } from "../../server/core/objects.js";
-import { saveProject, loadProject, updateProject, readNdjson, projectDir } from "../../server/core/store.js";
+import {
+  saveProject,
+  loadProject,
+  updateProject,
+  readNdjson,
+  projectDir,
+} from "../../server/core/store.js";
 import { ConcordError } from "../../server/core/errors.js";
 import { getAdapter } from "../../server/providers/registry.js";
 
@@ -90,7 +96,14 @@ const judgePayload = (extra = {}) => ({
 });
 
 const judgeInstrument = (extra = {}, payloadExtra = {}) =>
-  createInstrument({ id: "inst_j", constructId: "c_bin", kind: "judge", name: "judge", payload: judgePayload(payloadExtra), ...extra });
+  createInstrument({
+    id: "inst_j",
+    constructId: "c_bin",
+    kind: "judge",
+    name: "judge",
+    payload: judgePayload(payloadExtra),
+    ...extra,
+  });
 
 // Equal-length unit texts: the p99-length escalation predicate stays quiet
 // unless a test plants a long unit on purpose.
@@ -106,7 +119,10 @@ function makeUnits(n, { isPay = (i) => i % 3 === 0, len = 60 } = {}) {
   });
 }
 
-async function setup(slug, { units, instruments = [], constructs = [binaryConstruct()], director = null } = {}) {
+async function setup(
+  slug,
+  { units, instruments = [], constructs = [binaryConstruct()], director = null } = {},
+) {
   const project = createProject({ name: slug, slug, privacyMode: "open" });
   project.director = director;
   project.corpora.push({ id: "c1", name: "corpus" });
@@ -115,7 +131,11 @@ async function setup(slug, { units, instruments = [], constructs = [binaryConstr
   await saveProject(project);
   const file = path.join(projectDir(slug), "corpora", "c1", "units.ndjson");
   await mkdir(path.dirname(file), { recursive: true });
-  await writeFile(file, units.length ? units.map((u) => JSON.stringify(u)).join("\n") + "\n" : "", "utf8");
+  await writeFile(
+    file,
+    units.length ? units.map((u) => JSON.stringify(u)).join("\n") + "\n" : "",
+    "utf8",
+  );
   return { project, pdir: projectDir(slug) };
 }
 
@@ -153,12 +173,18 @@ test("fix 1: a worker fn throwing stops every worker — no units dispatched aft
     if (mine === N) throw new ConcordError("RATE_LIMITED_EXHAUSTED", "gave up after retries", {});
     return proto.complete.call(this, req);
   };
-  t.after(() => { delete mock.complete; });
+  t.after(() => {
+    delete mock.complete;
+  });
 
   await assert.rejects(
     () => engineMod.runEphemeral(project, judgeInstrument(), units, { concurrency: C }),
     (err) => {
-      assert.equal(err.code, "RATE_LIMITED_EXHAUSTED", "the original taxonomy code propagates (callers branch on it)");
+      assert.equal(
+        err.code,
+        "RATE_LIMITED_EXHAUSTED",
+        "the original taxonomy code propagates (callers branch on it)",
+      );
       return true;
     },
   );
@@ -166,15 +192,21 @@ test("fix 1: a worker fn throwing stops every worker — no units dispatched aft
   // The pool must stop dispatching after the first throw: at most (C-1) calls
   // were already in flight past the dispatch check. A pre-fix forEachUnit kept
   // the surviving workers pulling all M units (calls would approach M).
-  assert.ok(calls <= N + (C - 1),
-    `provider calls bounded after the throw: ${calls} ≤ ${N + (C - 1)} (M=${M} would mean no stop)`);
+  assert.ok(
+    calls <= N + (C - 1),
+    `provider calls bounded after the throw: ${calls} ≤ ${N + (C - 1)} (M=${M} would mean no stop)`,
+  );
   assert.ok(calls < M, `definitely fewer than the full corpus (${calls} < ${M})`);
 
   // Settle window: no further calls land after rejection resolves (no detached
   // workers still running — those would race a resume into duplicate lines).
   const settledAt = calls;
   await sleep(120);
-  assert.equal(calls, settledAt, "no provider calls after the rejection settled — every worker drained");
+  assert.equal(
+    calls,
+    settledAt,
+    "no provider calls after the rejection settled — every worker drained",
+  );
 });
 
 test("fix 1: concurrency 1 → the throw stops dispatch at exactly the failing unit (tight bound)", async (t) => {
@@ -193,7 +225,9 @@ test("fix 1: concurrency 1 → the throw stops dispatch at exactly the failing u
     if (mine === N) throw new ConcordError("RATE_LIMITED_EXHAUSTED", "gave up", {});
     return proto.complete.call(this, req);
   };
-  t.after(() => { delete mock.complete; });
+  t.after(() => {
+    delete mock.complete;
+  });
 
   await assert.rejects(
     () => engineMod.runEphemeral(project, judgeInstrument(), units, { concurrency: 1 }),
@@ -222,21 +256,37 @@ test("fix 2: a PAUSE-class fault inside the drift re-judge pauses the run resuma
   const proto = Object.getPrototypeOf(mock);
   mock.complete = async function patched(req) {
     if (typeof req.seed === "string" && req.seed.startsWith("drift:")) {
-      throw new ConcordError("PROVIDER_UNREACHABLE", "drift re-judge: network down", { kind: "TypeError" });
+      throw new ConcordError("PROVIDER_UNREACHABLE", "drift re-judge: network down", {
+        kind: "TypeError",
+      });
     }
     return proto.complete.call(this, req);
   };
-  t.after(() => { delete mock.complete; });
+  t.after(() => {
+    delete mock.complete;
+  });
 
   const goldOutputs = makeUnits(4).map((u) => ({ unit: u, label: ORACLE(u.text) }));
   const run = await engineMod.createRun(project, { instrumentId: "inst_j", corpusId: "c1" });
   // small `every` so the drift tick fires early in the run; the armed dir is the
   // projects root (the engine resolves the same root from CONCORD_PROJECTS_DIR).
   // Explicit baseline (the instrument is unfrozen, no certificate).
-  monitor.armDriftTripwire(run.id, { project, goldOutputs, instrument: inst, every: 5, threshold: 0.15, baseline: 1.0, dir: tmpRoot });
+  monitor.armDriftTripwire(run.id, {
+    project,
+    goldOutputs,
+    instrument: inst,
+    every: 5,
+    threshold: 0.15,
+    baseline: 1.0,
+    dir: tmpRoot,
+  });
 
   const paused = await engineMod.executeRun(slug, run.id, { concurrency: 1 });
-  assert.equal(paused.status, "paused", "a PAUSE-class drift fault pauses the run, it does NOT fail or reject the pool");
+  assert.equal(
+    paused.status,
+    "paused",
+    "a PAUSE-class drift fault pauses the run, it does NOT fail or reject the pool",
+  );
   assert.equal(paused.error?.code, "PROVIDER_UNREACHABLE");
   const onDisk = (await loadProject(slug)).runs[0];
   assert.equal(onDisk.status, "paused", "the resumable status is persisted");
@@ -273,19 +323,36 @@ test("fix 2: a NON-pause fault inside the drift re-judge warns and the run CONTI
     }
     return proto.complete.call(this, req);
   };
-  t.after(() => { delete mock.complete; });
+  t.after(() => {
+    delete mock.complete;
+  });
 
   const goldOutputs = makeUnits(4).map((u) => ({ unit: u, label: ORACLE(u.text) }));
   const run = await engineMod.createRun(project, { instrumentId: "inst_j", corpusId: "c1" });
-  monitor.armDriftTripwire(run.id, { project, goldOutputs, instrument: inst, every: 5, threshold: 0.15, baseline: 1.0, dir: tmpRoot });
+  monitor.armDriftTripwire(run.id, {
+    project,
+    goldOutputs,
+    instrument: inst,
+    every: 5,
+    threshold: 0.15,
+    baseline: 1.0,
+    dir: tmpRoot,
+  });
 
   let lastTick = null;
-  const done = await engineMod.executeRun(slug, run.id, { concurrency: 1, onTick: (s) => { lastTick = s; } });
+  const done = await engineMod.executeRun(slug, run.id, {
+    concurrency: 1,
+    onTick: (s) => {
+      lastTick = s;
+    },
+  });
   assert.equal(done.status, "complete", "a broken drift check must never fail the run");
   const lines = await readNdjson(outputsFile(slug, run.id));
   assert.equal(lines.length, N, "every unit still produced its verdict");
-  assert.ok(lastTick.warnings.some((w) => w.kind === "drift-failed"),
-    "the drift failure is surfaced as a warning, not swallowed");
+  assert.ok(
+    lastTick.warnings.some((w) => w.kind === "drift-failed"),
+    "the drift failure is surfaced as a warning, not swallowed",
+  );
 });
 
 // =============================================================================
@@ -326,14 +393,24 @@ test("fix 3: a unit quarantined in session 1 that SUCCEEDS on resume is removed 
   // Force a resumable re-run of the quarantined unit: mark the run paused and
   // clear the target's (absent) final line situation — the target has no final
   // line, so it is pending on resume. Session 2 lets it pass.
-  await updateProject(slug, (p) => { p.runs[0].status = "paused"; }, undefined);
+  await updateProject(
+    slug,
+    (p) => {
+      p.runs[0].status = "paused";
+    },
+    undefined,
+  );
   poisonTarget = false;
 
   const s2 = await engineMod.executeRun(slug, run.id, { concurrency: 1 });
   assert.equal(s2.status, "complete");
   // THE FIX: the previously-quarantined unit succeeded → it is no longer in the
   // quarantine set, and it now has a verdict line.
-  assert.deepEqual(s2.quarantine, [], "the unit that succeeded on resume is cleared from quarantine");
+  assert.deepEqual(
+    s2.quarantine,
+    [],
+    "the unit that succeeded on resume is cleared from quarantine",
+  );
   const onDisk = (await loadProject(slug)).runs[0];
   assert.deepEqual(onDisk.quarantine, [], "the cleared quarantine persists");
   const lines = await readNdjson(outputsFile(slug, run.id));
@@ -341,8 +418,12 @@ test("fix 3: a unit quarantined in session 1 that SUCCEEDS on resume is removed 
   assert.ok(targetLine, "the formerly-quarantined unit now has a verdict line in outputs");
   assert.equal(targetLine.label, ORACLE(target.text));
   // run.completed must NOT ledger a phantom quarantined count
-  assert.ok(!lines.some((l, i) => lines.findIndex((x) => x.unitId === l.unitId && x.juror === l.juror) !== i),
-    "outputs are exactly-once");
+  assert.ok(
+    !lines.some(
+      (l, i) => lines.findIndex((x) => x.unitId === l.unitId && x.juror === l.juror) !== i,
+    ),
+    "outputs are exactly-once",
+  );
 });
 
 // =============================================================================
@@ -379,21 +460,42 @@ test("fix 4: appendNdjson serializes heal+append per file — concurrent appends
   for (let round = 0; round < 3; round++) {
     // Seed a TORN tail: one complete line + a partial line with NO trailing
     // newline. The heal must truncate exactly the partial line.
-    await writeFile(file, JSON.stringify({ unitId: "seed", juror: "j", label: "yes" }) + "\n{ partial torn line no newline", "utf8");
+    await writeFile(
+      file,
+      JSON.stringify({ unitId: "seed", juror: "j", label: "yes" }) +
+        "\n{ partial torn line no newline",
+      "utf8",
+    );
 
     const K = 30;
     await Promise.all(
       Array.from({ length: K }, (_, i) =>
-        store.appendNdjson(file, { unitId: `u_${round}_${String(i).padStart(3, "0")}`, juror: "j", label: i % 2 ? "yes" : "no" })),
+        store.appendNdjson(file, {
+          unitId: `u_${round}_${String(i).padStart(3, "0")}`,
+          juror: "j",
+          label: i % 2 ? "yes" : "no",
+        }),
+      ),
     );
 
     const lines = await readNdjson(file);
     // all K concurrent appends survive, the torn partial is healed away, the
     // seed line is intact, and ids are unique (no garble/interleave)
     const appended = lines.filter((l) => l.unitId.startsWith(`u_${round}_`));
-    assert.equal(appended.length, K, `round ${round}: all ${K} concurrent lines survive (got ${appended.length})`);
-    assert.ok(lines.some((l) => l.unitId === "seed"), `round ${round}: the seed line was not eaten`);
-    assert.equal(new Set(appended.map((l) => l.unitId)).size, K, `round ${round}: no duplicated/garbled append`);
+    assert.equal(
+      appended.length,
+      K,
+      `round ${round}: all ${K} concurrent lines survive (got ${appended.length})`,
+    );
+    assert.ok(
+      lines.some((l) => l.unitId === "seed"),
+      `round ${round}: the seed line was not eaten`,
+    );
+    assert.equal(
+      new Set(appended.map((l) => l.unitId)).size,
+      K,
+      `round ${round}: no duplicated/garbled append`,
+    );
 
     await rm(file, { force: true });
   }
@@ -401,8 +503,11 @@ test("fix 4: appendNdjson serializes heal+append per file — concurrent appends
   // THE serialization guarantee: a given file's heal+append sections never
   // overlap. (Without the per-file lock, all K writers run concurrently and
   // their seam sleeps pile up far past 1.)
-  assert.equal(maxOccupancy, 1,
-    `heal+append is serialized per file — at most one critical section in flight at a time (saw up to ${maxOccupancy} of K=30 concurrent)`);
+  assert.equal(
+    maxOccupancy,
+    1,
+    `heal+append is serialized per file — at most one critical section in flight at a time (saw up to ${maxOccupancy} of K=30 concurrent)`,
+  );
 });
 
 // =============================================================================
@@ -418,18 +523,41 @@ test("fix 5: a catalog failure for a PRICED provider surfaces a 'cost tracking u
 
   // Make the mock look like a PRICED (non-local) provider whose catalog fetch
   // fails — exactly the real-fetch-failure case pricingFor must flag.
-  mock.capabilities = () => ({ structuredOutput: true, pinning: true, batch: false, local: false, family: "mock" });
-  mock.catalog = async () => { throw new ConcordError("PROVIDER_UNREACHABLE", "catalog fetch failed", {}); };
-  t.after(() => { delete mock.capabilities; delete mock.catalog; });
+  mock.capabilities = () => ({
+    structuredOutput: true,
+    pinning: true,
+    batch: false,
+    local: false,
+    family: "mock",
+  });
+  mock.catalog = async () => {
+    throw new ConcordError("PROVIDER_UNREACHABLE", "catalog fetch failed", {});
+  };
+  t.after(() => {
+    delete mock.capabilities;
+    delete mock.catalog;
+  });
 
   const run = await engineMod.createRun(project, { instrumentId: "inst_j", corpusId: "c1" });
   let lastTick = null;
-  const done = await engineMod.executeRun(slug, run.id, { onTick: (s) => { lastTick = s; } });
+  const done = await engineMod.executeRun(slug, run.id, {
+    onTick: (s) => {
+      lastTick = s;
+    },
+  });
 
-  assert.equal(done.status, "complete", "metering falls back to $0 but the run still completes (no crash)");
+  assert.equal(
+    done.status,
+    "complete",
+    "metering falls back to $0 but the run still completes (no crash)",
+  );
   assert.equal(done.cost.actualUSD, 0, "the $0 fallback is preserved");
-  assert.ok(lastTick.warnings.some((w) => w.kind === "pricing-unavailable" && /cost tracking unavailable/i.test(w.message)),
-    "the run surfaces 'cost tracking unavailable' instead of a silent, misleading $0");
+  assert.ok(
+    lastTick.warnings.some(
+      (w) => w.kind === "pricing-unavailable" && /cost tracking unavailable/i.test(w.message),
+    ),
+    "the run surfaces 'cost tracking unavailable' instead of a silent, misleading $0",
+  );
 });
 
 test("fix 5: a genuinely-free LOCAL provider ($0 catalog) prices $0 WITHOUT a spurious warning", async (t) => {
@@ -442,11 +570,17 @@ test("fix 5: a genuinely-free LOCAL provider ($0 catalog) prices $0 WITHOUT a sp
 
   const run = await engineMod.createRun(project, { instrumentId: "inst_j", corpusId: "c1" });
   let lastTick = null;
-  const done = await engineMod.executeRun(slug, run.id, { onTick: (s) => { lastTick = s; } });
+  const done = await engineMod.executeRun(slug, run.id, {
+    onTick: (s) => {
+      lastTick = s;
+    },
+  });
   assert.equal(done.status, "complete");
   assert.equal(done.cost.actualUSD, 0);
-  assert.ok(!lastTick.warnings.some((w) => w.kind === "pricing-unavailable"),
-    "a real free local provider must NOT raise a cost-tracking warning");
+  assert.ok(
+    !lastTick.warnings.some((w) => w.kind === "pricing-unavailable"),
+    "a real free local provider must NOT raise a cost-tracking warning",
+  );
 });
 
 // =============================================================================
@@ -469,7 +603,11 @@ test("fix 6: resume re-derives escalation.count from the persisted escalated fin
     const unitText = all.match(/<unit>\n([\s\S]*?)\n<\/unit>/)?.[1] ?? "";
     const unit = units.find((u) => u.text === unitText);
     const label = ORACLE(unitText);
-    return { rationale: "scripted", label, confidence: unit && escalatedIds.has(unit.id) ? 0.3 : 0.95 };
+    return {
+      rationale: "scripted",
+      label,
+      confidence: unit && escalatedIds.has(unit.id) ? 0.3 : 0.95,
+    };
   });
   t.after(() => mock.handlers.delete("esc6"));
 
@@ -482,10 +620,14 @@ test("fix 6: resume re-derives escalation.count from the persisted escalated fin
   // Simulate a crash that lost the live count but kept the durable finals: zero
   // the persisted count and mark the run resumable. The escalated final LINES
   // are still on disk.
-  await updateProject(slug, (p) => {
-    p.runs[0].status = "paused";
-    p.runs[0].escalation.count = 0; // the lost increments
-  }, undefined);
+  await updateProject(
+    slug,
+    (p) => {
+      p.runs[0].status = "paused";
+      p.runs[0].escalation.count = 0; // the lost increments
+    },
+    undefined,
+  );
   const linesBefore = await readNdjson(outputsFile(slug, run.id));
   const escalatedOnDisk = linesBefore.filter((l) => l.escalated === true).length;
   assert.equal(escalatedOnDisk, escalatedIds.size, "the escalated finals really are on disk");
@@ -495,8 +637,11 @@ test("fix 6: resume re-derives escalation.count from the persisted escalated fin
   // persisted value.
   const resumed = await engineMod.executeRun(slug, run.id, { concurrency: 1 });
   assert.equal(resumed.status, "complete");
-  assert.equal(resumed.escalation.count, escalatedIds.size,
-    "escalation.count is re-derived from the persisted escalated finals, healing the lost increments");
+  assert.equal(
+    resumed.escalation.count,
+    escalatedIds.size,
+    "escalation.count is re-derived from the persisted escalated finals, healing the lost increments",
+  );
   const onDisk = (await loadProject(slug)).runs[0];
   assert.equal(onDisk.escalation.count, escalatedIds.size, "the healed count persists");
 });
@@ -510,16 +655,28 @@ test("fix 7: monitor warnings stay bounded under a flood; the most recent are re
   monitor.track(runId, { total: 10_000 });
   const FLOOD = 5_000;
   for (let i = 0; i < FLOOD; i++) {
-    monitor.warn(runId, { kind: "quarantine", message: `unit u_${i} quarantined`, unitId: `u_${i}`, seq: i });
+    monitor.warn(runId, {
+      kind: "quarantine",
+      message: `unit u_${i} quarantined`,
+      unitId: `u_${i}`,
+      seq: i,
+    });
   }
   const s = monitor.runState(runId);
   // the array is capped (NOT FLOOD entries) and the newest warning is retained
-  assert.ok(s.warnings.length <= 200, `warnings capped at ≤200 (got ${s.warnings.length}), not ${FLOOD}`);
+  assert.ok(
+    s.warnings.length <= 200,
+    `warnings capped at ≤200 (got ${s.warnings.length}), not ${FLOOD}`,
+  );
   assert.equal(s.warnings.at(-1).seq, FLOOD - 1, "the most recent warning is kept");
   assert.equal(s.warnings.at(-1).unitId, `u_${FLOOD - 1}`);
   // the cap is honest about how many it dropped
   assert.equal(typeof s.warningsDropped, "number");
-  assert.equal(s.warnings.length + s.warningsDropped, FLOOD, "every warning is either retained or counted as dropped");
+  assert.equal(
+    s.warnings.length + s.warningsDropped,
+    FLOOD,
+    "every warning is either retained or counted as dropped",
+  );
   assert.ok(s.warningsDropped > 0, "the flood really evicted older warnings");
   monitor.clearRun(runId);
 });
@@ -530,7 +687,11 @@ test("fix 7: a modest warning count is untouched — warningsDropped stays absen
   for (let i = 0; i < 5; i++) monitor.warn(runId, { kind: "quarantine", message: `m${i}` });
   const s = monitor.runState(runId);
   assert.equal(s.warnings.length, 5);
-  assert.equal(s.warningsDropped, undefined, "no drops → the field stays absent (consumers asserting exact warnings are unaffected)");
+  assert.equal(
+    s.warningsDropped,
+    undefined,
+    "no drops → the field stays absent (consumers asserting exact warnings are unaffected)",
+  );
   monitor.clearRun(runId);
 });
 
@@ -571,7 +732,11 @@ test("fix 9: two concurrent POSTs for the same slug → exactly one succeeds, th
   const rejected = [a, b].filter((r) => r.status === "rejected");
   assert.equal(fulfilled.length, 1, "exactly one create wins");
   assert.equal(rejected.length, 1, "the other loses");
-  assert.equal(rejected[0].reason?.code, "VALIDATION", "the loser gets a clean VALIDATION, not a clobber or a crash");
+  assert.equal(
+    rejected[0].reason?.code,
+    "VALIDATION",
+    "the loser gets a clean VALIDATION, not a clobber or a crash",
+  );
 
   // the winner's project is intact on disk
   const onDisk = await loadProject("race-project");

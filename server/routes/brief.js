@@ -22,7 +22,10 @@ export default [
       await loadProject(params.p); // unknown project → 404 before any file read
       safeId(params.bid, "brief"); // never let a traversal id reach the path
       const brief = await readJsonFile(path.join(pdirOf(params.p), "briefs", `${params.bid}.json`));
-      if (!brief) throw new ConcordError("NOT_FOUND", `brief '${params.bid}' not found`, { briefId: params.bid });
+      if (!brief)
+        throw new ConcordError("NOT_FOUND", `brief '${params.bid}' not found`, {
+          briefId: params.bid,
+        });
       return brief;
     },
   },
@@ -33,10 +36,19 @@ export default [
       const project = await loadProject(params.p);
       const body = req.body ?? {};
       const corpusId = body.corpusId ?? project.corpora?.[0]?.id;
-      if (!corpusId) throw new ConcordError("VALIDATION", "brief requires a corpusId (no corpora on this project)", {});
+      if (!corpusId)
+        throw new ConcordError(
+          "VALIDATION",
+          "brief requires a corpusId (no corpora on this project)",
+          {},
+        );
       findOr404(project.corpora, corpusId, "corpus");
       if (!project.director) {
-        throw new ConcordError("CONFIG_MISSING", "No Director model is configured — set one in Settings before generating a brief", {});
+        throw new ConcordError(
+          "CONFIG_MISSING",
+          "No Director model is configured — set one in Settings before generating a brief",
+          {},
+        );
       }
 
       // all 4xx-able validation is done: from here on we stream
@@ -55,13 +67,22 @@ export default [
             signal: ac.signal,
             onStage: (event, data) => conn.send(event, data),
             onParagraph: (para) => conn.send("para", { md: para.md, refs: para.refs }),
-          }));
-        conn.send("done", { briefId: brief.id, paragraphs: brief.paragraphs.length, themes: brief.themes.length, issues: brief.issues });
+          }),
+        );
+        conn.send("done", {
+          briefId: brief.id,
+          paragraphs: brief.paragraphs.length,
+          themes: brief.themes.length,
+          issues: brief.issues,
+        });
       } catch (err) {
         // an abort is the expected outcome of a disconnect, not a server fault:
         // the connection is already closed, so conn.send is a no-op — just stop
         if (err?.code !== "ABORTED") {
-          conn.send("error", { code: err?.code ?? "INTERNAL", message: err?.message ?? String(err) });
+          conn.send("error", {
+            code: err?.code ?? "INTERNAL",
+            message: err?.message ?? String(err),
+          });
         }
       } finally {
         conn.close();

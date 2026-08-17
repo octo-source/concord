@@ -91,7 +91,11 @@ async function call(method, p, body) {
   const res = await fetch(base + p, init);
   const text = await res.text();
   let json = null;
-  try { json = JSON.parse(text); } catch { /* non-JSON (zip/html) */ }
+  try {
+    json = JSON.parse(text);
+  } catch {
+    /* non-JSON (zip/html) */
+  }
   return { status: res.status, json, text };
 }
 
@@ -107,7 +111,11 @@ async function upload(p, filename, content) {
   form.append("file", new Blob([content]), filename);
   const res = await fetch(base + p, { method: "POST", body: form });
   const json = JSON.parse(await res.text());
-  assert.equal(res.status, 200, `upload ${p} → ${res.status}: ${JSON.stringify(json).slice(0, 300)}`);
+  assert.equal(
+    res.status,
+    200,
+    `upload ${p} → ${res.status}: ${JSON.stringify(json).slice(0, 300)}`,
+  );
   assert.equal(json.ok, true);
   return json.data;
 }
@@ -143,21 +151,21 @@ async function readSse(p, { method = "GET", body } = {}) {
 const S = {
   slug: "techcorp-exit",
   csv: null,
-  oracleDoc: null,        // demo/oracle.json (planted truth keyed by respondent_id)
+  oracleDoc: null, // demo/oracle.json (planted truth keyed by respondent_id)
   corpusId: null,
-  units: new Map(),       // unitId → unit
+  units: new Map(), // unitId → unit
   flagsByText: new Map(), // unit text → planted theme flags (the worker oracle)
-  flagsById: new Map(),   // unitId → planted theme flags (the Director handlers)
+  flagsById: new Map(), // unitId → planted theme flags (the Director handlers)
   briefId: null,
   payConstructId: null,
   quitConstructId: null,
   payInstId: null,
   quitInstId: null,
   runId: null,
-  payTruthRate: null,     // realized planted pay rate over the imported corpus
+  payTruthRate: null, // realized planted pay rate over the imported corpus
   goldsetId: null,
   goldSampleIds: [],
-  disagreements: [],      // units where the two scripted coders differ
+  disagreements: [], // units where the two scripted coders differ
   crosstabId: null,
   modelAnalysisId: null,
   salesCell: null,
@@ -185,17 +193,43 @@ const payTruth = (unitText) => (S.flagsByText.get(unitText)?.pay ? "yes" : "no")
 
 const mock = () => getAdapter({ privacyMode: "open" }, "mock").adapter;
 const lastUser = (req) => [...req.messages].reverse().find((m) => m.role === "user")?.content ?? "";
-const shownUnitIds = (t) => [...new Set([...String(t).matchAll(/unit (u_[0-9a-f]{16})/g)].map((m) => m[1]))];
+const shownUnitIds = (t) => [
+  ...new Set([...String(t).matchAll(/unit (u_[0-9a-f]{16})/g)].map((m) => m[1])),
+];
 
 // Brief themes mapped to planted oracle flags: the scripted Director anchors
 // each theme to shown units that GENUINELY carry it (quote refs must resolve).
 const BRIEF_THEMES = [
-  { name: "Pay and compensation", flag: "pay", definition: "The response names pay, salary, or compensation level/fairness as a problem." },
-  { name: "Management problems", flag: "management", definition: "The response criticizes managers, supervisors, or leadership behavior." },
-  { name: "Workload and burnout", flag: "workload", definition: "The response describes unsustainable workload, hours, or burnout." },
-  { name: "Growth stagnation", flag: "growth", definition: "The response cites missing career growth, promotion, or learning paths." },
-  { name: "Remote-policy friction", flag: "remote", definition: "The response objects to office mandates or the loss of remote flexibility." },
-  { name: "Quit intent", flag: "quitIntent", definition: "The response uses explicit I-had-to-leave / quitting language." },
+  {
+    name: "Pay and compensation",
+    flag: "pay",
+    definition: "The response names pay, salary, or compensation level/fairness as a problem.",
+  },
+  {
+    name: "Management problems",
+    flag: "management",
+    definition: "The response criticizes managers, supervisors, or leadership behavior.",
+  },
+  {
+    name: "Workload and burnout",
+    flag: "workload",
+    definition: "The response describes unsustainable workload, hours, or burnout.",
+  },
+  {
+    name: "Growth stagnation",
+    flag: "growth",
+    definition: "The response cites missing career growth, promotion, or learning paths.",
+  },
+  {
+    name: "Remote-policy friction",
+    flag: "remote",
+    definition: "The response objects to office mandates or the loss of remote flexibility.",
+  },
+  {
+    name: "Quit intent",
+    flag: "quitIntent",
+    definition: "The response uses explicit I-had-to-leave / quitting language.",
+  },
 ];
 
 function pipelineHandler(req) {
@@ -205,7 +239,8 @@ function pipelineHandler(req) {
   // Director compile / confusion-driven rewrite → a fresh worker template
   if (props.promptTemplate) {
     return {
-      promptTemplate: "Apply the codebook to the unit. {{definition}} {{criteria}} {{examples}} {{unit}}",
+      promptTemplate:
+        "Apply the codebook to the unit. {{definition}} {{criteria}} {{examples}} {{unit}}",
       note: "scripted compile/rewrite (deterministic demo Director)",
     };
   }
@@ -218,7 +253,13 @@ function pipelineHandler(req) {
   if (props.reason) {
     let label = "no";
     const m = user.match(/- label: (".*?"|\S+)/);
-    if (m) { try { label = JSON.parse(m[1]); } catch { label = m[1]; } }
+    if (m) {
+      try {
+        label = JSON.parse(m[1]);
+      } catch {
+        label = m[1];
+      }
+    }
     return {
       rationale: "Independent read reaches the same verdict as the worker.",
       label,
@@ -233,20 +274,39 @@ function pipelineHandler(req) {
   if (props.paragraphs) {
     const ids = shownUnitIds(user);
     const withFlag = (flag) => ids.filter((id) => S.flagsById.get(id)?.[flag]).slice(0, 4);
-    const themes = BRIEF_THEMES
-      .map((t) => ({ name: t.name, definition: t.definition, quoteRefs: withFlag(t.flag) }))
-      .filter((t) => t.quoteRefs.length >= 3);
+    const themes = BRIEF_THEMES.map((t) => ({
+      name: t.name,
+      definition: t.definition,
+      quoteRefs: withFlag(t.flag),
+    })).filter((t) => t.quoteRefs.length >= 3);
     return {
       unitOfAnalysis: "One exit-survey response per row (one respondent each).",
       paragraphs: [
-        { md: "Compensation dominates the corpus: respondents return to pay level and fairness more than any other theme.", refs: withFlag("pay").slice(0, 2) },
-        { md: "Management complaints form a second cluster, concentrated in Operations.", refs: withFlag("management").slice(0, 2) },
-        { md: "Workload and burnout language is common among short-tenure leavers.", refs: withFlag("workload").slice(0, 2) },
-        { md: "A minority of responses arrive in Spanish; lengths run from one line to long reflections.", refs: ids.slice(0, 2) },
+        {
+          md: "Compensation dominates the corpus: respondents return to pay level and fairness more than any other theme.",
+          refs: withFlag("pay").slice(0, 2),
+        },
+        {
+          md: "Management complaints form a second cluster, concentrated in Operations.",
+          refs: withFlag("management").slice(0, 2),
+        },
+        {
+          md: "Workload and burnout language is common among short-tenure leavers.",
+          refs: withFlag("workload").slice(0, 2),
+        },
+        {
+          md: "A minority of responses arrive in Spanish; lengths run from one line to long reflections.",
+          refs: ids.slice(0, 2),
+        },
       ],
       themes,
       redFlags: [
-        { kind: "duplicates", detail: "Several exact duplicate texts and one identical 7-row burst (likely bot or copy-paste).", refs: [] },
+        {
+          kind: "duplicates",
+          detail:
+            "Several exact duplicate texts and one identical 7-row burst (likely bot or copy-paste).",
+          refs: [],
+        },
         { kind: "junk", detail: "A small share of non-answers (n/a, keyboard mash).", refs: [] },
       ],
       suggestedQuestions: [
@@ -264,24 +324,52 @@ function pipelineHandler(req) {
           name: "Pay complaint (plan)",
           type: "binary",
           definition: "The response names pay, salary, or compensation as a problem.",
-          criteria: { include: ["explicit complaint about pay level, raises, or fairness"], exclude: ["benefits-only complaints"] },
+          criteria: {
+            include: ["explicit complaint about pay level, raises, or fairness"],
+            exclude: ["benefits-only complaints"],
+          },
           edgeCases: ["sarcastic praise of pay counts as a complaint"],
-          examples: [{ text: "the pay was simply too low for the work", label: "yes", kind: "positive" }],
-          categories: [{ value: "yes", label: "Yes" }, { value: "no", label: "No" }],
+          examples: [
+            { text: "the pay was simply too low for the work", label: "yes", kind: "positive" },
+          ],
+          categories: [
+            { value: "yes", label: "Yes" },
+            { value: "no", label: "No" },
+          ],
         },
         {
           name: "Quit mention (plan)",
           type: "binary",
           definition: "The response uses explicit quitting / had-to-leave language.",
-          criteria: { include: ["first-person quitting or resignation language"], exclude: ["hypothetical talk about others quitting"] },
+          criteria: {
+            include: ["first-person quitting or resignation language"],
+            exclude: ["hypothetical talk about others quitting"],
+          },
           edgeCases: [],
-          examples: [{ text: "I had to get out before it got worse", label: "quit", kind: "positive" }],
-          categories: [{ value: "quit", label: "Quit language" }, { value: "stay", label: "None" }],
+          examples: [
+            { text: "I had to get out before it got worse", label: "quit", kind: "positive" },
+          ],
+          categories: [
+            { value: "quit", label: "Quit language" },
+            { value: "stay", label: "None" },
+          ],
         },
       ],
       instruments: [
-        { construct: "Pay complaint (plan)", workerClass: "small", provider: "mock", model: "mock-1", snapshot: "mock-1" },
-        { construct: "Quit mention (plan)", workerClass: "small", provider: "mock", model: "mock-1", snapshot: "mock-1" },
+        {
+          construct: "Pay complaint (plan)",
+          workerClass: "small",
+          provider: "mock",
+          model: "mock-1",
+          snapshot: "mock-1",
+        },
+        {
+          construct: "Quit mention (plan)",
+          workerClass: "small",
+          provider: "mock",
+          model: "mock-1",
+          snapshot: "mock-1",
+        },
       ],
       analysis: {
         kind: "crosstab",
@@ -297,13 +385,19 @@ function pipelineHandler(req) {
   const ids = shownUnitIds(user);
   const u = S.units.get(ids.at(-1));
   const label = truthFor(u ? S.flagsById.get(u.id) : null, props.label?.enum);
-  return { rationale: "Applying the codebook as written to the quoted unit.", label, confidence: 0.95 };
+  return {
+    rationale: "Applying the codebook as written to the quoted unit.",
+    label,
+    confidence: 0.95,
+  };
 }
 
 function armMock(accuracy) {
   const m = mock();
   m.setAccuracy(accuracy);
-  m.setOracle((unitText, schema) => truthFor(S.flagsByText.get(unitText), schema?.properties?.label?.enum));
+  m.setOracle((unitText, schema) =>
+    truthFor(S.flagsByText.get(unitText), schema?.properties?.label?.enum),
+  );
   m.setHandler("pipeline", pipelineHandler);
   return m;
 }
@@ -316,7 +410,10 @@ const judgeTemplate = (label) =>
 // =========================================================================
 
 test("step 1: create project (no-training) → import demo CSV → mapping auto-detects → confirm → 2,500-unit corpus with a junk queue", async () => {
-  const project = await ok("POST", "/api/projects", { name: "TechCorp Exit", privacyMode: "no-training" });
+  const project = await ok("POST", "/api/projects", {
+    name: "TechCorp Exit",
+    privacyMode: "no-training",
+  });
   assert.equal(project.slug, S.slug);
   assert.equal(project.privacyMode, "no-training");
 
@@ -324,7 +421,12 @@ test("step 1: create project (no-training) → import demo CSV → mapping auto-
   await ok("PUT", "/api/settings", {
     project: {
       slug: S.slug,
-      director: { provider: "mock", model: "mock-director", snapshot: "mock-1", systemSuffix: "[[handler:pipeline]]" },
+      director: {
+        provider: "mock",
+        model: "mock-director",
+        snapshot: "mock-1",
+        systemSuffix: "[[handler:pipeline]]",
+      },
     },
   });
 
@@ -350,7 +452,10 @@ test("step 1: create project (no-training) → import demo CSV → mapping auto-
 
   // pull every unit (paginated) and wire the planted-truth oracle maps
   for (let offset = 0; offset < 2500; offset += 500) {
-    const page = await ok("GET", `/api/projects/${S.slug}/corpora/${S.corpusId}/units?offset=${offset}&limit=500`);
+    const page = await ok(
+      "GET",
+      `/api/projects/${S.slug}/corpora/${S.corpusId}/units?offset=${offset}&limit=500`,
+    );
     for (const u of page.units) {
       S.units.set(u.id, u);
       const flags = S.oracleDoc.rows[u.meta.respondent_id];
@@ -363,7 +468,10 @@ test("step 1: create project (no-training) → import demo CSV → mapping auto-
   }
   assert.equal(S.units.size, 2500);
   S.payTruthRate = [...S.flagsById.values()].filter((f) => f.pay).length / 2500;
-  assert.ok(Math.abs(S.payTruthRate - 0.28) < 0.03, `realized planted pay rate ≈ 0.28 (got ${S.payTruthRate})`);
+  assert.ok(
+    Math.abs(S.payTruthRate - 0.28) < 0.03,
+    `realized planted pay rate ≈ 0.28 (got ${S.payTruthRate})`,
+  );
 });
 
 // =========================================================================
@@ -374,8 +482,10 @@ test("step 2: instant read is local and sees the planted vocabulary", async () =
   const r = await ok("GET", `/api/projects/${S.slug}/corpora/${S.corpusId}/instantread`);
   assert.equal(r.local, true, "instant read computes entirely locally");
   assert.equal(r.unitCount, 2500);
-  assert.ok(r.topTerms.some((t) => t.term === "pay"),
-    `top distinctive terms include "pay": ${JSON.stringify(r.topTerms.slice(0, 12))}`);
+  assert.ok(
+    r.topTerms.some((t) => t.term === "pay"),
+    `top distinctive terms include "pay": ${JSON.stringify(r.topTerms.slice(0, 12))}`,
+  );
   assert.equal(typeof r.sentimentSketch.meanValence, "number", "sentiment sketch present");
   assert.equal(r.sentimentSketch.lexicon, "VADER");
   assert.ok(r.langMix.en > 0.9, `mostly English (${JSON.stringify(r.langMix)})`);
@@ -416,7 +526,10 @@ test("step 3: brief streams over SSE; ≥4 planted themes; every quote ref resol
     const d = await ok("GET", `/api/projects/${S.slug}/evidence/${ref}`);
     assert.equal(d.unit.id, ref);
     assert.ok(d.unit.text.length > 0);
-    assert.ok(d.sourcePos && typeof d.sourcePos.row === "number", "source position rides the dossier");
+    assert.ok(
+      d.sourcePos && typeof d.sourcePos.row === "number",
+      "source position rides the dossier",
+    );
   }
 });
 
@@ -443,7 +556,10 @@ test("step 4a: accept pay + quit-intent constructs from the brief's themes", asy
       { text: "the pay was simply too low for the work", label: "yes", kind: "positive" },
       { text: "the team itself was genuinely kind", label: "no", kind: "negative" },
     ],
-    categories: [{ value: "yes", label: "Yes" }, { value: "no", label: "No" }],
+    categories: [
+      { value: "yes", label: "Yes" },
+      { value: "no", label: "No" },
+    ],
   });
   S.payConstructId = pay.id;
 
@@ -459,7 +575,10 @@ test("step 4a: accept pay + quit-intent constructs from the brief's themes", asy
     },
     edgeCases: [],
     examples: [{ text: "I had to get out before it got worse", label: "quit", kind: "positive" }],
-    categories: [{ value: "quit", label: "Quit language" }, { value: "stay", label: "None" }],
+    categories: [
+      { value: "quit", label: "Quit language" },
+      { value: "stay", label: "None" },
+    ],
   });
   S.quitConstructId = quit.id;
 
@@ -496,8 +615,11 @@ test("step 4b: compile worker instruments (workerClass small) — ladder starts 
     for (const slot of ["{{definition}}", "{{criteria}}", "{{examples}}", "{{unit}}"]) {
       assert.ok(compiled.payload.promptTemplate.includes(slot), `compiled template keeps ${slot}`);
     }
-    assert.match(compiled.payload.promptTemplate, /Respond ONLY with a single JSON object/,
-      "small worker class gets the strict-output scaffolding");
+    assert.match(
+      compiled.payload.promptTemplate,
+      /Respond ONLY with a single JSON object/,
+      "small worker class gets the strict-output scaffolding",
+    );
   }
 });
 
@@ -506,13 +628,18 @@ test("step 4c: silver-tune the pay judge (SSE) — agreement curve sane, lands �
   // independent re-flip error model would fail test–retest at 0.9; 0.98
   // emulates a self-consistent temperature-0 worker, α ≈ 0.9 > 0.8).
   armMock(0.98);
-  const { status, events: evs } = await readSse(`/api/projects/${S.slug}/instruments/${S.payInstId}/silver-tune`, {
-    method: "POST",
-    body: { n: 150, corpusId: S.corpusId }, // n=150 keeps the keyless loop quick (default 200)
-  });
+  const { status, events: evs } = await readSse(
+    `/api/projects/${S.slug}/instruments/${S.payInstId}/silver-tune`,
+    {
+      method: "POST",
+      body: { n: 150, corpusId: S.corpusId }, // n=150 keeps the keyless loop quick (default 200)
+    },
+  );
   assert.equal(status, 200);
-  assert.ok(!evs.some((e) => e.event === "error"),
-    `silver-tune streamed no error: ${JSON.stringify(evs.find((e) => e.event === "error")?.data)}`);
+  assert.ok(
+    !evs.some((e) => e.event === "error"),
+    `silver-tune streamed no error: ${JSON.stringify(evs.find((e) => e.event === "error")?.data)}`,
+  );
   const iters = evs.filter((e) => e.event === "iteration");
   const done = evs.find((e) => e.event === "done");
   assert.ok(iters.length >= 1 && iters.length <= 5, `1–5 tuning iterations (got ${iters.length})`);
@@ -522,16 +649,24 @@ test("step 4c: silver-tune the pay judge (SSE) — agreement curve sane, lands �
   // consecutive-point dip has sd ≈ 0.016) — allow a 0.06 (≈3.7σ) dip while
   // requiring the curve never collapses.
   const curve = iters.map((e) => e.data.agreement);
-  console.log(`    silver curve: [${curve.join(", ")}] stability α=${done?.data?.stability?.alpha}`);
+  console.log(
+    `    silver curve: [${curve.join(", ")}] stability α=${done?.data?.stability?.alpha}`,
+  );
   for (let i = 1; i < curve.length; i++) {
-    assert.ok(curve[i] >= curve[i - 1] - 0.06,
-      `agreement curve non-decreasing within tolerance: ${JSON.stringify(curve)}`);
+    assert.ok(
+      curve[i] >= curve[i - 1] - 0.06,
+      `agreement curve non-decreasing within tolerance: ${JSON.stringify(curve)}`,
+    );
   }
-  for (const a of curve) assert.ok(a > 0.9, `tuning agreement stays near the dialed accuracy (${a})`);
+  for (const a of curve)
+    assert.ok(a > 0.9, `tuning agreement stays near the dialed accuracy (${a})`);
 
   assert.ok(done, "done event arrives");
   assert.equal(done.data.level, "stabilized", "the pay judge earns ◑");
-  assert.ok(done.data.stability.alpha >= 0.8, `test–retest α ≥ 0.8 (got ${done.data.stability.alpha})`);
+  assert.ok(
+    done.data.stability.alpha >= 0.8,
+    `test–retest α ≥ 0.8 (got ${done.data.stability.alpha})`,
+  );
   assert.equal(done.data.cost.workerUSD, 0, "mock worker costs $0");
 
   const p = await getProject();
@@ -586,9 +721,10 @@ test("step 5: preflight then run the pay judge over all 2,500 units; label distr
   const yesShare = lines.filter((l) => l.label === "yes").length / 2500;
   // realized worker error rate vs planted truth — documents that the 0.9
   // accuracy dial held (per-unit seeded coins; binomial sd ≈ 0.006)
-  const errRate = lines.filter((l) => l.label !== payTruth(S.units.get(l.unitId).text)).length / 2500;
+  const errRate =
+    lines.filter((l) => l.label !== payTruth(S.units.get(l.unitId).text)).length / 2500;
   console.log(`    run: realized worker error rate=${errRate.toFixed(4)} (dial 0.10)`);
-  assert.ok(Math.abs(errRate - 0.10) < 0.02, `worker error rate ≈ 10% (got ${errRate})`);
+  assert.ok(Math.abs(errRate - 0.1) < 0.02, `worker error rate ≈ 10% (got ${errRate})`);
 
   // THE MATH. Truth rate t = realized planted pay rate (from oracle.json over
   // these exact 2,500 rows). The mock agrees with truth w.p. a = 0.9 and
@@ -598,19 +734,27 @@ test("step 5: preflight then run the pay judge over all 2,500 units; label distr
   // Binomial sd = √(E(1−E)/2500) ≈ 0.0093; the ±0.04 window is ≈ 4σ.
   const t = S.payTruthRate;
   const expected = 0.9 * t + 0.1 * (1 - t);
-  console.log(`    run: observed yes=${yesShare.toFixed(4)} expected=${expected.toFixed(4)} planted t=${t.toFixed(4)}`);
-  assert.ok(Math.abs(yesShare - expected) < 0.04,
-    `observed yes ${yesShare.toFixed(4)} within 4σ of accuracy-model expectation ${expected.toFixed(4)} (t=${t.toFixed(4)})`);
+  console.log(
+    `    run: observed yes=${yesShare.toFixed(4)} expected=${expected.toFixed(4)} planted t=${t.toFixed(4)}`,
+  );
+  assert.ok(
+    Math.abs(yesShare - expected) < 0.04,
+    `observed yes ${yesShare.toFixed(4)} within 4σ of accuracy-model expectation ${expected.toFixed(4)} (t=${t.toFixed(4)})`,
+  );
   // and the task's headline tolerance: within ±10 points of the PLANTED base rate
-  assert.ok(Math.abs(yesShare - 0.28) < 0.10,
-    `observed yes ${yesShare.toFixed(4)} within ±0.10 of the planted 0.28`);
+  assert.ok(
+    Math.abs(yesShare - 0.28) < 0.1,
+    `observed yes ${yesShare.toFixed(4)} within ±0.10 of the planted 0.28`,
+  );
 
   const p = await getProject();
   const run = p.runs.find((r) => r.id === S.runId);
   assert.equal(run.status, "complete");
   assert.equal(run.cost.actualUSD, 0, "keyless run costs $0");
-  assert.ok(run.escalation.count > 0,
-    `the low-confidence/long-unit escalation queue is alive (${run.escalation.count} units; labels unchanged — Director echoed)`);
+  assert.ok(
+    run.escalation.count > 0,
+    `the low-confidence/long-unit escalation queue is alive (${run.escalation.count} units; labels unchanged — Director echoed)`,
+  );
   assert.equal(p.budget.spentUSD, 0, "$0 rolls up to the project budget");
   assert.equal((await events({ type: "run.completed", ref: S.runId })).length, 1);
 });
@@ -638,16 +782,24 @@ test("step 6a: goldset SRS n=150 stores π = 150/2500 on every sampled row", asy
       n: 150,
     });
     assert.equal(sampled.n, 150);
-    assert.ok(sampled.sample.every((s) => s.pi === 150 / 2500), "π = n/N = 0.06 stored on every row");
+    assert.ok(
+      sampled.sample.every((s) => s.pi === 150 / 2500),
+      "π = n/N = 0.06 stored on every row",
+    );
     const ids = sampled.sample.map((s) => s.unitId);
     const tSample = ids.filter((id) => S.flagsById.get(id).pay).length / ids.length;
     if (tSample >= 0.25 && tSample <= 0.34) {
       S.goldsetId = gs.id;
       S.goldSampleIds = ids;
-      console.log(`    gold sample accepted on attempt ${attempt}: truth share ${tSample.toFixed(4)}`);
+      console.log(
+        `    gold sample accepted on attempt ${attempt}: truth share ${tSample.toFixed(4)}`,
+      );
       break;
     }
-    assert.ok(attempt < 8, `8 straight unrepresentative draws (last truth share ${tSample}) — investigate the sampler`);
+    assert.ok(
+      attempt < 8,
+      `8 straight unrepresentative draws (last truth share ${tSample}) — investigate the sampler`,
+    );
     await ok("DELETE", `/api/projects/${S.slug}/goldsets/${gs.id}`);
   }
 
@@ -674,14 +826,24 @@ test("step 6b: two scripted blind coders label through coder-session listeners (
   }
   const yesIds = shuffled.filter((id) => S.flagsById.get(id).pay);
   const noIds = shuffled.filter((id) => !S.flagsById.get(id).pay);
-  assert.ok(yesIds.length >= 6 && noIds.length >= 18, "the banded sample affords the pinned flip composition");
+  assert.ok(
+    yesIds.length >= 6 && noIds.length >= 18,
+    "the banded sample affords the pinned flip composition",
+  );
   const flipsA = new Set([...yesIds.slice(0, 3), ...noIds.slice(0, 9)]);
   const flipsB = new Set([...yesIds.slice(3, 6), ...noIds.slice(9, 18)]);
   S.disagreements = [...flipsA, ...flipsB];
 
-  const sessA = await ok("POST", `/api/projects/${S.slug}/goldsets/${S.goldsetId}/coder-session`, { coderId: "coder-A" });
-  const sessB = await ok("POST", `/api/projects/${S.slug}/goldsets/${S.goldsetId}/coder-session`, { coderId: "coder-B" });
-  assert.ok(sessA.port > 0 && sessB.port > 0 && sessA.port !== sessB.port, "each coder gets an isolated listener");
+  const sessA = await ok("POST", `/api/projects/${S.slug}/goldsets/${S.goldsetId}/coder-session`, {
+    coderId: "coder-A",
+  });
+  const sessB = await ok("POST", `/api/projects/${S.slug}/goldsets/${S.goldsetId}/coder-session`, {
+    coderId: "coder-B",
+  });
+  assert.ok(
+    sessA.port > 0 && sessB.port > 0 && sessA.port !== sessB.port,
+    "each coder gets an isolated listener",
+  );
 
   async function codeAll(sess, flips, otherCoder) {
     // session.url is the human coding page; the scripted coder hits the API
@@ -693,7 +855,13 @@ test("step 6b: two scripted blind coders label through coder-session listeners (
       const raw = await res.text();
       assert.equal(res.status, 200);
       // blindness: no machine labels, no other coder, ever
-      for (const marker of ['"juror"', '"rationale"', '"confidence"', '"aggregate"', '"adjudicated"']) {
+      for (const marker of [
+        '"juror"',
+        '"rationale"',
+        '"confidence"',
+        '"aggregate"',
+        '"adjudicated"',
+      ]) {
         assert.ok(!raw.includes(marker), `blind payload leaked ${marker}`);
       }
       assert.ok(!raw.includes(otherCoder), `blind payload leaked ${otherCoder}`);
@@ -726,11 +894,15 @@ test("step 6c: human–human agreement computes FIRST (κ > 0.6), then adjudicat
   const r = await ok("GET", `/api/projects/${S.slug}/goldsets/${S.goldsetId}/agreement`);
   // disjoint 12+12 flips → exactly 24 disagreements → po = 126/150 = 0.84
   assert.equal(r.humanAgreement.n, 150);
-  assert.ok(Math.abs(r.humanAgreement.percent - 0.84) < 1e-9,
-    `po = 126/150 exactly (got ${r.humanAgreement.percent})`);
+  assert.ok(
+    Math.abs(r.humanAgreement.percent - 0.84) < 1e-9,
+    `po = 126/150 exactly (got ${r.humanAgreement.percent})`,
+  );
   // κ = (po − pe)/(1 − pe); the step-6b construction guarantees ≥ 0.611
   // for any accepted sample (see the bound derivation there)
-  console.log(`    human–human: percent=${r.humanAgreement.percent} kappa=${r.humanAgreement.kappa} alpha=${r.humanAgreement.alpha}`);
+  console.log(
+    `    human–human: percent=${r.humanAgreement.percent} kappa=${r.humanAgreement.kappa} alpha=${r.humanAgreement.alpha}`,
+  );
   assert.ok(r.humanAgreement.kappa > 0.6, `human–human κ > 0.6 (got ${r.humanAgreement.kappa})`);
   assert.equal(typeof r.humanAgreement.alpha, "number");
 
@@ -739,8 +911,11 @@ test("step 6c: human–human agreement computes FIRST (κ > 0.6), then adjudicat
   const all = await events();
   const iAgreement = all.findIndex((e) => e.type === "goldset.agreement");
   assert.ok(iAgreement !== -1, "goldset.agreement ledgered");
-  assert.equal(all.findIndex((e) => e.type === "instrument.frozen"), -1,
-    "no instrument froze before human agreement existed");
+  assert.equal(
+    all.findIndex((e) => e.type === "instrument.frozen"),
+    -1,
+    "no instrument froze before human agreement existed",
+  );
 
   // adjudicate the 24 disagreements back to planted truth
   for (const unitId of S.disagreements) {
@@ -761,10 +936,18 @@ test("step 6d: instrument tests against gold (κ > 0.6) and freezes — ● cali
   // RUN's agreement with gold — expected percent ≈ 0.9 (the mock's accuracy)
   const r = await ok("GET", `/api/projects/${S.slug}/goldsets/${S.goldsetId}/agreement`);
   const mine = r.perInstrument.find((x) => x.instrumentId === S.payInstId);
-  assert.ok(mine && !mine.error, `pay instrument tested vs gold: ${JSON.stringify(mine?.error ?? null)}`);
+  assert.ok(
+    mine && !mine.error,
+    `pay instrument tested vs gold: ${JSON.stringify(mine?.error ?? null)}`,
+  );
   assert.equal(mine.agreement.n, 150, "all 150 gold units compared");
-  console.log(`    machine-vs-gold: percent=${mine.agreement.percent} kappa=${mine.agreement.kappa}`);
-  assert.ok(mine.agreement.percent > 0.8, `machine-gold agreement ≈ 0.9 (got ${mine.agreement.percent})`);
+  console.log(
+    `    machine-vs-gold: percent=${mine.agreement.percent} kappa=${mine.agreement.kappa}`,
+  );
+  assert.ok(
+    mine.agreement.percent > 0.8,
+    `machine-gold agreement ≈ 0.9 (got ${mine.agreement.percent})`,
+  );
   assert.ok(mine.agreement.kappa > 0.6, `machine-gold κ > 0.6 (got ${mine.agreement.kappa})`);
 
   const cert = await ok("POST", `/api/projects/${S.slug}/instruments/${S.payInstId}/freeze`, {
@@ -772,7 +955,10 @@ test("step 6d: instrument tests against gold (κ > 0.6) and freezes — ● cali
   });
   assert.equal(cert.goldsetId, S.goldsetId);
   assert.equal(cert.modelPinned, true, "snapshot was pinned");
-  assert.equal(cert.versionHash, (await getProject()).instruments.find((i) => i.id === S.payInstId).versionHash);
+  assert.equal(
+    cert.versionHash,
+    (await getProject()).instruments.find((i) => i.id === S.payInstId).versionHash,
+  );
   assert.ok(cert.humanAgreement, "certificate carries the HUMAN agreement computed first");
   assert.ok(Math.abs(cert.humanAgreement.percent - 0.84) < 1e-9);
   assert.ok(cert.agreement.kappa > 0.6, `certificate machine κ (got ${cert.agreement.kappa})`);
@@ -786,8 +972,10 @@ test("step 6d: instrument tests against gold (κ > 0.6) and freezes — ● cali
   const all = await events();
   const iAgreement = all.findIndex((e) => e.type === "goldset.agreement");
   const iFrozen = all.findIndex((e) => e.type === "instrument.frozen");
-  assert.ok(iAgreement !== -1 && iFrozen !== -1 && iAgreement < iFrozen,
-    `human agreement (ledger #${iAgreement}) precedes the freeze (#${iFrozen})`);
+  assert.ok(
+    iAgreement !== -1 && iFrozen !== -1 && iAgreement < iFrozen,
+    `human agreement (ledger #${iAgreement}) precedes the freeze (#${iFrozen})`,
+  );
 });
 
 // =========================================================================
@@ -828,14 +1016,18 @@ test("step 7a: crosstab pay×dept auto-corrects (◉) — Sales CI covers the pl
   assert.ok(sales, "Sales cell present");
   S.salesCell = sales;
   const covers = sales.ciLo <= tSales && tSales <= sales.ciHi;
-  console.log(`    Sales: planted=${tSales.toFixed(4)} corrected=${sales.est} CI=[${sales.ciLo}, ${sales.ciHi}] naive=${sales.naive.est} covers95=${covers}`);
+  console.log(
+    `    Sales: planted=${tSales.toFixed(4)} corrected=${sales.est} CI=[${sales.ciLo}, ${sales.ciHi}] naive=${sales.naive.est} covers95=${covers}`,
+  );
   // CI construction: est ± z₀.₉₇₅·se (z = 1.959963985…, the exact quantile)
   const zHi = (sales.ciHi - sales.est) / sales.se;
   const zLo = (sales.est - sales.ciLo) / sales.se;
   assert.ok(Math.abs(zHi - zLo) < 1e-9, "CI symmetric about the estimate");
   assert.ok(Math.abs(zHi - 1.959964) < 1e-3, `CI uses the normal 95% quantile (z = ${zHi})`);
-  assert.ok(Math.abs(sales.est - tSales) <= 3.5 * sales.se,
-    `corrected Sales estimate ${sales.est} within 3.5·se (${(3.5 * sales.se).toFixed(4)}) of planted ${tSales.toFixed(4)} — design-unbiasedness holds`);
+  assert.ok(
+    Math.abs(sales.est - tSales) <= 3.5 * sales.se,
+    `corrected Sales estimate ${sales.est} within 3.5·se (${(3.5 * sales.se).toFixed(4)}) of planted ${tSales.toFixed(4)} — design-unbiasedness holds`,
+  );
   assert.equal(typeof sales.naive.est, "number", "naive companion present");
   // The Correction Reveal: the corrected estimate must genuinely differ from
   // the naive plug-in SOMEWHERE in the crosstab. Any single cell can land a
@@ -843,10 +1035,11 @@ test("step 7a: crosstab pay×dept auto-corrects (◉) — Sales CI covers the pl
   // per cell), so the deterministic invariant is over the full set of cells,
   // not Sales specifically — the chance all six corrections vanish at once is
   // negligible under the planted 0.9-accuracy error model.
-  const anyDiffers = a.results.cells.some(
-    (c) => c.naive && Math.abs(c.naive.est - c.est) > 1e-6
+  const anyDiffers = a.results.cells.some((c) => c.naive && Math.abs(c.naive.est - c.est) > 1e-6);
+  assert.ok(
+    anyDiffers,
+    "corrected and naive estimates differ in at least one cell — the Correction Reveal",
   );
-  assert.ok(anyDiffers, "corrected and naive estimates differ in at least one cell — the Correction Reveal");
 
   // honesty rails: no significance decoration anywhere
   assert.ok(!JSON.stringify(a.results).includes("*"), "no stars");
@@ -862,13 +1055,19 @@ test("step 7b: dslLogit model — the Correction Reveal data shape (corrected co
   assert.equal(a.level, "corrected");
   assert.equal(a.results.estimator, "dslLogit");
   assert.equal(a.results.coef.length, 2, "intercept + satisfaction");
-  assert.equal(a.results.naive.length, 2, "naive fit beside the corrected one — the Reveal's data shape");
+  assert.equal(
+    a.results.naive.length,
+    2,
+    "naive fit beside the corrected one — the Reveal's data shape",
+  );
   assert.equal(a.results.coef[1].name, "satisfaction");
   assert.equal(a.results.nGold, 150, "all π-bearing gold rows used");
   // pay was planted to RISE as satisfaction falls; the naive fit over all
   // 2,500 machine labels has tiny se, so its sign is deterministic
-  assert.ok(a.results.naive[1].est < 0,
-    `planted ↓satisfaction association shows in the naive slope (got ${a.results.naive[1].est})`);
+  assert.ok(
+    a.results.naive[1].est < 0,
+    `planted ↓satisfaction association shows in the naive slope (got ${a.results.naive[1].est})`,
+  );
   assert.equal(typeof a.results.coef[1].se, "number");
 });
 
@@ -901,7 +1100,9 @@ test("step 8a: methods markdown names the instrument, π, κ, estimator — and 
 });
 
 test("step 8b: replication zip — MANIFEST hashes verify, reproduce.py embeds the analysis numbers, gold CSV carries π", async () => {
-  const res = await fetch(`${base}/api/projects/${S.slug}/exports/replication?analyses=${S.crosstabId},${S.modelAnalysisId}`);
+  const res = await fetch(
+    `${base}/api/projects/${S.slug}/exports/replication?analyses=${S.crosstabId},${S.modelAnalysisId}`,
+  );
   assert.equal(res.status, 200);
   assert.equal(res.headers.get("content-type"), "application/zip");
   const files = unzipSync(new Uint8Array(await res.arrayBuffer()));
@@ -919,8 +1120,10 @@ test("step 8b: replication zip — MANIFEST hashes verify, reproduce.py embeds t
   // reproduce.py embeds Concord's own numbers as the expected values
   const py = strFromU8(files["reproduce.py"]);
   assert.match(py, /def dsl_proportion/);
-  assert.ok(py.includes(String(S.salesCell.est)),
-    `reproduce.py embeds the corrected Sales estimate ${S.salesCell.est}`);
+  assert.ok(
+    py.includes(String(S.salesCell.est)),
+    `reproduce.py embeds the corrected Sales estimate ${S.salesCell.est}`,
+  );
   assert.ok(py.includes(String(S.salesCell.se)), "…and its SE");
 
   // the gold CSV stores π on every row
@@ -952,7 +1155,10 @@ test("step 9: a plain-language question compiles to a plan; approval materialize
   assert.equal(plan.constructs.length, 2, "the plan drafts pay + quit-mention constructs");
   assert.equal(plan.instruments.length, 2);
   assert.equal(plan.authoredBy, "director");
-  assert.ok(plan.estimate.calls >= 2500, `estimate covers the corpus (${plan.estimate.calls} calls)`);
+  assert.ok(
+    plan.estimate.calls >= 2500,
+    `estimate covers the corpus (${plan.estimate.calls} calls)`,
+  );
   assert.equal(typeof plan.estimate.usd, "number");
   assert.equal(plan.analysis.kind, "crosstab");
 
@@ -966,10 +1172,18 @@ test("step 9: a plain-language question compiles to a plan; approval materialize
   for (const id of approved.instrumentIds) {
     const inst = p.instruments.find((i) => i.id === id);
     assert.ok(inst, "instrument materialized");
-    assert.equal(inst.level, "exploratory", "new instruments enter at ◌ — the ladder restarts honestly");
+    assert.equal(
+      inst.level,
+      "exploratory",
+      "new instruments enter at ◌ — the ladder restarts honestly",
+    );
   }
   for (const id of approved.runIds) {
-    assert.equal(p.runs.find((r) => r.id === id).status, "pending", "runs await the researcher's explicit start");
+    assert.equal(
+      p.runs.find((r) => r.id === id).status,
+      "pending",
+      "runs await the researcher's explicit start",
+    );
   }
   assert.equal((await events({ type: "plan.approved" })).length, 1);
 });
@@ -987,7 +1201,11 @@ test("ladder recap: ◌ → ◑ → ● on the pay instrument, ◉ on its analys
   assert.ok(pay.certificate.humanAgreement, "the ● certificate carries human reliability first");
 
   const quit = p.instruments.find((i) => i.id === S.quitInstId);
-  assert.equal(quit.level, "exploratory", "the quit judge never claimed evidence it does not have (still ◌)");
+  assert.equal(
+    quit.level,
+    "exploratory",
+    "the quit judge never claimed evidence it does not have (still ◌)",
+  );
 
   const crosstab = p.analyses.find((x) => x.id === S.crosstabId);
   assert.equal(crosstab.level, "corrected", "the pay×dept analysis carries ◉");

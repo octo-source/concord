@@ -39,16 +39,24 @@ export function init({ host: hostEl, appRoot: rootEl } = {}) {
   body = el("div", { class: "inspector__body" });
 
   host.append(
-    el("div", { class: "inspector__panel" },
-      el("header", { class: "inspector__head" },
+    el(
+      "div",
+      { class: "inspector__panel" },
+      el(
+        "header",
+        { class: "inspector__head" },
         el("span", { class: "overline" }, "Inspector"),
         titleEl,
-        el("button", {
-          class: "inspector__close",
-          type: "button",
-          aria: { label: "Close inspector" },
-          onclick: close,
-        }, "×"),
+        el(
+          "button",
+          {
+            class: "inspector__close",
+            type: "button",
+            aria: { label: "Close inspector" },
+            onclick: close,
+          },
+          "×",
+        ),
       ),
       body,
     ),
@@ -125,7 +133,9 @@ export function initEvidenceDelegation(fetcher) {
 function onDoor(e) {
   const door = e.target?.closest?.("[data-evidence]");
   if (!door) return;
-  const ids = String(door.dataset.evidence).split(/[,\s]+/).filter(Boolean);
+  const ids = String(door.dataset.evidence)
+    .split(/[,\s]+/)
+    .filter(Boolean);
   if (ids.length === 0) return;
   lastTrigger = door;
   // data-evidence-total: the TRUE unit count behind this door — evidence id
@@ -140,19 +150,45 @@ function openList(ids, total = null) {
   appRoot?.setAttribute("data-inspector", "open");
   setTitle(total ? `${ids.length} of ${total} units` : `${ids.length} units`);
   clear(body).append(
-    el("p", { class: "inspector__listnote" },
+    el(
+      "p",
+      { class: "inspector__listnote" },
       total
-        ? el("span", {}, "This cell holds ", el("strong", {}, String(total)),
-            " units; the first ", el("strong", {}, String(ids.length)), " are listed here. Open one:")
-        : el("span", {}, "This cell lists ", el("strong", {}, String(ids.length)), " units. Open one:")),
-    el("ul", { class: "inspector__unitlist", role: "list" },
+        ? el(
+            "span",
+            {},
+            "This cell holds ",
+            el("strong", {}, String(total)),
+            " units; the first ",
+            el("strong", {}, String(ids.length)),
+            " are listed here. Open one:",
+          )
+        : el(
+            "span",
+            {},
+            "This cell lists ",
+            el("strong", {}, String(ids.length)),
+            " units. Open one:",
+          ),
+    ),
+    el(
+      "ul",
+      { class: "inspector__unitlist", role: "list" },
       ...ids.map((id) =>
-        el("li", {},
-          el("button", {
-            class: "inspector__unitbtn data",
-            type: "button",
-            onclick: () => openUnit(id),
-          }, id))),
+        el(
+          "li",
+          {},
+          el(
+            "button",
+            {
+              class: "inspector__unitbtn data",
+              type: "button",
+              onclick: () => openUnit(id),
+            },
+            id,
+          ),
+        ),
+      ),
     ),
   );
   host.querySelector(".inspector__close")?.focus();
@@ -175,69 +211,105 @@ export function renderDossier(d = {}) {
   const frag = el("div", { class: "dossier" });
 
   // 1 — the human voice
-  frag.append(section("Verbatim",
-    quotecard.render({
-      unit,
-      highlights: hits.spans,
-      lang: d.lang,
-      anonymized: Boolean(unit.flags?.pii?.length || d.anonymized),
-    }),
-  ));
+  frag.append(
+    section(
+      "Verbatim",
+      quotecard.render({
+        unit,
+        highlights: hits.spans,
+        lang: d.lang,
+        anonymized: Boolean(unit.flags?.pii?.length || d.anonymized),
+      }),
+    ),
+  );
 
   // 2 — dictionary hits
   if (hits.byCategory.length > 0) {
-    frag.append(section("Dictionary",
-      el("ul", { class: "dossier__dict", role: "list" },
-        ...hits.byCategory.map(({ category, terms }) =>
-          el("li", { class: "dossier__dict-row" },
-            el("span", {
-              class: "chip chip--cat",
-              dataset: { cat: category, slot: String(quotecard.catSlot(category)) },
-            }, category),
-            el("span", { class: "dossier__dict-terms data" }, terms.join(" · ")),
-          ))),
-    ));
+    frag.append(
+      section(
+        "Dictionary",
+        el(
+          "ul",
+          { class: "dossier__dict", role: "list" },
+          ...hits.byCategory.map(({ category, terms }) =>
+            el(
+              "li",
+              { class: "dossier__dict-row" },
+              el(
+                "span",
+                {
+                  class: "chip chip--cat",
+                  dataset: { cat: category, slot: String(quotecard.catSlot(category)) },
+                },
+                category,
+              ),
+              el("span", { class: "dossier__dict-terms data" }, terms.join(" · ")),
+            ),
+          ),
+        ),
+      ),
+    );
   }
 
   // 3 — machine readings (per juror)
   if (outputs.length > 0) {
-    frag.append(section("Machine readings",
-      el("ul", { class: "dossier__judges", role: "list" },
-        ...outputs.map((o) => judgeRow(o, level))),
-    ));
+    frag.append(
+      section(
+        "Machine readings",
+        el(
+          "ul",
+          { class: "dossier__judges", role: "list" },
+          ...outputs.map((o) => judgeRow(o, level)),
+        ),
+      ),
+    );
   }
 
   // 4 — gold
   if (gold.length > 0) {
-    frag.append(section("Gold standard",
-      el("ul", { class: "dossier__gold", role: "list" },
-        ...gold.map((g) =>
-          el("li", { class: "dossier__gold-row" },
-            el("span", { class: "chip chip--gold" }, String(g.label)),
-            el("span", { class: "dossier__gold-coder data" }, g.coder),
-            g.adjudicated ? el("span", { class: "chip chip--ghost" }, "adjudicated") : null,
-          ))),
-    ));
+    frag.append(
+      section(
+        "Gold standard",
+        el(
+          "ul",
+          { class: "dossier__gold", role: "list" },
+          ...gold.map((g) =>
+            el(
+              "li",
+              { class: "dossier__gold-row" },
+              el("span", { class: "chip chip--gold" }, String(g.label)),
+              el("span", { class: "dossier__gold-coder data" }, g.coder),
+              g.adjudicated ? el("span", { class: "chip chip--ghost" }, "adjudicated") : null,
+            ),
+          ),
+        ),
+      ),
+    );
   }
 
   // 5 — source position
   const pos = d.sourcePos ?? unit.pos;
   if (pos && Object.keys(pos).length > 0) {
-    frag.append(section("Source",
-      el("p", { class: "dossier__pos data" }, describePos(pos)),
-    ));
+    frag.append(section("Source", el("p", { class: "dossier__pos data" }, describePos(pos))));
   }
 
   if (hits.byCategory.length === 0 && outputs.length === 0 && gold.length === 0) {
-    frag.append(el("p", { class: "dossier__none" },
-      "No instrument has read this unit yet. Numbers that cite it will list their readings here."));
+    frag.append(
+      el(
+        "p",
+        { class: "dossier__none" },
+        "No instrument has read this unit yet. Numbers that cite it will list their readings here.",
+      ),
+    );
   }
 
   return frag;
 }
 
 function section(label, ...children) {
-  return el("section", { class: "dossier__section" },
+  return el(
+    "section",
+    { class: "dossier__section" },
     el("h3", { class: "overline dossier__label" }, label),
     ...children,
   );
@@ -245,19 +317,27 @@ function section(label, ...children) {
 
 function judgeRow(o, level) {
   const conf = typeof o.confidence === "number" ? o.confidence : null;
-  return el("li", { class: "dossier__judge" },
-    el("div", { class: "dossier__judge-head" },
+  return el(
+    "li",
+    { class: "dossier__judge" },
+    el(
+      "div",
+      { class: "dossier__judge-head" },
       el("span", { class: "chip chip--machine" }, String(o.label ?? "—")),
       el("span", { class: "dossier__judge-name data" }, shortJuror(o.juror)),
       conf !== null
-        ? el("span", { class: "dossier__judge-conf data", title: "Judge-reported confidence" },
-            "conf ", fmtStat(conf),
+        ? el(
+            "span",
+            { class: "dossier__judge-conf data", title: "Judge-reported confidence" },
+            "conf ",
+            fmtStat(conf),
             level ? ladder.render({ level, size: "sm" }) : null,
             el("span", {
               class: "confbar",
               aria: { hidden: "true" },
               style: { "--conf": `${Math.round(conf * 100)}%` },
-            }))
+            }),
+          )
         : null,
       o.escalated ? el("span", { class: "chip chip--signal" }, "escalated") : null,
       o.repaired ? el("span", { class: "chip chip--ghost" }, "repaired") : null,
@@ -362,23 +442,32 @@ function normalizeGold(raw) {
         }
         continue;
       }
-      rows.push({ coder: g.coder ?? g.coderId ?? "coder", label: g.label, adjudicated: g.adjudicated });
+      rows.push({
+        coder: g.coder ?? g.coderId ?? "coder",
+        label: g.label,
+        adjudicated: g.adjudicated,
+      });
     }
     return rows;
   }
   return Object.entries(raw).map(([coder, label]) =>
-    coder === "adjudicated"
-      ? { coder: "adjudicated", label, adjudicated: true }
-      : { coder, label });
+    coder === "adjudicated" ? { coder: "adjudicated", label, adjudicated: true } : { coder, label },
+  );
 }
 
 function loadingView() {
-  return el("div", { class: "dossier__loading" },
-    el("p", { class: "muted" }, "Assembling evidence…"));
+  return el(
+    "div",
+    { class: "dossier__loading" },
+    el("p", { class: "muted" }, "Assembling evidence…"),
+  );
 }
 
 function errorView(err) {
-  return el("div", { class: "dossier__error" },
+  return el(
+    "div",
+    { class: "dossier__error" },
     el("p", {}, "The evidence could not be loaded."),
-    el("p", { class: "faint data" }, String(err?.message ?? err)));
+    el("p", { class: "faint data" }, String(err?.message ?? err)),
+  );
 }

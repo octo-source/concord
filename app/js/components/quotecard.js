@@ -30,25 +30,40 @@ export function render({
 } = {}) {
   const text = String(unit.text ?? "");
 
-  const body = el("blockquote", {
-    class: "quote__text",
-    lang: lang || undefined,
-  }, ...renderSpans(text, highlights));
+  const body = el(
+    "blockquote",
+    {
+      class: "quote__text",
+      lang: lang || undefined,
+    },
+    ...renderSpans(text, highlights),
+  );
 
-  const source = el("figcaption", { class: "quote__source data" },
+  const source = el(
+    "figcaption",
+    { class: "quote__source data" },
     unit.id ? el("span", { class: "quote__id" }, unit.id) : null,
     ...posChips(unit.pos),
     ...metaChips(unit.meta),
     anonymized ? el("span", { class: "chip chip--ghost quote__anon" }, "pseudonymized") : null,
     gold !== undefined && gold !== null
-      ? el("span", { class: "chip chip--gold", title: "Gold-standard (human) label" }, `gold: ${gold}`)
+      ? el(
+          "span",
+          { class: "chip chip--gold", title: "Gold-standard (human) label" },
+          `gold: ${gold}`,
+        )
       : null,
   );
 
-  return el("figure", {
-    class: `quote${compact ? " quote--compact" : ""}`,
-    dataset: evidence && unit.id ? { evidence: unit.id } : {},
-  }, body, source);
+  return el(
+    "figure",
+    {
+      class: `quote${compact ? " quote--compact" : ""}`,
+      dataset: evidence && unit.id ? { evidence: unit.id } : {},
+    },
+    body,
+    source,
+  );
 }
 
 /**
@@ -69,15 +84,19 @@ export function renderSpans(text, highlights = []) {
   const segs = segment(text, highlights);
   return segs.map((s) =>
     s.mark
-      ? el("mark", {
-          class: `quote__hit${s.kind === "pii" ? " quote__hit--pii" : ""}`,
-          dataset: {
-            cat: s.category ?? "",
-            kind: s.kind ?? "dict",
-            slot: s.kind === "pii" ? null : String(catSlot(s.category)),
+      ? el(
+          "mark",
+          {
+            class: `quote__hit${s.kind === "pii" ? " quote__hit--pii" : ""}`,
+            dataset: {
+              cat: s.category ?? "",
+              kind: s.kind ?? "dict",
+              slot: s.kind === "pii" ? null : String(catSlot(s.category)),
+            },
+            title: s.category ? `dictionary: ${s.category}` : undefined,
           },
-          title: s.category ? `dictionary: ${s.category}` : undefined,
-        }, s.text)
+          s.text,
+        )
       : s.text,
   );
 }
@@ -141,10 +160,19 @@ function metaChips(meta) {
   const rest = entries.length - shown.length;
   const chips = shown.map(([k, v]) => el("span", { class: "chip chip--meta" }, `${k}: ${v}`));
   if (rest > 0) {
-    chips.push(el("span", {
-      class: "chip chip--meta chip--more",
-      title: entries.slice(META_LIMIT).map(([k, v]) => `${k}: ${v}`).join("\n"),
-    }, `+${rest}`));
+    chips.push(
+      el(
+        "span",
+        {
+          class: "chip chip--meta chip--more",
+          title: entries
+            .slice(META_LIMIT)
+            .map(([k, v]) => `${k}: ${v}`)
+            .join("\n"),
+        },
+        `+${rest}`,
+      ),
+    );
   }
   return chips;
 }

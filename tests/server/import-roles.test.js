@@ -64,7 +64,11 @@ async function call(method, p, body) {
   const res = await fetch(base + p, init);
   const text = await res.text();
   let json = null;
-  try { json = JSON.parse(text); } catch { /* non-JSON body */ }
+  try {
+    json = JSON.parse(text);
+  } catch {
+    /* non-JSON body */
+  }
   return { status: res.status, json, text };
 }
 
@@ -80,46 +84,57 @@ async function upload(p, filename, content) {
   form.append("file", new Blob([content]), filename);
   const res = await fetch(base + p, { method: "POST", body: form });
   const json = JSON.parse(await res.text());
-  assert.equal(res.status, 200, `upload ${p} → ${res.status}: ${JSON.stringify(json).slice(0, 300)}`);
+  assert.equal(
+    res.status,
+    200,
+    `upload ${p} → ${res.status}: ${JSON.stringify(json).slice(0, 300)}`,
+  );
   assert.equal(json.ok, true);
   return json.data;
 }
 
-const unitsFile = (slug, corpusId) => path.join(projectDir(slug), "corpora", corpusId, "units.ndjson");
+const unitsFile = (slug, corpusId) =>
+  path.join(projectDir(slug), "corpora", corpusId, "units.ndjson");
 
 // ----------------------------------------------------------------- fixtures
 
 // internal_code is the column the researcher marks "ignore"; lowercase prose
 // keeps the name heuristic quiet so pii counts stay attributable.
 function makeRolesCsv() {
-  return [
-    "respondent_id,dept,internal_code,response",
-    "r0,ops,secret-7,the survey portal stayed broken for the whole team this quarter",
-    "r1,sales,secret-8,my onboarding paperwork never arrived and nobody answered upstairs",
-    "r2,ops,secret-9,the office is comfortable and the team is genuinely kind to newcomers",
-  ].join("\n") + "\n";
+  return (
+    [
+      "respondent_id,dept,internal_code,response",
+      "r0,ops,secret-7,the survey portal stayed broken for the whole team this quarter",
+      "r1,sales,secret-8,my onboarding paperwork never arrived and nobody answered upstairs",
+      "r2,ops,secret-9,the office is comfortable and the team is genuinely kind to newcomers",
+    ].join("\n") + "\n"
+  );
 }
 
 const IGNORED_EMAIL = "owner.contact@example.net";
 
 // every identifier sits in the to-be-ignored column; unit text is clean
 function makeIgnoredPiiCsv() {
-  return [
-    "respondent_id,contact,response",
-    `m0,${IGNORED_EMAIL},the survey portal stayed broken for the whole team this quarter`,
-    "m1,,my onboarding paperwork never arrived and nobody answered upstairs",
-  ].join("\n") + "\n";
+  return (
+    [
+      "respondent_id,contact,response",
+      `m0,${IGNORED_EMAIL},the survey portal stayed broken for the whole team this quarter`,
+      "m1,,my onboarding paperwork never arrived and nobody answered upstairs",
+    ].join("\n") + "\n"
+  );
 }
 
 // two empty response cells → two silently dropped rows the response must own
 function makeGappyCsv() {
-  return [
-    "respondent_id,dept,response",
-    "s0,ops,the portal stayed broken for the whole team this quarter",
-    "s1,sales,",
-    "s2,ops,the team is genuinely kind to newcomers and the office is calm",
-    "s3,sales,",
-  ].join("\n") + "\n";
+  return (
+    [
+      "respondent_id,dept,response",
+      "s0,ops,the portal stayed broken for the whole team this quarter",
+      "s1,sales,",
+      "s2,ops,the team is genuinely kind to newcomers and the office is calm",
+      "s3,sales,",
+    ].join("\n") + "\n"
+  );
 }
 
 const ROLES = [
@@ -157,7 +172,10 @@ test("ignore role drops the column from unit.meta; the role map persists on the 
   // units on disk: ignored column absent, the others ride along
   const units = await readNdjson(unitsFile(slug, confirmed.corpusId));
   for (const u of units) {
-    assert.ok(!("internal_code" in (u.meta ?? {})), `ignored column must not reach unit.meta (got ${JSON.stringify(u.meta)})`);
+    assert.ok(
+      !("internal_code" in (u.meta ?? {})),
+      `ignored column must not reach unit.meta (got ${JSON.stringify(u.meta)})`,
+    );
     assert.ok("dept" in u.meta, "non-ignored columns still ride as metadata");
     assert.ok("respondent_id" in u.meta);
   }
@@ -165,26 +183,41 @@ test("ignore role drops the column from unit.meta; the role map persists on the 
   // corpus record: role map persisted for provenance, metaColumns excludes the drop
   const p = await ok("GET", `/api/projects/${slug}`);
   const corpus = p.corpora.find((c) => c.id === confirmed.corpusId);
-  assert.deepEqual(corpus.columnRoles, ROLES, "the confirmed role map persists on the corpus record");
+  assert.deepEqual(
+    corpus.columnRoles,
+    ROLES,
+    "the confirmed role map persists on the corpus record",
+  );
   assert.equal(corpus.metaColumns, 2, "respondent_id + dept; internal_code dropped");
 
   // the role map must NOT squat on corpus.columns — that key is the
   // GET /corpora/:c/columns cache; the route must keep working
   const cols = await ok("GET", `/api/projects/${slug}/corpora/${confirmed.corpusId}/columns`);
   const names = (cols.columns ?? []).map((c) => c.name);
-  assert.ok(names.includes("dept"), `columns route still lists metadata (got ${JSON.stringify(names)})`);
-  assert.ok(!names.includes("internal_code"), "ignored column is not a variable anywhere downstream");
+  assert.ok(
+    names.includes("dept"),
+    `columns route still lists metadata (got ${JSON.stringify(names)})`,
+  );
+  assert.ok(
+    !names.includes("internal_code"),
+    "ignored column is not a variable anywhere downstream",
+  );
 
   S.slug = slug;
   S.corpusId = confirmed.corpusId;
 });
 
 test("reunitize keeps honoring the drop — derived meta is built from source units that no longer carry the column", async () => {
-  const re = await ok("POST", `/api/projects/${S.slug}/corpora/${S.corpusId}/reunitize`, { textColumn: "dept" });
+  const re = await ok("POST", `/api/projects/${S.slug}/corpora/${S.corpusId}/reunitize`, {
+    textColumn: "dept",
+  });
   const units = await readNdjson(unitsFile(S.slug, re.corpusId));
   assert.ok(units.length > 0);
   for (const u of units) {
-    assert.ok(!("internal_code" in (u.meta ?? {})), `ignored column must not resurface on reunitize (got ${JSON.stringify(u.meta)})`);
+    assert.ok(
+      !("internal_code" in (u.meta ?? {})),
+      `ignored column must not resurface on reunitize (got ${JSON.stringify(u.meta)})`,
+    );
     assert.ok("response" in u.meta, "the old text is preserved under its original column name");
   }
   S.derivedId = re.corpusId;
@@ -193,14 +226,21 @@ test("reunitize keeps honoring the drop — derived meta is built from source un
 test("reunitize copies columnRoles to the derived corpus, adjusted for the promotion", async () => {
   const p = await ok("GET", `/api/projects/${S.slug}`);
   const derived = p.corpora.find((c) => c.id === S.derivedId);
-  assert.ok(Array.isArray(derived.columnRoles), `the derived corpus carries the role map (got ${JSON.stringify(derived.columnRoles)})`);
+  assert.ok(
+    Array.isArray(derived.columnRoles),
+    `the derived corpus carries the role map (got ${JSON.stringify(derived.columnRoles)})`,
+  );
   const roleOf = (name) => derived.columnRoles.find((c) => c.name === name)?.role;
   assert.equal(roleOf("dept"), "text", "the promoted column's entry becomes role text");
   // the demoted old text column takes the detector's call over the derived
   // units' meta — long prose, so mapping.detect reads it as text
   assert.equal(roleOf("response"), "text", "the old text column gets the detector's role");
   assert.equal(roleOf("respondent_id"), "id", "untouched roles copy through");
-  assert.equal(roleOf("internal_code"), "ignore", "ignore provenance survives (the column stays physically absent)");
+  assert.equal(
+    roleOf("internal_code"),
+    "ignore",
+    "ignore provenance survives (the column stays physically absent)",
+  );
   assert.equal(derived.columnRoles.length, 4, "no invented entries");
 });
 
@@ -211,7 +251,9 @@ test("reunitize of a source without a recorded role map fabricates nothing", asy
     filename: "no-roles.csv",
     mapping: { textColumn: "response" }, // no columns sent → no columnRoles on the source
   });
-  const re = await ok("POST", `/api/projects/${slug}/corpora/${confirmed.corpusId}/reunitize`, { textColumn: "dept" });
+  const re = await ok("POST", `/api/projects/${slug}/corpora/${confirmed.corpusId}/reunitize`, {
+    textColumn: "dept",
+  });
   const p = await ok("GET", `/api/projects/${slug}`);
   const derived = p.corpora.find((c) => c.id === re.corpusId);
   assert.equal(derived.columnRoles, undefined, "no role map invented on the derived corpus");
@@ -233,11 +275,21 @@ test("ignore-drop happens BEFORE the pii step: identifiers in an ignored column 
     // default scan
   });
   assert.equal(confirmed.pii?.mode, "scan");
-  assert.equal(confirmed.pii.counts.email, 0, `the ignored column's email is absent at scan time (got ${JSON.stringify(confirmed.pii.counts)})`);
+  assert.equal(
+    confirmed.pii.counts.email,
+    0,
+    `the ignored column's email is absent at scan time (got ${JSON.stringify(confirmed.pii.counts)})`,
+  );
 
   const units = await readNdjson(unitsFile(slug, confirmed.corpusId));
-  assert.ok(units.every((u) => !("contact" in (u.meta ?? {}))), "ignored identifier column never persists");
-  assert.ok(!JSON.stringify(units).includes(IGNORED_EMAIL), "the identifier itself is simply absent");
+  assert.ok(
+    units.every((u) => !("contact" in (u.meta ?? {}))),
+    "ignored identifier column never persists",
+  );
+  assert.ok(
+    !JSON.stringify(units).includes(IGNORED_EMAIL),
+    "the identifier itself is simply absent",
+  );
 });
 
 test("marking the unit-text column ignore does not delete the text — the explicit choice wins", async () => {
@@ -257,7 +309,10 @@ test("marking the unit-text column ignore does not delete the text — the expli
   });
   assert.equal(confirmed.unitCount, 3, "units still import from the chosen text column");
   const units = await readNdjson(unitsFile(slug, confirmed.corpusId));
-  assert.ok(units.every((u) => (u.text ?? "").length > 0), "unit text intact");
+  assert.ok(
+    units.every((u) => (u.text ?? "").length > 0),
+    "unit text intact",
+  );
 });
 
 test("confirm without mapping.columns behaves as before — every column rides as metadata, no role map recorded", async () => {
@@ -268,7 +323,10 @@ test("confirm without mapping.columns behaves as before — every column rides a
     mapping: { textColumn: "response" },
   });
   const units = await readNdjson(unitsFile(slug, confirmed.corpusId));
-  assert.ok(units.every((u) => "internal_code" in u.meta), "no roles sent → nothing dropped");
+  assert.ok(
+    units.every((u) => "internal_code" in u.meta),
+    "no roles sent → nothing dropped",
+  );
   const p = await ok("GET", `/api/projects/${slug}`);
   const corpus = p.corpora.find((c) => c.id === confirmed.corpusId);
   assert.equal(corpus.columnRoles, undefined, "no role map invented");
@@ -282,5 +340,9 @@ test("confirm response owns silently dropped empty-text rows: skipped = empty ce
     mapping: { textColumn: "response" },
   });
   assert.equal(confirmed.unitCount, 2);
-  assert.equal(confirmed.skipped, 2, `two empty response cells → skipped: 2 (got ${JSON.stringify(confirmed.skipped)})`);
+  assert.equal(
+    confirmed.skipped,
+    2,
+    `two empty response cells → skipped: 2 (got ${JSON.stringify(confirmed.skipped)})`,
+  );
 });

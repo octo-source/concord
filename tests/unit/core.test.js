@@ -7,11 +7,25 @@ import os from "node:os";
 import path from "node:path";
 
 import { canonical, sha256, newId, unitId } from "../../server/core/ids.js";
-import { loadProject, saveProject, appendNdjson, readNdjson, listProjects, projectsDir } from "../../server/core/store.js";
+import {
+  loadProject,
+  saveProject,
+  appendNdjson,
+  readNdjson,
+  listProjects,
+  projectsDir,
+} from "../../server/core/store.js";
 import * as ledger from "../../server/core/ledger.js";
 import {
-  createProject, createConstruct, createInstrument, createGoldSet, createRun, createAnalysis,
-  instrumentVersionHash, versionInstrument, freeze,
+  createProject,
+  createConstruct,
+  createInstrument,
+  createGoldSet,
+  createRun,
+  createAnalysis,
+  instrumentVersionHash,
+  versionInstrument,
+  freeze,
 } from "../../server/core/objects.js";
 import * as cache from "../../server/core/cache.js";
 import { ConcordError } from "../../server/core/errors.js";
@@ -71,7 +85,10 @@ test("store: saveProject/loadProject roundtrip, atomic via tmp+rename", async (t
   const project = { id: "p_1", name: "Pilot", slug: "pilot", corpora: [{ id: "c1" }] };
   await saveProject(project, dir);
   assert.ok(existsSync(path.join(dir, "pilot", "project.json")));
-  assert.ok(!existsSync(path.join(dir, "pilot", "project.json.tmp")), "tmp file must be renamed away");
+  assert.ok(
+    !existsSync(path.join(dir, "pilot", "project.json.tmp")),
+    "tmp file must be renamed away",
+  );
   const loaded = await loadProject("pilot", dir);
   assert.deepEqual(loaded, project);
 });
@@ -105,7 +122,10 @@ test("store: readNdjson filter applies before offset/limit; missing file reads a
   const file = path.join(dir, "f.ndjson");
   for (let i = 0; i < 20; i++) await appendNdjson(file, { i, even: i % 2 === 0 });
   const rows = await readNdjson(file, { filter: (r) => r.even, offset: 2, limit: 3 });
-  assert.deepEqual(rows.map((r) => r.i), [4, 6, 8]);
+  assert.deepEqual(
+    rows.map((r) => r.i),
+    [4, 6, 8],
+  );
   assert.deepEqual(await readNdjson(file, { limit: 0 }), []);
   assert.deepEqual(await readNdjson(path.join(dir, "absent.ndjson")), []);
 });
@@ -125,12 +145,26 @@ test("store: listProjects returns saved projects and [] for a missing dir", asyn
 test("ledger: events hash-chain and verify ok", async (t) => {
   const dir = await tmpdir(t);
   const e1 = await ledger.append(dir, "human", "project.created", ["p_1"], { name: "Pilot" });
-  const e2 = await ledger.append(dir, "director", "construct.created", ["c_1"], { name: "Optimism" });
+  const e2 = await ledger.append(dir, "director", "construct.created", ["c_1"], {
+    name: "Optimism",
+  });
   const e3 = await ledger.append(dir, "system", "run.started", ["run_1"], {});
   assert.equal(e1.prev, "");
   assert.equal(e2.prev, e1.hash);
   assert.equal(e3.prev, e2.hash);
-  assert.equal(e1.hash, sha256("" + canonical({ ts: e1.ts, actor: e1.actor, type: e1.type, refs: e1.refs, payload: e1.payload })));
+  assert.equal(
+    e1.hash,
+    sha256(
+      "" +
+        canonical({
+          ts: e1.ts,
+          actor: e1.actor,
+          type: e1.type,
+          refs: e1.refs,
+          payload: e1.payload,
+        }),
+    ),
+  );
   assert.deepEqual(await ledger.verify(dir), { ok: true, length: 3 });
 });
 
@@ -154,7 +188,13 @@ test("ledger: tampering the middle line makes verify fail at index 1", async (t)
 test("ledger: append chains onto an existing ledger written by a previous process", async (t) => {
   const dir = await tmpdir(t);
   // hand-write a valid first event (simulates a ledger from an earlier run)
-  const body = { ts: "2026-06-05T00:00:00.000Z", actor: "human", type: "seed", refs: [], payload: {} };
+  const body = {
+    ts: "2026-06-05T00:00:00.000Z",
+    actor: "human",
+    type: "seed",
+    refs: [],
+    payload: {},
+  };
   const hash = sha256("" + canonical(body));
   await appendNdjson(path.join(dir, "ledger.ndjson"), { ...body, prev: "", hash });
   const e2 = await ledger.append(dir, "human", "next", [], {});
@@ -171,7 +211,10 @@ test("ledger: query filters by type and by ref", async (t) => {
   assert.equal(byType.length, 1);
   assert.equal(byType[0].refs[1], "inst_1");
   const byRef = await ledger.query(dir, { ref: "run_1" });
-  assert.deepEqual(byRef.map((e) => e.type), ["run.started", "run.finished"]);
+  assert.deepEqual(
+    byRef.map((e) => e.type),
+    ["run.started", "run.finished"],
+  );
   const both = await ledger.query(dir, { type: "run.finished", ref: "run_1" });
   assert.equal(both.length, 1);
   assert.equal((await ledger.query(dir, { ref: "ghost" })).length, 0);
@@ -213,16 +256,28 @@ test("objects: createProject fills defaults and validates privacyMode", () => {
   assert.deepEqual(p.corpora, []);
   assert.deepEqual(p.briefs, []);
   assert.ok(p.createdAt);
-  assert.throws(() => createProject({ name: "X", privacyMode: "lax" }), (e) => e.code === "VALIDATION");
-  assert.throws(() => createProject({}), (e) => e.code === "VALIDATION");
-  assert.throws(() => createProject({ name: "X", slug: "Bad Slug!" }), (e) => e.code === "VALIDATION");
+  assert.throws(
+    () => createProject({ name: "X", privacyMode: "lax" }),
+    (e) => e.code === "VALIDATION",
+  );
+  assert.throws(
+    () => createProject({}),
+    (e) => e.code === "VALIDATION",
+  );
+  assert.throws(
+    () => createProject({ name: "X", slug: "Bad Slug!" }),
+    (e) => e.code === "VALIDATION",
+  );
 });
 
 test("objects: createConstruct validates type and example kinds, fills defaults", () => {
   const c = createConstruct({
     name: "Optimism",
     type: "ordinal",
-    categories: [{ value: 1, label: "low" }, { value: 2, label: "high" }],
+    categories: [
+      { value: 1, label: "low" },
+      { value: 2, label: "high" },
+    ],
     authoredBy: "director",
   });
   assert.match(c.id, /^c_/);
@@ -230,13 +285,23 @@ test("objects: createConstruct validates type and example kinds, fills defaults"
   assert.deepEqual(c.edgeCases, []);
   assert.equal(c.humanTouched, false); // director-authored, untouched by default
   assert.equal(createConstruct({ name: "X", type: "binary" }).humanTouched, true);
-  assert.throws(() => createConstruct({ name: "X", type: "vibes" }), (e) => e.code === "VALIDATION");
   assert.throws(
-    () => createConstruct({ name: "X", type: "binary", examples: [{ text: "t", label: 1, kind: "meh" }] }),
-    (e) => e.code === "VALIDATION");
+    () => createConstruct({ name: "X", type: "vibes" }),
+    (e) => e.code === "VALIDATION",
+  );
+  assert.throws(
+    () =>
+      createConstruct({
+        name: "X",
+        type: "binary",
+        examples: [{ text: "t", label: 1, kind: "meh" }],
+      }),
+    (e) => e.code === "VALIDATION",
+  );
   assert.throws(
     () => createConstruct({ name: "X", type: "continuous", scale: { min: 5, max: 1 } }),
-    (e) => e.code === "VALIDATION");
+    (e) => e.code === "VALIDATION",
+  );
 });
 
 test("objects: instrumentVersionHash is invariant to payload key insertion order", () => {
@@ -247,17 +312,28 @@ test("objects: instrumentVersionHash is invariant to payload key insertion order
 });
 
 test("objects: createInstrument fills defaults and computes versionHash from payload", () => {
-  const inst = createInstrument({ constructId: "c_1", kind: "judge", payload: { prompt: "Rate {{unit}}" } });
+  const inst = createInstrument({
+    constructId: "c_1",
+    kind: "judge",
+    payload: { prompt: "Rate {{unit}}" },
+  });
   assert.match(inst.id, /^inst_/);
   assert.equal(inst.level, "exploratory");
   assert.equal(inst.version, 1);
   assert.equal(inst.frozen, false);
   assert.equal(inst.versionHash, instrumentVersionHash({ prompt: "Rate {{unit}}" }));
-  assert.throws(() => createInstrument({ constructId: "c_1", kind: "oracle", payload: {} }), (e) => e.code === "VALIDATION");
-  assert.throws(() => createInstrument({ constructId: "c_1", kind: "judge" }), (e) => e.code === "VALIDATION");
+  assert.throws(
+    () => createInstrument({ constructId: "c_1", kind: "oracle", payload: {} }),
+    (e) => e.code === "VALIDATION",
+  );
+  assert.throws(
+    () => createInstrument({ constructId: "c_1", kind: "judge" }),
+    (e) => e.code === "VALIDATION",
+  );
   assert.throws(
     () => createInstrument({ constructId: "c_1", kind: "judge", payload: {}, level: "perfect" }),
-    (e) => e.code === "VALIDATION");
+    (e) => e.code === "VALIDATION",
+  );
 });
 
 test("objects: versionInstrument bumps version + hash in place when unfrozen", () => {
@@ -272,19 +348,41 @@ test("objects: versionInstrument bumps version + hash in place when unfrozen", (
 
 test("objects: freeze seals the instrument — direct edits throw", () => {
   const inst = createInstrument({ constructId: "c_1", kind: "judge", payload: { prompt: "v1" } });
-  const cert = { frozenAt: "2026-06-05T00:00:00Z", goldsetId: "gs_1", versionHash: inst.versionHash, modelPinned: true };
+  const cert = {
+    frozenAt: "2026-06-05T00:00:00Z",
+    goldsetId: "gs_1",
+    versionHash: inst.versionHash,
+    modelPinned: true,
+  };
   freeze(inst, cert);
   assert.equal(inst.frozen, true);
   assert.deepEqual(inst.certificate, cert);
-  assert.throws(() => { inst.level = "corrected"; }, TypeError);
-  assert.throws(() => { inst.payload.prompt = "hacked"; }, TypeError);
-  assert.throws(() => freeze(inst, cert), (e) => e.code === "VALIDATION"); // double-freeze
+  assert.throws(() => {
+    inst.level = "corrected";
+  }, TypeError);
+  assert.throws(() => {
+    inst.payload.prompt = "hacked";
+  }, TypeError);
+  assert.throws(
+    () => freeze(inst, cert),
+    (e) => e.code === "VALIDATION",
+  ); // double-freeze
 });
 
 test("objects: versioning a frozen instrument forks with lineage instead of mutating", () => {
-  const inst = createInstrument({ constructId: "c_1", kind: "judge", name: "Judge A", payload: { prompt: "v1" } });
+  const inst = createInstrument({
+    constructId: "c_1",
+    kind: "judge",
+    name: "Judge A",
+    payload: { prompt: "v1" },
+  });
   versionInstrument(inst, { prompt: "v2" });
-  freeze(inst, { frozenAt: "2026-06-05T00:00:00Z", goldsetId: "gs_1", versionHash: inst.versionHash, modelPinned: true });
+  freeze(inst, {
+    frozenAt: "2026-06-05T00:00:00Z",
+    goldsetId: "gs_1",
+    versionHash: inst.versionHash,
+    modelPinned: true,
+  });
   const fork = versionInstrument(inst, { prompt: "v3" });
   assert.notEqual(fork, inst);
   assert.notEqual(fork.id, inst.id);
@@ -306,10 +404,22 @@ test("objects: createGoldSet / createRun / createAnalysis defaults + enum valida
   assert.equal(gs.design, "srs");
   assert.equal(gs.status, "sampling");
   assert.deepEqual(gs.sample, []);
-  assert.throws(() => createGoldSet({ constructId: "c_1", design: "vibes" }), (e) => e.code === "VALIDATION");
-  assert.throws(() => createGoldSet({ constructId: "c_1", sample: [{ unitId: "u1", pi: 2 }] }), (e) => e.code === "VALIDATION");
+  assert.throws(
+    () => createGoldSet({ constructId: "c_1", design: "vibes" }),
+    (e) => e.code === "VALIDATION",
+  );
+  assert.throws(
+    () => createGoldSet({ constructId: "c_1", sample: [{ unitId: "u1", pi: 2 }] }),
+    (e) => e.code === "VALIDATION",
+  );
 
-  const run = createRun({ instrumentId: "inst_1", versionHash: "h", corpusId: "co_1", provider: "mock", model: "mock-1" });
+  const run = createRun({
+    instrumentId: "inst_1",
+    versionHash: "h",
+    corpusId: "co_1",
+    provider: "mock",
+    model: "mock-1",
+  });
   assert.match(run.id, /^run_/);
   assert.equal(run.status, "pending");
   assert.deepEqual(run.checkpoint, { done: 0, total: 0 });
@@ -317,34 +427,78 @@ test("objects: createGoldSet / createRun / createAnalysis defaults + enum valida
   assert.deepEqual(run.quarantine, []);
   assert.equal(run.snapshot, null);
   assert.equal(run.pinned, false);
-  assert.throws(() => createRun({ instrumentId: "i", versionHash: "h", corpusId: "c", provider: "mock", model: "m", status: "zombie" }),
-    (e) => e.code === "VALIDATION");
-  assert.throws(() => createRun({ instrumentId: "i" }), (e) => e.code === "VALIDATION");
+  assert.throws(
+    () =>
+      createRun({
+        instrumentId: "i",
+        versionHash: "h",
+        corpusId: "c",
+        provider: "mock",
+        model: "m",
+        status: "zombie",
+      }),
+    (e) => e.code === "VALIDATION",
+  );
+  assert.throws(
+    () => createRun({ instrumentId: "i" }),
+    (e) => e.code === "VALIDATION",
+  );
 
   const an = createAnalysis({ kind: "crosstab", spec: { rows: "c_1", cols: "c_2" } });
   assert.match(an.id, /^an_/);
   assert.equal(an.level, "exploratory");
   assert.deepEqual(an.evidence, { cells: {} });
-  assert.throws(() => createAnalysis({ kind: "scatter", spec: {} }), (e) => e.code === "VALIDATION");
-  assert.throws(() => createAnalysis({ kind: "model" }), (e) => e.code === "VALIDATION");
+  assert.throws(
+    () => createAnalysis({ kind: "scatter", spec: {} }),
+    (e) => e.code === "VALIDATION",
+  );
+  assert.throws(
+    () => createAnalysis({ kind: "model" }),
+    (e) => e.code === "VALIDATION",
+  );
 });
 
 test("objects: names, report artifact and draftedFrom provenance ride the constructors", () => {
   // runs + gold sets carry a name label, defaulting "" (routes auto-name)
-  const run = createRun({ instrumentId: "inst_1", versionHash: "h", corpusId: "co_1", provider: "mock", model: "mock-1" });
+  const run = createRun({
+    instrumentId: "inst_1",
+    versionHash: "h",
+    corpusId: "co_1",
+    provider: "mock",
+    model: "mock-1",
+  });
   assert.equal(run.name, "");
   const named = createRun({
-    instrumentId: "inst_1", versionHash: "h", corpusId: "co_1", provider: "mock", model: "mock-1",
+    instrumentId: "inst_1",
+    versionHash: "h",
+    corpusId: "co_1",
+    provider: "mock",
+    model: "mock-1",
     name: "Pay judge · exit-survey.csv",
   });
   assert.equal(named.name, "Pay judge · exit-survey.csv");
   assert.throws(
-    () => createRun({ instrumentId: "i", versionHash: "h", corpusId: "c", provider: "mock", model: "m", name: 7 }),
-    (e) => e.code === "VALIDATION");
+    () =>
+      createRun({
+        instrumentId: "i",
+        versionHash: "h",
+        corpusId: "c",
+        provider: "mock",
+        model: "m",
+        name: 7,
+      }),
+    (e) => e.code === "VALIDATION",
+  );
 
   assert.equal(createGoldSet({ constructId: "c_1" }).name, "");
-  assert.equal(createGoldSet({ constructId: "c_1", name: "Gold — Pay complaint" }).name, "Gold — Pay complaint");
-  assert.throws(() => createGoldSet({ constructId: "c_1", name: 7 }), (e) => e.code === "VALIDATION");
+  assert.equal(
+    createGoldSet({ constructId: "c_1", name: "Gold — Pay complaint" }).name,
+    "Gold — Pay complaint",
+  );
+  assert.throws(
+    () => createGoldSet({ constructId: "c_1", name: 7 }),
+    (e) => e.code === "VALIDATION",
+  );
 
   // the report is a persisted project artifact from birth
   const p = createProject({ name: "Pilot Study" });
@@ -353,8 +507,15 @@ test("objects: names, report artifact and draftedFrom provenance ride the constr
   // constructs carry where they were drafted from (optional string passthrough)
   const c = createConstruct({ name: "Pay complaint", type: "binary", draftedFrom: "corp_a1" });
   assert.equal(c.draftedFrom, "corp_a1");
-  assert.equal(createConstruct({ name: "X", type: "binary" }).draftedFrom, undefined, "no stamp without a source");
-  assert.throws(() => createConstruct({ name: "X", type: "binary", draftedFrom: 7 }), (e) => e.code === "VALIDATION");
+  assert.equal(
+    createConstruct({ name: "X", type: "binary" }).draftedFrom,
+    undefined,
+    "no stamp without a source",
+  );
+  assert.throws(
+    () => createConstruct({ name: "X", type: "binary", draftedFrom: 7 }),
+    (e) => e.code === "VALIDATION",
+  );
 });
 
 // ---------------------------------------------------------------- server
@@ -426,7 +587,10 @@ test("server: ConcordError maps to 400 envelope, unknown errors to 500", async (
   });
   const r1 = await fetch(`${srv.url}/api/boom/concord`);
   assert.equal(r1.status, 400);
-  assert.deepEqual(await r1.json(), { ok: false, error: { code: "TEAPOT", message: "short and stout" } });
+  assert.deepEqual(await r1.json(), {
+    ok: false,
+    error: { code: "TEAPOT", message: "short and stout" },
+  });
   const r2 = await fetch(`${srv.url}/api/boom/unknown`);
   assert.equal(r2.status, 500);
   const b2 = await r2.json();
@@ -465,7 +629,14 @@ test("server: parseMultipart returns fields and file buffers", async (t) => {
   const srv = await startTestServer(t);
   srv.router.addRoute("POST", "/api/upload", async (req) => {
     const { fields, files } = await parseMultipart(req);
-    return { fields, files: files.map((f) => ({ name: f.name, filename: f.filename, text: f.buffer.toString("utf8") })) };
+    return {
+      fields,
+      files: files.map((f) => ({
+        name: f.name,
+        filename: f.filename,
+        text: f.buffer.toString("utf8"),
+      })),
+    };
   });
   const fd = new FormData();
   fd.append("kind", "corpus");
@@ -474,7 +645,9 @@ test("server: parseMultipart returns fields and file buffers", async (t) => {
   assert.equal(r.status, 200);
   const body = await r.json();
   assert.deepEqual(body.data.fields, { kind: "corpus" });
-  assert.deepEqual(body.data.files, [{ name: "upload", filename: "data.csv", text: "id,text\n1,hola" }]);
+  assert.deepEqual(body.data.files, [
+    { name: "upload", filename: "data.csv", text: "id,text\n1,hola" },
+  ]);
 });
 
 test("server: sse helper sets headers and frames events", async (t) => {
@@ -489,7 +662,10 @@ test("server: sse helper sets headers and frames events", async (t) => {
   assert.equal(r.status, 200);
   assert.match(r.headers.get("content-type"), /^text\/event-stream/);
   const text = await r.text();
-  assert.equal(text, 'event: tick\ndata: {"done":1,"total":2}\n\nevent: done\ndata: {"briefId":"b_1"}\n\n');
+  assert.equal(
+    text,
+    'event: tick\ndata: {"done":1,"total":2}\n\nevent: done\ndata: {"briefId":"b_1"}\n\n',
+  );
 });
 
 test("server: static serving with mime map, 503 UI-not-built, traversal guard", async (t) => {
@@ -534,7 +710,8 @@ test("server: auto-mounts route modules from routesDir", async (t) => {
   await writeFile(
     path.join(routesDir, "fixture.js"),
     'export default [{ method: "GET", pattern: "/api/fixture/:id", handler: async (req, res, params) => ({ got: params.id }) }];\n',
-    "utf8");
+    "utf8",
+  );
   const srv = await startTestServer(t, { routesDir });
   const r = await fetch(`${srv.url}/api/fixture/abc`);
   assert.equal(r.status, 200);
@@ -544,9 +721,19 @@ test("server: auto-mounts route modules from routesDir", async (t) => {
 test("server: parseServerMode parses --coder <goldsetId>:<coderId>", () => {
   assert.deepEqual(parseServerMode([]), { role: "full" });
   assert.deepEqual(parseServerMode(["--port", "9999"]), { role: "full" });
-  assert.deepEqual(parseServerMode(["--coder", "gs_1:alice"]), { role: "coder", goldsetId: "gs_1", coderId: "alice" });
-  assert.throws(() => parseServerMode(["--coder", "missing-colon"]), (e) => e.code === "VALIDATION");
-  assert.throws(() => parseServerMode(["--coder"]), (e) => e.code === "VALIDATION");
+  assert.deepEqual(parseServerMode(["--coder", "gs_1:alice"]), {
+    role: "coder",
+    goldsetId: "gs_1",
+    coderId: "alice",
+  });
+  assert.throws(
+    () => parseServerMode(["--coder", "missing-colon"]),
+    (e) => e.code === "VALIDATION",
+  );
+  assert.throws(
+    () => parseServerMode(["--coder"]),
+    (e) => e.code === "VALIDATION",
+  );
 });
 
 // ------------------------------------------- regression: foundation hardening
@@ -563,7 +750,10 @@ test("store: REGRESSION concurrent saveProject never corrupts project.json (2 wr
     const loaded = JSON.parse(await readFile(path.join(dir, "race", "project.json"), "utf8"));
     winners.add(loaded.id);
   }
-  assert.ok(winners.has("p_a") && winners.has("p_b"), `both write orders observed (saw: ${[...winners]})`);
+  assert.ok(
+    winners.has("p_a") && winners.has("p_b"),
+    `both write orders observed (saw: ${[...winners]})`,
+  );
   const leftovers = (await readdir(path.join(dir, "race"))).filter((f) => f !== "project.json");
   assert.deepEqual(leftovers, [], "no stray tmp files left behind");
 });
@@ -571,9 +761,23 @@ test("store: REGRESSION concurrent saveProject never corrupts project.json (2 wr
 test("store: REGRESSION updateProject is single-flight read-modify-write (20 concurrent increments)", async (t) => {
   const dir = await tmpdir(t);
   const store = await import("../../server/core/store.js");
-  assert.equal(typeof store.updateProject, "function", "store must export updateProject(slug, mutatorFn, dir)");
+  assert.equal(
+    typeof store.updateProject,
+    "function",
+    "store must export updateProject(slug, mutatorFn, dir)",
+  );
   await saveProject({ id: "p_1", name: "Counter", slug: "counter", n: 0 }, dir);
-  await Promise.all(Array.from({ length: 20 }, () => store.updateProject("counter", (p) => { p.n += 1; }, dir)));
+  await Promise.all(
+    Array.from({ length: 20 }, () =>
+      store.updateProject(
+        "counter",
+        (p) => {
+          p.n += 1;
+        },
+        dir,
+      ),
+    ),
+  );
   assert.equal((await loadProject("counter", dir)).n, 20, "no increment may be lost");
 });
 
@@ -584,9 +788,15 @@ test("store: REGRESSION listProjects surfaces damaged bundles as {slug, corrupt:
   await writeFile(path.join(dir, "broken", "project.json"), "{nope", "utf8");
   await mkdir(path.join(dir, "junk")); // no project.json at all — still silently skipped
   const list = await listProjects(dir);
-  assert.deepEqual(list.find((p) => p.slug === "broken"), { slug: "broken", corrupt: true });
+  assert.deepEqual(
+    list.find((p) => p.slug === "broken"),
+    { slug: "broken", corrupt: true },
+  );
   assert.equal(list.find((p) => p.slug === "good").name, "Good");
-  assert.equal(list.find((p) => p.slug === "junk"), undefined);
+  assert.equal(
+    list.find((p) => p.slug === "junk"),
+    undefined,
+  );
 });
 
 test("store: REGRESSION readNdjson skips a torn final line but still throws BAD_NDJSON elsewhere", async (t) => {
@@ -597,11 +807,19 @@ test("store: REGRESSION readNdjson skips a torn final line but still throws BAD_
 
   const midfile = path.join(dir, "midfile.ndjson");
   await writeFile(midfile, '{"a":1}\nGARBAGE\n{"c":3}\n', "utf8");
-  await assert.rejects(readNdjson(midfile), (e) => e.code === "BAD_NDJSON", "mid-file garbage stays a hard fail");
+  await assert.rejects(
+    readNdjson(midfile),
+    (e) => e.code === "BAD_NDJSON",
+    "mid-file garbage stays a hard fail",
+  );
 
   const completeBad = path.join(dir, "completebad.ndjson");
   await writeFile(completeBad, '{"a":1}\nGARBAGE\n', "utf8"); // newline-terminated => a complete, malformed line
-  await assert.rejects(readNdjson(completeBad), (e) => e.code === "BAD_NDJSON", "a complete malformed final line is corruption");
+  await assert.rejects(
+    readNdjson(completeBad),
+    (e) => e.code === "BAD_NDJSON",
+    "a complete malformed final line is corruption",
+  );
 });
 
 test("store: REGRESSION appendNdjson truncates a torn tail before appending", async (t) => {
@@ -612,7 +830,14 @@ test("store: REGRESSION appendNdjson truncates a torn tail before appending", as
   await appendNdjson(file, { b: 2 });
   const raw = await readFile(file, "utf8");
   assert.ok(raw.endsWith("\n"), "file ends with a newline after healing");
-  assert.deepEqual(raw.trim().split("\n").map((l) => JSON.parse(l)), [{ a: 1 }, { b: 2 }], "fragment removed, no concatenation");
+  assert.deepEqual(
+    raw
+      .trim()
+      .split("\n")
+      .map((l) => JSON.parse(l)),
+    [{ a: 1 }, { b: 2 }],
+    "fragment removed, no concatenation",
+  );
 });
 
 test("ledger: REGRESSION warm-process append after an external torn write heals instead of concatenating", async (t) => {
@@ -620,7 +845,11 @@ test("ledger: REGRESSION warm-process append after an external torn write heals 
   await ledger.append(dir, "human", "one", [], {});
   const e2 = await ledger.append(dir, "human", "two", [], {});
   await appendFile(path.join(dir, "ledger.ndjson"), '{"ts":"2026-', "utf8"); // torn external append
-  assert.deepEqual(await ledger.verify(dir), { ok: true, length: 2, tornTail: true }, "torn tail is reported, not a failure");
+  assert.deepEqual(
+    await ledger.verify(dir),
+    { ok: true, length: 2, tornTail: true },
+    "torn tail is reported, not a failure",
+  );
   const e3 = await ledger.append(dir, "human", "three", [], {});
   assert.equal(e3.prev, e2.hash, "chains onto the last durable event");
   assert.deepEqual(await ledger.verify(dir), { ok: true, length: 3 });
@@ -630,9 +859,19 @@ test("ledger: REGRESSION warm-process append after an external torn write heals 
 
 test("ledger: REGRESSION cold-start append heals a torn tail and chains onto the last complete event", async (t) => {
   const dir = await tmpdir(t);
-  const body = { ts: "2026-06-05T00:00:00.000Z", actor: "human", type: "seed", refs: [], payload: {} };
+  const body = {
+    ts: "2026-06-05T00:00:00.000Z",
+    actor: "human",
+    type: "seed",
+    refs: [],
+    payload: {},
+  };
   const hash = sha256("" + canonical(body));
-  await writeFile(path.join(dir, "ledger.ndjson"), JSON.stringify({ ...body, prev: "", hash }) + "\n" + '{"ts":"2026-06-05T0', "utf8");
+  await writeFile(
+    path.join(dir, "ledger.ndjson"),
+    JSON.stringify({ ...body, prev: "", hash }) + "\n" + '{"ts":"2026-06-05T0',
+    "utf8",
+  );
   const e2 = await ledger.append(dir, "human", "next", [], {});
   assert.equal(e2.prev, hash);
   assert.deepEqual(await ledger.verify(dir), { ok: true, length: 2 });
@@ -653,17 +892,29 @@ test("ledger: REGRESSION stat-checks the cached tail so an external append is no
   const dir = await tmpdir(t);
   const e1 = await ledger.append(dir, "human", "one", [], {});
   // a second process appends a valid event behind our back
-  const body = { ts: "2026-06-05T00:00:00.000Z", actor: "human", type: "two", refs: [], payload: {} };
+  const body = {
+    ts: "2026-06-05T00:00:00.000Z",
+    actor: "human",
+    type: "two",
+    refs: [],
+    payload: {},
+  };
   const hash = sha256(e1.hash + canonical(body));
   await appendNdjson(path.join(dir, "ledger.ndjson"), { ...body, prev: e1.hash, hash });
   const e3 = await ledger.append(dir, "human", "three", [], {});
-  assert.equal(e3.prev, hash, "must chain onto the externally appended event, not the stale cached tail");
+  assert.equal(
+    e3.prev,
+    hash,
+    "must chain onto the externally appended event, not the stale cached tail",
+  );
   assert.deepEqual(await ledger.verify(dir), { ok: true, length: 3 });
 });
 
 test("ledger: 20 parallel appends serialize into a verifiable chain", async (t) => {
   const dir = await tmpdir(t);
-  await Promise.all(Array.from({ length: 20 }, (_, i) => ledger.append(dir, "system", "tick", [], { i })));
+  await Promise.all(
+    Array.from({ length: 20 }, (_, i) => ledger.append(dir, "system", "tick", [], { i })),
+  );
   const result = await ledger.verify(dir);
   assert.deepEqual(result, { ok: true, length: 20 });
 });
@@ -676,42 +927,72 @@ test("ids: REGRESSION canonical honors toJSON (Date)", () => {
 
 test("ledger: REGRESSION a Date in the payload does not brick verify (hash-what-you-persist)", async (t) => {
   const dir = await tmpdir(t);
-  const e = await ledger.append(dir, "human", "ran", [], { at: new Date("2026-06-05T01:02:03.456Z"), n: 1 });
-  assert.equal(e.payload.at, "2026-06-05T01:02:03.456Z", "payload is normalized to what JSON persists");
+  const e = await ledger.append(dir, "human", "ran", [], {
+    at: new Date("2026-06-05T01:02:03.456Z"),
+    n: 1,
+  });
+  assert.equal(
+    e.payload.at,
+    "2026-06-05T01:02:03.456Z",
+    "payload is normalized to what JSON persists",
+  );
   assert.deepEqual(await ledger.verify(dir), { ok: true, length: 1 });
 });
 
 test("objects: REGRESSION createInstrument rejects frozen:true input", () => {
   assert.throws(
     () => createInstrument({ constructId: "c_1", kind: "judge", payload: {}, frozen: true }),
-    (e) => e.code === "VALIDATION");
+    (e) => e.code === "VALIDATION",
+  );
 });
 
 test("store: REGRESSION frozen instruments stay frozen after loadProject (rehydrate)", async (t) => {
   const dir = await tmpdir(t);
   const inst = createInstrument({ constructId: "c_1", kind: "judge", payload: { prompt: "v1" } });
-  freeze(inst, { frozenAt: "2026-06-05T00:00:00Z", goldsetId: "gs_1", versionHash: inst.versionHash, modelPinned: true });
+  freeze(inst, {
+    frozenAt: "2026-06-05T00:00:00Z",
+    goldsetId: "gs_1",
+    versionHash: inst.versionHash,
+    modelPinned: true,
+  });
   const project = createProject({ name: "Frozen Pilot" });
   project.instruments.push(inst);
   await saveProject(project, dir);
   const got = (await loadProject("frozen-pilot", dir)).instruments[0];
   assert.equal(got.frozen, true);
-  assert.throws(() => { got.payload.prompt = "hacked"; }, TypeError, "payload edits must throw after rehydration");
-  assert.throws(() => { got.level = "corrected"; }, TypeError);
+  assert.throws(
+    () => {
+      got.payload.prompt = "hacked";
+    },
+    TypeError,
+    "payload edits must throw after rehydration",
+  );
+  assert.throws(() => {
+    got.level = "corrected";
+  }, TypeError);
 });
 
 test("store: REGRESSION loadProject validates instrument enums on rehydrate", async (t) => {
   const dir = await tmpdir(t);
   await mkdir(path.join(dir, "badinst"));
-  const project = { id: "p_1", name: "Bad", slug: "badinst", instruments: [{ id: "i1", kind: "wizard", level: "exploratory", frozen: false, payload: {} }] };
+  const project = {
+    id: "p_1",
+    name: "Bad",
+    slug: "badinst",
+    instruments: [{ id: "i1", kind: "wizard", level: "exploratory", frozen: false, payload: {} }],
+  };
   await writeFile(path.join(dir, "badinst", "project.json"), JSON.stringify(project), "utf8");
   await assert.rejects(loadProject("badinst", dir), (e) => e.code === "VALIDATION");
 });
 
 test("objects: REGRESSION versionInstrument resets ladder state on the unfrozen path", () => {
   const inst = createInstrument({
-    constructId: "c_1", kind: "judge", payload: { p: 1 },
-    level: "calibrated", stability: { runs: 3 }, silver: { n: 200 },
+    constructId: "c_1",
+    kind: "judge",
+    payload: { p: 1 },
+    level: "calibrated",
+    stability: { runs: 3 },
+    silver: { n: 200 },
   });
   versionInstrument(inst, { p: 2 });
   assert.equal(inst.version, 2);
@@ -724,7 +1005,12 @@ test("objects: REGRESSION versionInstrument resets ladder state on the unfrozen 
 test("objects: REGRESSION freeze survives cyclic payloads (freeze before recurse)", () => {
   const inst = createInstrument({ constructId: "c_1", kind: "judge", payload: { a: {} } });
   inst.payload.a.self = inst.payload; // cycle introduced after hashing
-  freeze(inst, { frozenAt: "2026-06-05T00:00:00Z", goldsetId: "gs_1", versionHash: inst.versionHash, modelPinned: true });
+  freeze(inst, {
+    frozenAt: "2026-06-05T00:00:00Z",
+    goldsetId: "gs_1",
+    versionHash: inst.versionHash,
+    modelPinned: true,
+  });
   assert.ok(Object.isFrozen(inst.payload.a));
   assert.ok(Object.isFrozen(inst.payload));
 });
@@ -755,18 +1041,30 @@ test("errors: REGRESSION ConcordError carries an explicit status and a cause", (
   assert.equal(e.cause, root);
   assert.equal(e.code, "X");
   assert.deepEqual(e.details, { a: 1 });
-  assert.equal(new ConcordError("Y", "m").status, undefined, "status is optional; the router maps codes");
+  assert.equal(
+    new ConcordError("Y", "m").status,
+    undefined,
+    "status is optional; the router maps codes",
+  );
 });
 
 test("server: REGRESSION ConcordError codes map onto proper HTTP statuses", async (t) => {
   const srv = await startTestServer(t);
   const cases = [
-    ["NOT_FOUND", 404], ["TOO_LARGE", 413], ["PRIVACY_BLOCKED", 403],
-    ["RATE_LIMITED_EXHAUSTED", 503], ["VALIDATION", 400], ["BAD_JSON", 400],
-    ["SCHEMA_INVALID", 400], ["CONFIG_MISSING", 400], ["MYSTERY_CODE", 400],
+    ["NOT_FOUND", 404],
+    ["TOO_LARGE", 413],
+    ["PRIVACY_BLOCKED", 403],
+    ["RATE_LIMITED_EXHAUSTED", 503],
+    ["VALIDATION", 400],
+    ["BAD_JSON", 400],
+    ["SCHEMA_INVALID", 400],
+    ["CONFIG_MISSING", 400],
+    ["MYSTERY_CODE", 400],
   ];
   for (const [code] of cases) {
-    srv.router.addRoute("GET", `/api/err/${code}`, async () => { throw new ConcordError(code, `boom ${code}`); });
+    srv.router.addRoute("GET", `/api/err/${code}`, async () => {
+      throw new ConcordError(code, `boom ${code}`);
+    });
   }
   srv.router.addRoute("GET", "/api/err/explicit", async () => {
     throw new ConcordError("NOT_FOUND", "teapot wins", {}, { status: 418 });
@@ -789,15 +1087,26 @@ test("server: REGRESSION static stream open failure does not crash the server", 
   // stat sees the real file, but the open happens on a path deleted in between
   const fsImpl = {
     stat,
-    createReadStream: (file) => createReadStream(file.includes("real.txt") ? path.join(appDir, "vanished-between-stat-and-open") : file),
+    createReadStream: (file) =>
+      createReadStream(
+        file.includes("real.txt") ? path.join(appDir, "vanished-between-stat-and-open") : file,
+      ),
   };
   const router = createRouter({ appDir, fsImpl });
   const { default: http } = await import("node:http");
   const raw = http.createServer((req, res) => router.handle(req, res));
   await new Promise((resolve) => raw.listen(0, "127.0.0.1", resolve));
-  t.after(() => new Promise((resolve) => { raw.closeAllConnections?.(); raw.close(resolve); }));
+  t.after(
+    () =>
+      new Promise((resolve) => {
+        raw.closeAllConnections?.();
+        raw.close(resolve);
+      }),
+  );
   const url = `http://127.0.0.1:${raw.address().port}`;
-  const first = await fetch(`${url}/real.txt`).then((r) => r.text()).catch(() => "CONNECTION_DESTROYED");
+  const first = await fetch(`${url}/real.txt`)
+    .then((r) => r.text())
+    .catch(() => "CONNECTION_DESTROYED");
   assert.notEqual(first, "hello", "the injected fs seam must be honored (open must fail)");
   // the server process survived the stream error and still serves
   const second = await fetch(`${url}/alive.txt`);
@@ -821,7 +1130,9 @@ test("server: REGRESSION parseMultipart enforces the file size limit (TOO_LARGE 
 test("server: REGRESSION parseMultipart settles (rejects) when the client aborts mid-upload", async (t) => {
   const srv = await startTestServer(t);
   let settle;
-  const outcome = new Promise((resolve) => { settle = resolve; });
+  const outcome = new Promise((resolve) => {
+    settle = resolve;
+  });
   srv.router.addRoute("POST", "/api/upload-abort", async (req) => {
     try {
       await parseMultipart(req);
@@ -837,20 +1148,30 @@ test("server: REGRESSION parseMultipart settles (rejects) when the client aborts
   const boundary = "----concordtestboundary";
   sock.write(
     `POST /api/upload-abort HTTP/1.1\r\nhost: 127.0.0.1\r\n` +
-    `content-type: multipart/form-data; boundary=${boundary}\r\ncontent-length: 100000\r\n\r\n` +
-    `--${boundary}\r\ncontent-disposition: form-data; name="f"; filename="x.bin"\r\n` +
-    `content-type: application/octet-stream\r\n\r\npartial bytes only...`);
+      `content-type: multipart/form-data; boundary=${boundary}\r\ncontent-length: 100000\r\n\r\n` +
+      `--${boundary}\r\ncontent-disposition: form-data; name="f"; filename="x.bin"\r\n` +
+      `content-type: application/octet-stream\r\n\r\npartial bytes only...`,
+  );
   await new Promise((resolve) => setTimeout(resolve, 150)); // let the handler start parsing
   sock.destroy(); // client walks away mid-body
-  const result = await Promise.race([outcome, new Promise((resolve) => setTimeout(() => resolve("HUNG"), 3000))]);
-  assert.match(String(result), /^rejected:/, `parseMultipart must settle on abort (got: ${result})`);
+  const result = await Promise.race([
+    outcome,
+    new Promise((resolve) => setTimeout(() => resolve("HUNG"), 3000)),
+  ]);
+  assert.match(
+    String(result),
+    /^rejected:/,
+    `parseMultipart must settle on abort (got: ${result})`,
+  );
 });
 
 test("server: REGRESSION sse exposes closed + onClose wired to client disconnect", async (t) => {
   const srv = await startTestServer(t);
   let conn;
   let sawClose;
-  const closedSignal = new Promise((resolve) => { sawClose = resolve; });
+  const closedSignal = new Promise((resolve) => {
+    sawClose = resolve;
+  });
   srv.router.addRoute("GET", "/api/stream-hold", async (req, res) => {
     conn = sse(res);
     assert.equal(conn.closed, false, "sse() must expose a closed boolean");
@@ -862,14 +1183,20 @@ test("server: REGRESSION sse exposes closed + onClose wired to client disconnect
   const r = await fetch(`${srv.url}/api/stream-hold`, { signal: ac.signal });
   await r.body.getReader().read(); // first tick arrived; handler ran
   ac.abort();
-  const result = await Promise.race([closedSignal, new Promise((resolve) => setTimeout(() => resolve("HUNG"), 3000))]);
+  const result = await Promise.race([
+    closedSignal,
+    new Promise((resolve) => setTimeout(() => resolve("HUNG"), 3000)),
+  ]);
   assert.equal(result, "closed", "onClose must fire when the client disconnects");
   assert.equal(conn.closed, true);
 });
 
 test("server: REGRESSION close() returns promptly with a live SSE connection", async (t) => {
   const srv = await startServer({ port: 0, appDir: await tmpdir(t) });
-  t.after(() => { srv.server.closeAllConnections?.(); return new Promise((resolve) => srv.server.close(resolve)); });
+  t.after(() => {
+    srv.server.closeAllConnections?.();
+    return new Promise((resolve) => srv.server.close(resolve));
+  });
   srv.router.addRoute("GET", "/api/stream-hold2", async (req, res) => {
     sse(res).send("tick", { i: 1 }); // held open forever
   });

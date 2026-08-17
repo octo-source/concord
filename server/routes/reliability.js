@@ -41,14 +41,21 @@
 // PURE READ: no ledger writes, no model calls, no project mutation. Each
 // candidate run's outputs stream once; everything joins in memory.
 import {
-  findOr404, loadProject, readGoldset, goldLabelMap, statValue,
-  agreementReport, readNdjson, runOutputsFile, readJsonFile,
+  findOr404,
+  loadProject,
+  readGoldset,
+  goldLabelMap,
+  statValue,
+  agreementReport,
+  readNdjson,
+  runOutputsFile,
+  readJsonFile,
 } from "./_shared.js";
 import { stabilityFile } from "./instruments.js";
 import { finalJurorOfRun } from "../runs/engine.js";
 
-const MIN_OVERLAP = 10;      // below this, pair statistics are withheld (null)
-const MIN_PARTIAL_RUN = 30;  // a non-complete run must cover ≥ this many units
+const MIN_OVERLAP = 10; // below this, pair statistics are withheld (null)
+const MIN_PARTIAL_RUN = 30; // a non-complete run must cover ≥ this many units
 const MIN_CODER_LABELS = 10; // a coder qualifies as a source at this many labels
 
 // Newest-first candidates → the latest usable run: complete (with at least
@@ -106,14 +113,18 @@ export default [
 
       if (corpusId) {
         // ---- instrument sources: latest complete/partial run per instrument
-        for (const inst of (project.instruments ?? []).filter((i) => i.constructId === construct.id)) {
+        for (const inst of (project.instruments ?? []).filter(
+          (i) => i.constructId === construct.id,
+        )) {
           const runs = (project.runs ?? [])
             .filter((r) => r.instrumentId === inst.id && r.corpusId === corpusId && r.startedAt)
             .sort((a, b) => String(b.startedAt ?? "").localeCompare(String(a.startedAt ?? "")));
           const hit = await latestSourceRun(project.slug, inst, runs);
           if (!hit) continue;
           if (hit.run.status !== "complete") {
-            notes.push(`inst:${inst.id} reads a partial run (${hit.labels.size} units, status ${hit.run.status})`);
+            notes.push(
+              `inst:${inst.id} reads a partial run (${hit.labels.size} units, status ${hit.run.status})`,
+            );
           }
           sources.push({
             key: `inst:${inst.id}`,
@@ -131,7 +142,10 @@ export default [
         const goldLabels = new Map();
         const coderLabels = new Map(); // coderId → Map(unitId → value)
         const metas = (project.goldsets ?? []).filter(
-          (g) => g.constructId === construct.id && (g.tier ?? "gold") === "gold" && g.corpusId === corpusId,
+          (g) =>
+            g.constructId === construct.id &&
+            (g.tier ?? "gold") === "gold" &&
+            g.corpusId === corpusId,
         );
         for (const meta of metas) {
           const gs = await readGoldset(project.slug, meta.id).catch(() => null);
@@ -152,22 +166,42 @@ export default [
         if (goldLabels.size > 0) {
           // gold = adjudicated, or ≥2 coders unanimous with no conflicting
           // verdict (goldLabelMap is the single assembly point for that rule)
-          sources.push({ key: "gold", label: "Gold — adjudicated or ≥2 coders unanimous", kind: "gold", n: goldLabels.size, labels: goldLabels });
+          sources.push({
+            key: "gold",
+            label: "Gold — adjudicated or ≥2 coders unanimous",
+            kind: "gold",
+            n: goldLabels.size,
+            labels: goldLabels,
+          });
         }
-        for (const [coderId, m] of [...coderLabels.entries()].sort((a, b) => (a[0] < b[0] ? -1 : 1))) {
+        for (const [coderId, m] of [...coderLabels.entries()].sort((a, b) =>
+          a[0] < b[0] ? -1 : 1,
+        )) {
           if (m.size < MIN_CODER_LABELS) continue;
-          sources.push({ key: `coder:${coderId}`, label: coderId, kind: "coder", n: m.size, labels: m });
+          sources.push({
+            key: `coder:${coderId}`,
+            label: coderId,
+            kind: "coder",
+            n: m.size,
+            labels: m,
+          });
         }
 
         // ---- test–retest sources: the per-rerun artifact the stability
         // route persists (one per instrument, newest check wins). Reruns on
         // THIS corpus become ordinary sources and ride the same pairwise
         // loop; a check on a different corpus gets a note, never sources.
-        for (const inst of (project.instruments ?? []).filter((i) => i.constructId === construct.id)) {
-          const artifact = await readJsonFile(stabilityFile(project.slug, inst.id)).catch(() => null);
+        for (const inst of (project.instruments ?? []).filter(
+          (i) => i.constructId === construct.id,
+        )) {
+          const artifact = await readJsonFile(stabilityFile(project.slug, inst.id)).catch(
+            () => null,
+          );
           if (!artifact) continue;
           if (artifact.corpusId !== corpusId) {
-            notes.push(`A stability check exists for ${inst.name ?? inst.id} on a different corpus. Run the stability check on this corpus to see rerun rows.`);
+            notes.push(
+              `A stability check exists for ${inst.name ?? inst.id} on a different corpus. Run the stability check on this corpus to see rerun rows.`,
+            );
             continue;
           }
           // The artifact records the versionHash its reruns actually ran
@@ -176,10 +210,13 @@ export default [
           // old reruns are never silently attributed to the current prompt.
           // Artifacts predating the field are treated as current (no false
           // alarms on old projects).
-          const stale = artifact.versionHash !== undefined && artifact.versionHash !== inst.versionHash;
+          const stale =
+            artifact.versionHash !== undefined && artifact.versionHash !== inst.versionHash;
           const versionTag = stale ? " (earlier version)" : "";
           if (stale) {
-            notes.push(`The stability check for ${inst.name ?? inst.id} ran on an earlier version of the instrument — rerun it to refresh.`);
+            notes.push(
+              `The stability check for ${inst.name ?? inst.id} ran on an earlier version of the instrument — rerun it to refresh.`,
+            );
           }
           for (const rerun of artifact.reruns ?? []) {
             const labels = new Map();
@@ -201,7 +238,9 @@ export default [
           // an errored alternate is a note, never a source.
           for (const alt of artifact.alts ?? []) {
             if (alt.error !== undefined) {
-              notes.push(`Alternate judge ${alt.model} failed during the stability check: ${alt.error}.`);
+              notes.push(
+                `Alternate judge ${alt.model} failed during the stability check: ${alt.error}.`,
+              );
               continue;
             }
             const labels = new Map();
@@ -222,7 +261,9 @@ export default [
       }
 
       if (sources.length < 2) {
-        notes.push("fewer than two comparable label sources on this corpus — run instruments, complete a gold set, or add coders");
+        notes.push(
+          "fewer than two comparable label sources on this corpus — run instruments, complete a gold set, or add coders",
+        );
       }
 
       // ---- every source combination, joined on unitId
@@ -241,11 +282,20 @@ export default [
           }
           if (n < MIN_OVERLAP) {
             pairs.push({ a: A.key, b: B.key, n, percent: null, kappa: null, alpha: null });
-            notes.push(`${A.key} × ${B.key}: only ${n} overlapping unit${n === 1 ? "" : "s"} (need ≥ ${MIN_OVERLAP}) — statistics withheld`);
+            notes.push(
+              `${A.key} × ${B.key}: only ${n} overlapping unit${n === 1 ? "" : "s"} (need ≥ ${MIN_OVERLAP}) — statistics withheld`,
+            );
             continue;
           }
           const rep = agreementReport(rows, construct);
-          pairs.push({ a: A.key, b: B.key, n, percent: rep.percent, kappa: rep.kappa, alpha: rep.alpha });
+          pairs.push({
+            a: A.key,
+            b: B.key,
+            n,
+            percent: rep.percent,
+            kappa: rep.kappa,
+            alpha: rep.alpha,
+          });
         }
       }
 

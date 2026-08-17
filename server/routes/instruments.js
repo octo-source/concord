@@ -12,7 +12,11 @@
 import path from "node:path";
 import { ConcordError } from "../core/errors.js";
 import { sse } from "../router.js";
-import { createInstrument, versionInstrument, freeze as freezeInstrument } from "../core/objects.js";
+import {
+  createInstrument,
+  versionInstrument,
+  freeze as freezeInstrument,
+} from "../core/objects.js";
 import { loadProject, updateProject } from "../core/store.js";
 import { newId } from "../core/ids.js";
 import * as ledger from "../core/ledger.js";
@@ -24,8 +28,19 @@ import { silverTune } from "../director/silver.js";
 import { compileInstrument, seedDictionary } from "../director/compiler.js";
 import { seededSample } from "../director/director.js";
 import {
-  findOr404, requireBody, pdirOf, readCorpusUnits, unitsById, readGoldset,
-  goldLabelMap, agreementReport, statValue, finalsOf, addSpend, withDirectorSpend, round6,
+  findOr404,
+  requireBody,
+  pdirOf,
+  readCorpusUnits,
+  unitsById,
+  readGoldset,
+  goldLabelMap,
+  agreementReport,
+  statValue,
+  finalsOf,
+  addSpend,
+  withDirectorSpend,
+  round6,
   writeJsonAtomic,
 } from "./_shared.js";
 
@@ -46,14 +61,16 @@ async function corpusUnitsFor(project, corpusId) {
   if (!id) throw new ConcordError("VALIDATION", "this project has no corpus yet", {});
   findOr404(project.corpora, id, "corpus");
   const units = await readCorpusUnits(project.slug, id);
-  if (units.length === 0) throw new ConcordError("VALIDATION", `corpus '${id}' has no units`, { corpusId: id });
+  if (units.length === 0)
+    throw new ConcordError("VALIDATION", `corpus '${id}' has no units`, { corpusId: id });
   return units;
 }
 
 function modelPinnedOf(instrument) {
   if (instrument.kind === "dictionary") return true;
   if (instrument.kind === "judge") return Boolean(instrument.payload.snapshot);
-  if (instrument.kind === "panel") return (instrument.payload.jurors ?? []).every((j) => Boolean(j.snapshot));
+  if (instrument.kind === "panel")
+    return (instrument.payload.jurors ?? []).every((j) => Boolean(j.snapshot));
   return false;
 }
 
@@ -67,29 +84,47 @@ const MAX_ALT_MODELS = 4;
 function validateAltModels(models, instrument) {
   if (models === undefined) return null;
   if (!Array.isArray(models)) {
-    throw new ConcordError("VALIDATION", "models must be an array of {provider, model} objects", { value: typeof models });
+    throw new ConcordError("VALIDATION", "models must be an array of {provider, model} objects", {
+      value: typeof models,
+    });
   }
   if (models.length === 0) return null;
   if (models.length > MAX_ALT_MODELS) {
-    throw new ConcordError("VALIDATION", `at most ${MAX_ALT_MODELS} alternate judge models per stability check`, { count: models.length });
+    throw new ConcordError(
+      "VALIDATION",
+      `at most ${MAX_ALT_MODELS} alternate judge models per stability check`,
+      { count: models.length },
+    );
   }
   if (instrument.kind !== "judge") {
-    throw new ConcordError("VALIDATION",
+    throw new ConcordError(
+      "VALIDATION",
       `alternate judges apply to judge instruments — "${instrument.kind}" instruments have no single model to swap`,
-      { kind: instrument.kind });
+      { kind: instrument.kind },
+    );
   }
   return models.map((m, i) => {
     if (m === null || typeof m !== "object" || Array.isArray(m)) {
-      throw new ConcordError("VALIDATION", `models[${i}] must be an object with provider and model`, { index: i });
+      throw new ConcordError(
+        "VALIDATION",
+        `models[${i}] must be an object with provider and model`,
+        { index: i },
+      );
     }
     if (typeof m.provider !== "string" || m.provider === "") {
-      throw new ConcordError("VALIDATION", `models[${i}].provider must be a non-empty string`, { index: i });
+      throw new ConcordError("VALIDATION", `models[${i}].provider must be a non-empty string`, {
+        index: i,
+      });
     }
     if (typeof m.model !== "string" || m.model === "") {
-      throw new ConcordError("VALIDATION", `models[${i}].model must be a non-empty string`, { index: i });
+      throw new ConcordError("VALIDATION", `models[${i}].model must be a non-empty string`, {
+        index: i,
+      });
     }
     if (m.snapshot !== undefined && m.snapshot !== null && typeof m.snapshot !== "string") {
-      throw new ConcordError("VALIDATION", `models[${i}].snapshot must be a string when present`, { index: i });
+      throw new ConcordError("VALIDATION", `models[${i}].snapshot must be a string when present`, {
+        index: i,
+      });
     }
     return { provider: m.provider, model: m.model, snapshot: m.snapshot ?? null };
   });
@@ -112,16 +147,24 @@ export default [
       await updateProject(params.p, (p) => {
         p.instruments.push(instrument);
       });
-      await ledger.append(pdirOf(params.p), "human", "instrument.created", {
-        instrumentId: instrument.id, constructId: instrument.constructId,
-      }, { kind: instrument.kind, name: instrument.name, versionHash: instrument.versionHash });
+      await ledger.append(
+        pdirOf(params.p),
+        "human",
+        "instrument.created",
+        {
+          instrumentId: instrument.id,
+          constructId: instrument.constructId,
+        },
+        { kind: instrument.kind, name: instrument.name, versionHash: instrument.versionHash },
+      );
       return instrument;
     },
   },
   {
     method: "GET",
     pattern: "/api/projects/:p/instruments/:id",
-    handler: async (req, res, params) => findOr404((await loadProject(params.p)).instruments, params.id, "instrument"),
+    handler: async (req, res, params) =>
+      findOr404((await loadProject(params.p)).instruments, params.id, "instrument"),
   },
   {
     // Re-version: unfrozen instruments mutate in place (level resets to
@@ -135,7 +178,10 @@ export default [
       let forked = false;
       await updateProject(params.p, (p) => {
         const i = (p.instruments ?? []).findIndex((x) => x.id === params.id);
-        if (i === -1) throw new ConcordError("NOT_FOUND", `instrument '${params.id}' not found`, { id: params.id });
+        if (i === -1)
+          throw new ConcordError("NOT_FOUND", `instrument '${params.id}' not found`, {
+            id: params.id,
+          });
         const inst = p.instruments[i];
         if (body.payload !== undefined) {
           result = versionInstrument(inst, body.payload);
@@ -150,7 +196,12 @@ export default [
             inst.humanTouched = true;
           }
         } else if (body.name) {
-          if (inst.frozen) throw new ConcordError("VALIDATION", "frozen instruments are immutable — send a payload to fork a new version", {});
+          if (inst.frozen)
+            throw new ConcordError(
+              "VALIDATION",
+              "frozen instruments are immutable — send a payload to fork a new version",
+              {},
+            );
           inst.name = body.name;
           inst.humanTouched = true;
           result = inst;
@@ -158,13 +209,19 @@ export default [
           throw new ConcordError("VALIDATION", "instrument update requires a payload or name", {});
         }
       });
-      await ledger.append(pdirOf(params.p), "human", "instrument.versioned", {
-        instrumentId: result.id,
-      }, {
-        version: result.version,
-        versionHash: result.versionHash,
-        ...(forked ? { forkedFrom: params.id, parentVersion: result.parentVersion } : {}),
-      });
+      await ledger.append(
+        pdirOf(params.p),
+        "human",
+        "instrument.versioned",
+        {
+          instrumentId: result.id,
+        },
+        {
+          version: result.version,
+          versionHash: result.versionHash,
+          ...(forked ? { forkedFrom: params.id, parentVersion: result.parentVersion } : {}),
+        },
+      );
       return result;
     },
   },
@@ -174,13 +231,26 @@ export default [
     handler: async (req, res, params) => {
       await updateProject(params.p, (p) => {
         const i = (p.instruments ?? []).findIndex((x) => x.id === params.id);
-        if (i === -1) throw new ConcordError("NOT_FOUND", `instrument '${params.id}' not found`, { id: params.id });
+        if (i === -1)
+          throw new ConcordError("NOT_FOUND", `instrument '${params.id}' not found`, {
+            id: params.id,
+          });
         if (p.instruments[i].frozen) {
-          throw new ConcordError("VALIDATION", "frozen instruments are part of the evidence record and cannot be deleted", { id: params.id });
+          throw new ConcordError(
+            "VALIDATION",
+            "frozen instruments are part of the evidence record and cannot be deleted",
+            { id: params.id },
+          );
         }
         p.instruments.splice(i, 1);
       });
-      await ledger.append(pdirOf(params.p), "human", "instrument.deleted", { instrumentId: params.id }, {});
+      await ledger.append(
+        pdirOf(params.p),
+        "human",
+        "instrument.deleted",
+        { instrumentId: params.id },
+        {},
+      );
       return { deleted: params.id };
     },
   },
@@ -198,41 +268,58 @@ export default [
       let proposal;
       let note;
       if (instrument.kind === "judge") {
-        proposal = await withDirectorSpend(project, () => compileInstrument(project, construct, {
-          workerClass: body.workerClass ?? instrument.payload.workerClass ?? "mid",
-          provider: body.provider ?? instrument.payload.provider,
-          model: body.model ?? instrument.payload.model,
-          snapshot: body.snapshot ?? instrument.payload.snapshot ?? null,
-        }));
+        proposal = await withDirectorSpend(project, () =>
+          compileInstrument(project, construct, {
+            workerClass: body.workerClass ?? instrument.payload.workerClass ?? "mid",
+            provider: body.provider ?? instrument.payload.provider,
+            model: body.model ?? instrument.payload.model,
+            snapshot: body.snapshot ?? instrument.payload.snapshot ?? null,
+          }),
+        );
         note = proposal.compileNote;
       } else if (instrument.kind === "dictionary") {
         const units = await corpusUnitsFor(project, body.corpusId).catch(() => []);
         const sample = seededSample(units, Math.min(12, units.length), `dictseed|${instrument.id}`);
-        const seeded = await withDirectorSpend(project, () => seedDictionary(project, construct, sample));
+        const seeded = await withDirectorSpend(project, () =>
+          seedDictionary(project, construct, sample),
+        );
         proposal = seeded.instrument;
         note = seeded.instrument.compileNote;
       } else {
-        throw new ConcordError("VALIDATION", `compile applies to judge or dictionary instruments, not "${instrument.kind}"`, { kind: instrument.kind });
+        throw new ConcordError(
+          "VALIDATION",
+          `compile applies to judge or dictionary instruments, not "${instrument.kind}"`,
+          { kind: instrument.kind },
+        );
       }
 
       let result;
       let forked = false;
       await updateProject(params.p, (p) => {
         const i = p.instruments.findIndex((x) => x.id === params.i);
-        if (i === -1) throw new ConcordError("NOT_FOUND", `instrument '${params.i}' vanished`, { id: params.i });
+        if (i === -1)
+          throw new ConcordError("NOT_FOUND", `instrument '${params.i}' vanished`, {
+            id: params.i,
+          });
         result = versionInstrument(p.instruments[i], proposal.payload);
         if (result !== p.instruments[i]) {
           forked = true;
           p.instruments.push(result);
         }
       });
-      await ledger.append(pdirOf(params.p), "human", "instrument.versioned", { instrumentId: result.id }, {
-        via: "director-compile",
-        version: result.version,
-        versionHash: result.versionHash,
-        note: note ?? null,
-        ...(forked ? { forkedFrom: params.i } : {}),
-      });
+      await ledger.append(
+        pdirOf(params.p),
+        "human",
+        "instrument.versioned",
+        { instrumentId: result.id },
+        {
+          via: "director-compile",
+          version: result.version,
+          versionHash: result.versionHash,
+          note: note ?? null,
+          ...(forked ? { forkedFrom: params.i } : {}),
+        },
+      );
       return result;
     },
   },
@@ -245,11 +332,19 @@ export default [
       const project = await loadProject(params.p);
       const instrument = findOr404(project.instruments, params.i, "instrument");
       if (instrument.frozen) {
-        throw new ConcordError("VALIDATION", "cannot silver-tune a frozen instrument — fork a new version first", { id: params.i });
+        throw new ConcordError(
+          "VALIDATION",
+          "cannot silver-tune a frozen instrument — fork a new version first",
+          { id: params.i },
+        );
       }
       constructOf(project, instrument);
       if (!project.director) {
-        throw new ConcordError("CONFIG_MISSING", "silver tuning needs a Director model — set one in Settings", {});
+        throw new ConcordError(
+          "CONFIG_MISSING",
+          "silver tuning needs a Director model — set one in Settings",
+          {},
+        );
       }
       const body = req.body ?? {};
       const units = await corpusUnitsFor(project, body.corpusId);
@@ -270,8 +365,8 @@ export default [
       conn.onClose(() => ac.abort());
       try {
         const result = await silverTune(project, instrument, units, {
-          engine: engineMod,          // server/runs/engine.js — the real module
-          stability: stabilityMod,    // server/instruments/stability.js — the real module
+          engine: engineMod, // server/runs/engine.js — the real module
+          stability: stabilityMod, // server/instruments/stability.js — the real module
           signal: ac.signal,
           ...(body.n !== undefined ? { n: body.n } : {}),
           ...(remaining !== null ? { capUSD: remaining } : {}),
@@ -322,10 +417,18 @@ export default [
       if (body.k !== undefined) opts.k = body.k;
       if (body.n !== undefined) opts.n = body.n;
       if (altModels) opts.alts = altModels;
-      const { alpha, pass, n: sampleN, runs, alts } = await stabilityMod.stabilityCheck(project, instrument, units, opts);
-      await addSpend(params.p,
-        runs.reduce((n, r) => n + (r.cost?.actualUSD ?? 0), 0)
-        + (alts ?? []).reduce((n, a) => n + (a.cost?.actualUSD ?? 0), 0));
+      const {
+        alpha,
+        pass,
+        n: sampleN,
+        runs,
+        alts,
+      } = await stabilityMod.stabilityCheck(project, instrument, units, opts);
+      await addSpend(
+        params.p,
+        runs.reduce((n, r) => n + (r.cost?.actualUSD ?? 0), 0) +
+          (alts ?? []).reduce((n, a) => n + (a.cost?.actualUSD ?? 0), 0),
+      );
 
       // Persist the per-rerun labels so the reliability matrix can read the
       // reruns back as retest:<instrumentId>:<index> sources. Same final-line
@@ -398,7 +501,13 @@ export default [
         await updateProject(params.p, (p) => {
           const inst = (p.instruments ?? []).find((x) => x.id === params.i);
           if (!inst || inst.frozen) return;
-          inst.stability = { alpha, k: opts.k ?? 3, n: sampleN, corpusId, ranAt: new Date().toISOString() };
+          inst.stability = {
+            alpha,
+            k: opts.k ?? 3,
+            n: sampleN,
+            corpusId,
+            ranAt: new Date().toISOString(),
+          };
           if (pass && inst.silver && inst.level === "exploratory") inst.level = "stabilized";
           level = inst.level;
         });
@@ -415,29 +524,45 @@ export default [
     handler: async (req, res, params) => {
       const project = await loadProject(params.p);
       const instrument = findOr404(project.instruments, params.i, "instrument");
-      if (instrument.frozen) throw new ConcordError("VALIDATION", "instrument is already frozen", { id: params.i });
+      if (instrument.frozen)
+        throw new ConcordError("VALIDATION", "instrument is already frozen", { id: params.i });
       const construct = constructOf(project, instrument);
       const body = requireBody(req, ["goldsetId"]);
       const goldset = await readGoldset(params.p, body.goldsetId);
       if (goldset.constructId !== instrument.constructId) {
-        throw new ConcordError("VALIDATION", "gold set and instrument measure different constructs", {
-          goldsetConstruct: goldset.constructId, instrumentConstruct: instrument.constructId,
-        });
+        throw new ConcordError(
+          "VALIDATION",
+          "gold set and instrument measure different constructs",
+          {
+            goldsetConstruct: goldset.constructId,
+            instrumentConstruct: instrument.constructId,
+          },
+        );
       }
       if (!goldset.humanAgreement) {
-        throw new ConcordError("VALIDATION",
+        throw new ConcordError(
+          "VALIDATION",
           "human agreement has not been computed for this gold set — run the agreement step first (human reliability is established before any machine comparison)",
-          { goldsetId: body.goldsetId });
+          { goldsetId: body.goldsetId },
+        );
       }
       const gold = goldLabelMap(goldset);
       if (gold.size === 0) {
-        throw new ConcordError("VALIDATION", "the gold set has no adjudicated or consensus labels yet", { goldsetId: body.goldsetId });
+        throw new ConcordError(
+          "VALIDATION",
+          "the gold set has no adjudicated or consensus labels yet",
+          { goldsetId: body.goldsetId },
+        );
       }
 
       // the machine side: judge the gold units NOW with this instrument
       const units = await unitsById(project, [...gold.keys()], { corpusId: goldset.corpusId });
       if (units.size === 0) {
-        throw new ConcordError("VALIDATION", "none of the gold units were found in this project's corpora", {});
+        throw new ConcordError(
+          "VALIDATION",
+          "none of the gold units were found in this project's corpora",
+          {},
+        );
       }
       const eph = await engineMod.runEphemeral(project, instrument, [...units.values()]);
       await addSpend(params.p, eph.cost?.actualUSD ?? 0);
@@ -451,9 +576,16 @@ export default [
         rows.push({ unitId, coder: "machine", value: statValue(out.label) });
       }
       if (rows.length === 0) {
-        throw new ConcordError("VALIDATION", "the instrument produced no comparable outputs over the gold units", {});
+        throw new ConcordError(
+          "VALIDATION",
+          "the instrument produced no comparable outputs over the gold units",
+          {},
+        );
       }
-      const agreement = agreementReport(rows, construct, { goldCoder: "gold", pairCoders: ["gold", "machine"] });
+      const agreement = agreementReport(rows, construct, {
+        goldCoder: "gold",
+        pairCoders: ["gold", "machine"],
+      });
 
       const certificate = {
         frozenAt: new Date().toISOString(),
@@ -466,21 +598,32 @@ export default [
 
       await updateProject(params.p, (p) => {
         const inst = (p.instruments ?? []).find((x) => x.id === params.i);
-        if (!inst) throw new ConcordError("NOT_FOUND", `instrument '${params.i}' vanished`, { id: params.i });
-        if (inst.frozen) throw new ConcordError("VALIDATION", "instrument is already frozen", { id: params.i });
+        if (!inst)
+          throw new ConcordError("NOT_FOUND", `instrument '${params.i}' vanished`, {
+            id: params.i,
+          });
+        if (inst.frozen)
+          throw new ConcordError("VALIDATION", "instrument is already frozen", { id: params.i });
         inst.level = "calibrated"; // before freeze(): the object is immutable afterwards
         freezeInstrument(inst, certificate);
       });
-      await ledger.append(pdirOf(params.p), "human", "instrument.frozen", {
-        instrumentId: params.i, goldsetId: body.goldsetId,
-      }, {
-        versionHash: certificate.versionHash,
-        percent: agreement.percent,
-        kappa: agreement.kappa,
-        alpha: agreement.alpha,
-        n: agreement.n,
-        modelPinned: certificate.modelPinned,
-      });
+      await ledger.append(
+        pdirOf(params.p),
+        "human",
+        "instrument.frozen",
+        {
+          instrumentId: params.i,
+          goldsetId: body.goldsetId,
+        },
+        {
+          versionHash: certificate.versionHash,
+          percent: agreement.percent,
+          kappa: agreement.kappa,
+          alpha: agreement.alpha,
+          n: agreement.n,
+          modelPinned: certificate.modelPinned,
+        },
+      );
       return certificate;
     },
   },
@@ -497,7 +640,12 @@ export default [
         throw new ConcordError("VALIDATION", "preview requires a non-empty unitIds array", {});
       }
       const found = await unitsById(project, body.unitIds, { corpusId: body.corpusId });
-      if (found.size === 0) throw new ConcordError("NOT_FOUND", "none of the requested units exist in this project", {});
+      if (found.size === 0)
+        throw new ConcordError(
+          "NOT_FOUND",
+          "none of the requested units exist in this project",
+          {},
+        );
       const result = await engineMod.runEphemeral(project, instrument, [...found.values()]);
       await addSpend(params.p, result.cost?.actualUSD ?? 0);
       // dictionary previews carry the term-hit spans the editor highlights:
@@ -509,7 +657,12 @@ export default [
           return unit ? { ...o, hits: dictionaryHits(unit, instrument.payload) } : o;
         });
       }
-      return { outputs, cost: result.cost, quarantine: result.quarantine, missing: body.unitIds.filter((id) => !found.has(id)) };
+      return {
+        outputs,
+        cost: result.cost,
+        quarantine: result.quarantine,
+        missing: body.unitIds.filter((id) => !found.has(id)),
+      };
     },
   },
 ];

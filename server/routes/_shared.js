@@ -14,10 +14,22 @@
 import path from "node:path";
 import { mkdir, open, rm, readFile } from "node:fs/promises";
 import { ConcordError } from "../core/errors.js";
-import { renameWithRetry, loadProject, updateProject, readNdjson, projectDir, projectsDir } from "../core/store.js";
+import {
+  renameWithRetry,
+  loadProject,
+  updateProject,
+  readNdjson,
+  projectDir,
+  projectsDir,
+} from "../core/store.js";
 import { directorCosts } from "../director/director.js";
 import {
-  percentAgreement, cohenKappa, krippendorffAlpha, gwetAC1, perClass, confusion,
+  percentAgreement,
+  cohenKappa,
+  krippendorffAlpha,
+  gwetAC1,
+  perClass,
+  confusion,
 } from "../stats/agreement.js";
 
 export default []; // no routes of its own
@@ -31,8 +43,7 @@ export const labelKey = (v) =>
 
 // Agreement-statistics value: scalars stay scalars (String() identity inside
 // the stats module), arrays become canonical sorted-set signatures.
-export const statValue = (v) =>
-  Array.isArray(v) ? JSON.stringify([...v].map(String).sort()) : v;
+export const statValue = (v) => (Array.isArray(v) ? JSON.stringify([...v].map(String).sort()) : v);
 
 export function requireBody(req, fields = []) {
   const body = req.body;
@@ -57,7 +68,9 @@ export function requireBody(req, fields = []) {
 const SAFE_ID = /^[A-Za-z0-9_-]+$/;
 export function safeId(id, what = "id") {
   if (typeof id !== "string" || !SAFE_ID.test(id)) {
-    throw new ConcordError("VALIDATION", `invalid ${what} (must be letters, digits, "-" or "_")`, { [what]: id });
+    throw new ConcordError("VALIDATION", `invalid ${what} (must be letters, digits, "-" or "_")`, {
+      [what]: id,
+    });
   }
   return id;
 }
@@ -74,9 +87,13 @@ export function findOr404(list, id, what) {
 // validated name; throws VALIDATION otherwise. The one definition shared by
 // every artifact that carries an editable `name` label (runs, gold sets).
 export function validateName(name, field = "name") {
-  if (typeof name !== "string") throw new ConcordError("VALIDATION", `${field} must be a string`, { field, value: name });
+  if (typeof name !== "string")
+    throw new ConcordError("VALIDATION", `${field} must be a string`, { field, value: name });
   if (name.length < 1 || name.length > 120) {
-    throw new ConcordError("VALIDATION", `${field} must be 1..120 characters`, { field, length: name.length });
+    throw new ConcordError("VALIDATION", `${field} must be 1..120 characters`, {
+      field,
+      length: name.length,
+    });
   }
   return name;
 }
@@ -87,7 +104,11 @@ export function validateName(name, field = "name") {
 // compact "<instrument> · <corpus>" run label to avoid stuttering.
 export function corpusDisplayName(corpus) {
   const raw = corpus?.name ?? corpus?.sourceName ?? corpus?.id ?? "corpus";
-  return String(raw).replace(/\s*·\s*text=[^·]*$/i, "").trim() || String(raw);
+  return (
+    String(raw)
+      .replace(/\s*·\s*text=[^·]*$/i, "")
+      .trim() || String(raw)
+  );
 }
 
 // ------------------------------------------------------------------- report
@@ -107,7 +128,11 @@ export function validateReportBlock(block, where = "block") {
     throw new ConcordError("VALIDATION", `${where} must be an object`, { where });
   }
   if (!REPORT_BLOCK_KINDS.has(block.kind)) {
-    throw new ConcordError("VALIDATION", `${where} has unknown kind '${block.kind}' — one of: ${[...REPORT_BLOCK_KINDS].join(", ")}`, { where, kind: block.kind });
+    throw new ConcordError(
+      "VALIDATION",
+      `${where} has unknown kind '${block.kind}' — one of: ${[...REPORT_BLOCK_KINDS].join(", ")}`,
+      { where, kind: block.kind },
+    );
   }
   return block;
 }
@@ -115,10 +140,14 @@ export function validateReportBlock(block, where = "block") {
 // Validate a whole replacement layout: an array of ≤100 valid blocks.
 export function validateReportBlocks(blocks) {
   if (!Array.isArray(blocks)) {
-    throw new ConcordError("VALIDATION", "report blocks must be an array", { value: typeof blocks });
+    throw new ConcordError("VALIDATION", "report blocks must be an array", {
+      value: typeof blocks,
+    });
   }
   if (blocks.length > REPORT_MAX_BLOCKS) {
-    throw new ConcordError("VALIDATION", `a report holds at most ${REPORT_MAX_BLOCKS} blocks`, { count: blocks.length });
+    throw new ConcordError("VALIDATION", `a report holds at most ${REPORT_MAX_BLOCKS} blocks`, {
+      count: blocks.length,
+    });
   }
   blocks.forEach((b, i) => validateReportBlock(b, `blocks[${i}]`));
   return blocks;
@@ -221,7 +250,9 @@ export async function unitsById(project, ids, { corpusId } = {}) {
     : (project.corpora ?? []);
   for (const c of corpora) {
     if (found.size === want.size) break;
-    const hits = await readCorpusUnits(project.slug, c.id, { filter: (u) => want.has(u.id) && !found.has(u.id) });
+    const hits = await readCorpusUnits(project.slug, c.id, {
+      filter: (u) => want.has(u.id) && !found.has(u.id),
+    });
     for (const u of hits) found.set(u.id, u);
   }
   return found;
@@ -268,7 +299,7 @@ export function goldLabelMap(goldset) {
   const coders = goldset.coders ?? [];
   const labelers = coders.filter((c) => c.labels && Object.keys(c.labels).length > 0);
   const cantCode = (c, unitId) =>
-    (Array.isArray(c.uncodable) ? c.uncodable.includes(unitId) : Boolean(c.uncodable?.[unitId]));
+    Array.isArray(c.uncodable) ? c.uncodable.includes(unitId) : Boolean(c.uncodable?.[unitId]);
   for (const unitId of sampleIds) {
     const adj = goldset.adjudicated?.[unitId];
     if (adj !== undefined) {
@@ -298,11 +329,16 @@ export function piMap(goldset) {
 // best-effort (degenerate distributions yield null, never a crash).
 export function agreementReport(rows, construct, { goldCoder, pairCoders } = {}) {
   const tryStat = (fn) => {
-    try { return fn(); } catch { return null; }
+    try {
+      return fn();
+    } catch {
+      return null;
+    }
   };
   const order = construct?.categories?.map((c) => String(c.value));
   const type = construct?.type;
-  const alphaLevel = type === "ordinal" ? "ordinal" : type === "continuous" ? "interval" : "nominal";
+  const alphaLevel =
+    type === "ordinal" ? "ordinal" : type === "continuous" ? "interval" : "nominal";
   const coderIds = [...new Set(rows.map((r) => r.coder))];
 
   const unitCoders = new Map();
@@ -318,15 +354,20 @@ export function agreementReport(rows, construct, { goldCoder, pairCoders } = {})
     n,
     coders: coderIds,
     percent: tryStat(() => percentAgreement(rows)),
-    kappa: coderIds.length === 2
-      ? tryStat(() => (type === "ordinal" && order
-        ? cohenKappa(rows, { weighted: "linear", order })
-        : cohenKappa(rows)))
-      : null,
-    alpha: tryStat(() => krippendorffAlpha(rows, {
-      level: alphaLevel,
-      ...(alphaLevel !== "nominal" && order ? { order } : {}),
-    })),
+    kappa:
+      coderIds.length === 2
+        ? tryStat(() =>
+            type === "ordinal" && order
+              ? cohenKappa(rows, { weighted: "linear", order })
+              : cohenKappa(rows),
+          )
+        : null,
+    alpha: tryStat(() =>
+      krippendorffAlpha(rows, {
+        level: alphaLevel,
+        ...(alphaLevel !== "nominal" && order ? { order } : {}),
+      }),
+    ),
     ac1: tryStat(() => gwetAC1(rows)),
   };
   if (goldCoder) {
@@ -382,7 +423,8 @@ export function finalJurorOf(instrument) {
 // the instrument's current hash drifts on unfrozen edits and would blank
 // past runs' finals.
 export async function readFinalOutputs(slug, run, instrument) {
-  const fin = instrument.kind === "panel" ? "aggregate" : (run?.versionHash ?? instrument.versionHash);
+  const fin =
+    instrument.kind === "panel" ? "aggregate" : (run?.versionHash ?? instrument.versionHash);
   return readNdjson(runOutputsFile(slug, run.id), { filter: (o) => o.juror === fin });
 }
 

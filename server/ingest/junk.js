@@ -6,8 +6,25 @@
 // NOTE: bare "no" / "nope" are deliberately NOT here — they are substantive
 // answers to yes/no survey questions, not non-answers.
 const NA_SET = new Set([
-  "na", "n/a", "n.a.", "n.a", "none", "nothing", "null", "nil", "-", "--",
-  "—", ".", "..", "...", "x", "xx", "xxx", "idk", "n/a.",
+  "na",
+  "n/a",
+  "n.a.",
+  "n.a",
+  "none",
+  "nothing",
+  "null",
+  "nil",
+  "-",
+  "--",
+  "—",
+  ".",
+  "..",
+  "...",
+  "x",
+  "xx",
+  "xxx",
+  "idk",
+  "n/a.",
 ]);
 
 // Keyboard mash = a token that is a contiguous run along one keyboard row

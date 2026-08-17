@@ -67,7 +67,11 @@ async function call(method, p, body) {
   const res = await fetch(base + p, init);
   const text = await res.text();
   let json = null;
-  try { json = JSON.parse(text); } catch { /* non-JSON (zip/html) */ }
+  try {
+    json = JSON.parse(text);
+  } catch {
+    /* non-JSON (zip/html) */
+  }
   return { status: res.status, json, text };
 }
 
@@ -80,9 +84,14 @@ async function ok(method, p, body) {
 
 async function fail(method, p, body, status, code) {
   const r = await call(method, p, body);
-  assert.equal(r.status, status, `${method} ${p} expected ${status}, got ${r.status}: ${r.text?.slice(0, 300)}`);
+  assert.equal(
+    r.status,
+    status,
+    `${method} ${p} expected ${status}, got ${r.status}: ${r.text?.slice(0, 300)}`,
+  );
   assert.equal(r.json?.ok, false);
-  if (code) assert.equal(r.json.error.code, code, `expected error code ${code}, got ${r.json.error.code}`);
+  if (code)
+    assert.equal(r.json.error.code, code, `expected error code ${code}, got ${r.json.error.code}`);
   return r.json.error;
 }
 
@@ -91,7 +100,11 @@ async function upload(p, filename, content) {
   form.append("file", new Blob([content]), filename);
   const res = await fetch(base + p, { method: "POST", body: form });
   const json = JSON.parse(await res.text());
-  assert.equal(res.status, 200, `upload ${p} → ${res.status}: ${JSON.stringify(json).slice(0, 300)}`);
+  assert.equal(
+    res.status,
+    200,
+    `upload ${p} → ${res.status}: ${JSON.stringify(json).slice(0, 300)}`,
+  );
   assert.equal(json.ok, true);
   return json.data;
 }
@@ -128,7 +141,9 @@ async function readSse(p, { method = "GET", body } = {}) {
 const mock = () => getAdapter({ privacyMode: "open" }, "mock").adapter;
 const ORACLE = (text) => (String(text).includes("salary") ? "yes" : "no");
 const lastUser = (req) => [...req.messages].reverse().find((m) => m.role === "user")?.content ?? "";
-const shownUnitIds = (t) => [...new Set([...String(t).matchAll(/unit (u_[0-9a-f]{16})/g)].map((m) => m[1]))];
+const shownUnitIds = (t) => [
+  ...new Set([...String(t).matchAll(/unit (u_[0-9a-f]{16})/g)].map((m) => m[1])),
+];
 
 // shared scratch the master handler reads/writes
 const H = { units: new Map(), briefIds: null, escalations: [] };
@@ -137,7 +152,10 @@ function masterHandler(req) {
   const user = lastUser(req);
   const props = req.schema?.properties ?? {};
   if (props.promptTemplate) {
-    return { promptTemplate: "Compiled judge. {{definition}} {{criteria}} {{examples}} {{unit}}", note: "director compile/rewrite" };
+    return {
+      promptTemplate: "Compiled judge. {{definition}} {{criteria}} {{examples}} {{unit}}",
+      note: "director compile/rewrite",
+    };
   }
   if (props.reason) {
     H.escalations.push(user);
@@ -158,7 +176,9 @@ function masterHandler(req) {
         { md: "Respondents talk mostly about compensation.", refs: [ids[0], ids[1]] },
         { md: "A second cluster praises the team.", refs: [ids[2]] },
       ],
-      themes: [{ name: "Pay", definition: "Complaints about compensation level.", quoteRefs: [ids[0]] }],
+      themes: [
+        { name: "Pay", definition: "Complaints about compensation level.", quoteRefs: [ids[0]] },
+      ],
       redFlags: [],
       suggestedQuestions: ["Which departments complain about pay?"],
     };
@@ -172,16 +192,29 @@ function masterHandler(req) {
   }
   if (props.constructs && props.instruments && props.analysis) {
     return {
-      constructs: [{
-        name: "Pay complaint (plan)",
-        type: "binary",
-        definition: "The unit complains about compensation.",
-        criteria: { include: ["names pay as a problem"], exclude: ["benefits-only complaints"] },
-        edgeCases: [],
-        examples: [{ text: "the salary is too low", label: "yes", kind: "positive" }],
-        categories: [{ value: "yes", label: "Yes" }, { value: "no", label: "No" }],
-      }],
-      instruments: [{ construct: "Pay complaint (plan)", workerClass: "small", provider: "mock", model: "mock-1", snapshot: "mock-1" }],
+      constructs: [
+        {
+          name: "Pay complaint (plan)",
+          type: "binary",
+          definition: "The unit complains about compensation.",
+          criteria: { include: ["names pay as a problem"], exclude: ["benefits-only complaints"] },
+          edgeCases: [],
+          examples: [{ text: "the salary is too low", label: "yes", kind: "positive" }],
+          categories: [
+            { value: "yes", label: "Yes" },
+            { value: "no", label: "No" },
+          ],
+        },
+      ],
+      instruments: [
+        {
+          construct: "Pay complaint (plan)",
+          workerClass: "small",
+          provider: "mock",
+          model: "mock-1",
+          snapshot: "mock-1",
+        },
+      ],
       analysis: {
         kind: "crosstab",
         spec: { rowKey: "label", colKey: "dept" },
@@ -191,21 +224,30 @@ function masterHandler(req) {
   }
   if (props.constructs) {
     return {
-      constructs: [{
-        name: "Imported construct",
-        type: "binary",
-        definition: "Recovered from a legacy codebook.",
-        criteria: { include: ["matches the legacy rule"], exclude: [] },
-        edgeCases: [],
-        examples: [{ text: "sample text", label: "yes", kind: "positive" }],
-        categories: [{ value: "yes", label: "Yes" }, { value: "no", label: "No" }],
-      }],
+      constructs: [
+        {
+          name: "Imported construct",
+          type: "binary",
+          definition: "Recovered from a legacy codebook.",
+          criteria: { include: ["matches the legacy rule"], exclude: [] },
+          edgeCases: [],
+          examples: [{ text: "sample text", label: "yes", kind: "positive" }],
+          categories: [
+            { value: "yes", label: "Yes" },
+            { value: "no", label: "No" },
+          ],
+        },
+      ],
     };
   }
   // silver labeling fallback: {rationale, label, confidence?}
   const ids = shownUnitIds(user);
   const u = H.units.get(ids.at(-1));
-  return { rationale: "Applying the codebook as written.", label: ORACLE(u?.text ?? ""), confidence: 0.95 };
+  return {
+    rationale: "Applying the codebook as written.",
+    label: ORACLE(u?.text ?? ""),
+    confidence: 0.95,
+  };
 }
 
 function armMock({ accuracy = 1.0 } = {}) {
@@ -221,16 +263,19 @@ function armMock({ accuracy = 1.0 } = {}) {
 function makeCsvA() {
   // 64 rows: planted pay theme on i%3===0, varied lengths, junk + dup + Spanish
   const lines = ["respondent_id,dept,tenure,response"];
-  const baseText = (i) => (i % 3 === 0
-    ? "the salary is too low for this work and it never improves"
-    : "the office is comfortable and the team is genuinely kind");
+  const baseText = (i) =>
+    i % 3 === 0
+      ? "the salary is too low for this work and it never improves"
+      : "the office is comfortable and the team is genuinely kind";
   for (let i = 0; i < 64; i++) {
     let text;
     if (i === 60) text = "asdf";
     else if (i === 61) text = "n/a";
-    else if (i === 62) text = baseText(1) + " Detail. Detail."; // dup of 63
+    else if (i === 62)
+      text = baseText(1) + " Detail. Detail."; // dup of 63
     else if (i === 63) text = baseText(1) + " Detail. Detail.";
-    else if (i === 50 || i === 51) text = "el equipo es muy bueno y la oficina es agradable para todos nosotros aqui";
+    else if (i === 50 || i === 51)
+      text = "el equipo es muy bueno y la oficina es agradable para todos nosotros aqui";
     else text = baseText(i) + " Detail.".repeat(i % 4);
     lines.push(`r${i},${i % 2 ? "sales" : "ops"},${i % 5},${text}`);
   }
@@ -245,11 +290,15 @@ function makeCsvB() {
   for (let i = 0; i < 240; i++) {
     let text;
     if (i === LONG_ROW) {
-      text = "the salary conversation keeps coming back and nobody addresses it properly here. ".repeat(10).trim();
+      text = "the salary conversation keeps coming back and nobody addresses it properly here. "
+        .repeat(10)
+        .trim();
     } else {
-      text = (i % 3 === 0
-        ? "the salary is too low for this work and morale drops"
-        : "the office is comfortable and the team is genuinely kind").padEnd(100, ".");
+      text = (
+        i % 3 === 0
+          ? "the salary is too low for this work and morale drops"
+          : "the office is comfortable and the team is genuinely kind"
+      ).padEnd(100, ".");
     }
     lines.push(`r${i},${i % 2 ? "sales" : "ops"},${i % 10},${text}`);
   }
@@ -311,7 +360,10 @@ test("health reports version and provider reachability (mock always true)", asyn
 });
 
 test("projects: create → ledger project.created; get; list; duplicates rejected; missing 404", async () => {
-  const project = await ok("POST", "/api/projects", { name: "Demo Project", privacyMode: "no-training" });
+  const project = await ok("POST", "/api/projects", {
+    name: "Demo Project",
+    privacyMode: "no-training",
+  });
   assert.equal(project.slug, S.slug);
   assert.equal(project.privacyMode, "no-training");
   assert.deepEqual(project.budget, { capUSD: null, spentUSD: 0 });
@@ -334,7 +386,12 @@ test("settings: PUT configures the project Director slot (incl. systemSuffix)", 
   await ok("PUT", "/api/settings", {
     project: {
       slug: S.slug,
-      director: { provider: "mock", model: "mock-1", snapshot: "mock-1", systemSuffix: "[[handler:routes]]" },
+      director: {
+        provider: "mock",
+        model: "mock-1",
+        snapshot: "mock-1",
+        systemSuffix: "[[handler:routes]]",
+      },
     },
   });
   const p = await getProject();
@@ -361,7 +418,10 @@ test("import: upload CSV → mapping proposal + preview; confirm → corpus + ju
   });
   S.corpusA = confirmed.corpusId;
   assert.equal(confirmed.unitCount, 64);
-  assert.ok(confirmed.junkQueue.counts.na >= 2, `na junk flagged (got ${JSON.stringify(confirmed.junkQueue.counts)})`);
+  assert.ok(
+    confirmed.junkQueue.counts.na >= 2,
+    `na junk flagged (got ${JSON.stringify(confirmed.junkQueue.counts)})`,
+  );
   assert.ok(confirmed.junkQueue.counts.dup >= 1, "duplicate flagged");
 
   const imported = await events({ type: "corpus.imported" });
@@ -389,18 +449,30 @@ test("import: upload CSV → mapping proposal + preview; confirm → corpus + ju
 });
 
 test("corpora: units listing paginates and filters by meta + substring", async () => {
-  const page = await ok("GET", `/api/projects/${S.slug}/corpora/${S.corpusA}/units?offset=0&limit=10`);
+  const page = await ok(
+    "GET",
+    `/api/projects/${S.slug}/corpora/${S.corpusA}/units?offset=0&limit=10`,
+  );
   assert.equal(page.units.length, 10);
   assert.equal(page.total, 64);
 
-  const page2 = await ok("GET", `/api/projects/${S.slug}/corpora/${S.corpusA}/units?offset=60&limit=10`);
+  const page2 = await ok(
+    "GET",
+    `/api/projects/${S.slug}/corpora/${S.corpusA}/units?offset=60&limit=10`,
+  );
   assert.equal(page2.units.length, 4);
 
-  const ops = await ok("GET", `/api/projects/${S.slug}/corpora/${S.corpusA}/units?meta.dept=ops&limit=500`);
+  const ops = await ok(
+    "GET",
+    `/api/projects/${S.slug}/corpora/${S.corpusA}/units?meta.dept=ops&limit=500`,
+  );
   assert.ok(ops.total > 0 && ops.total < 64);
   assert.ok(ops.units.every((u) => u.meta.dept === "ops"));
 
-  const q = await ok("GET", `/api/projects/${S.slug}/corpora/${S.corpusA}/units?q=salary&limit=500`);
+  const q = await ok(
+    "GET",
+    `/api/projects/${S.slug}/corpora/${S.corpusA}/units?q=salary&limit=500`,
+  );
   assert.ok(q.total >= 18 && q.total <= 22, `salary substring rows (got ${q.total})`);
   assert.ok(q.units.every((u) => u.text.includes("salary")));
 
@@ -416,7 +488,10 @@ test("corpora: instant read computes locally and caches into the corpus meta", a
   assert.ok(r.lengthHist.bins.length > 0);
   assert.ok(r.langMix.en > 0.8, `mostly English (got ${JSON.stringify(r.langMix)})`);
   assert.ok(r.langMix.es > 0, "Spanish rows detected");
-  assert.ok(r.topTerms.some((t) => t.term === "salary"), `topTerms include salary: ${JSON.stringify(r.topTerms.slice(0, 8))}`);
+  assert.ok(
+    r.topTerms.some((t) => t.term === "salary"),
+    `topTerms include salary: ${JSON.stringify(r.topTerms.slice(0, 8))}`,
+  );
   assert.equal(typeof r.sentimentSketch.meanValence, "number");
   assert.equal(r.sentimentSketch.lexicon, "VADER");
   const dept = r.metaMarginals.find((m) => m.column === "dept");
@@ -429,24 +504,40 @@ test("corpora: instant read computes locally and caches into the corpus meta", a
     assert.ok(Array.isArray(b.unitIds), `length bin carries unitIds (got ${JSON.stringify(b)})`);
     assert.equal(Math.min(b.n, 100), b.unitIds.length, "ids cap at 100, n stays honest");
   }
-  assert.equal(r.langUnits.en.unitIds.length, r.langUnits.en.n, "language buckets carry {n, unitIds}");
+  assert.equal(
+    r.langUnits.en.unitIds.length,
+    r.langUnits.en.n,
+    "language buckets carry {n, unitIds}",
+  );
   assert.ok(r.langUnits.es.n > 0 && r.langUnits.es.unitIds.length === r.langUnits.es.n);
-  const sentTotal = r.sentimentUnits.positive.n + r.sentimentUnits.neutral.n + r.sentimentUnits.negative.n;
+  const sentTotal =
+    r.sentimentUnits.positive.n + r.sentimentUnits.neutral.n + r.sentimentUnits.negative.n;
   assert.equal(sentTotal, 64, "sentiment buckets partition the corpus");
   assert.ok(r.sentimentUnits.positive.unitIds.length > 0);
   for (const v of dept.values) {
-    assert.equal(v.unitIds.length, Math.min(v.n, 100), `marginal value carries capped ids (got ${JSON.stringify(v).slice(0, 120)})`);
+    assert.equal(
+      v.unitIds.length,
+      Math.min(v.n, 100),
+      `marginal value carries capped ids (got ${JSON.stringify(v).slice(0, 120)})`,
+    );
   }
   // every shipped id is a real unit of this corpus
   const realIds = new Set(S.unitsA.map((u) => u.id));
-  for (const id of [...r.lengthHist.bins.flatMap((b) => b.unitIds), ...r.langUnits.en.unitIds, ...dept.values.flatMap((v) => v.unitIds)]) {
+  for (const id of [
+    ...r.lengthHist.bins.flatMap((b) => b.unitIds),
+    ...r.langUnits.en.unitIds,
+    ...dept.values.flatMap((v) => v.unitIds),
+  ]) {
     assert.ok(realIds.has(id), `evidence id ${id} resolves to a real unit`);
   }
 
   // the CTA price: the mock Director slot is configured → briefEstimate
   // {usd, etaMin} rides the response (ONE Director call over the stratified
   // sample, priced from the catalog — mock prices $0)
-  assert.ok(r.briefEstimate && typeof r.briefEstimate === "object", "briefEstimate present with a Director configured");
+  assert.ok(
+    r.briefEstimate && typeof r.briefEstimate === "object",
+    "briefEstimate present with a Director configured",
+  );
   assert.equal(r.briefEstimate.usd, 0, "mock catalog pricing → $0");
   assert.equal(typeof r.briefEstimate.etaMin, "number");
   assert.ok(r.briefEstimate.etaMin > 0);
@@ -461,7 +552,11 @@ test("corpora: instant read computes locally and caches into the corpus meta", a
 
   const again = await ok("GET", `/api/projects/${S.slug}/corpora/${S.corpusA}/instantread`);
   assert.equal(again.computedAt, r.computedAt, "second call serves the cached result");
-  assert.deepEqual(again.briefEstimate, r.briefEstimate, "the cached read still quotes the brief price");
+  assert.deepEqual(
+    again.briefEstimate,
+    r.briefEstimate,
+    "the cached read still quotes the brief price",
+  );
   assert.deepEqual(again.scope, r.scope, "scope rides the cached read too");
   const cached = (await getProject()).corpora.find((c) => c.id === S.corpusA).instantread;
   assert.equal(cached.scope, undefined, "scope overlays per request — never baked into the cache");
@@ -478,9 +573,10 @@ function makeKickstarterCsv() {
   // no description at all (→ skipped on reunitize).
   const lines = ["name,state,abouttxt"];
   for (let i = 0; i < 12; i++) {
-    const about = i < 10
-      ? `We are building an open source hardware synthesizer with community documentation and full schematics release number ${i} for everyone.`
-      : "";
+    const about =
+      i < 10
+        ? `We are building an open source hardware synthesizer with community documentation and full schematics release number ${i} for everyone.`
+        : "";
     lines.push(`Project ${i},CA,${about}`);
   }
   return lines.join("\n") + "\n";
@@ -506,7 +602,9 @@ test("reunitize: versions the corpus onto a metadata text column — original un
   assert.equal(orig.sourceName, "kickstarter.csv");
 
   // fix the wrong text-column choice WITHOUT re-import
-  const re = await ok("POST", `/api/projects/${slug}/corpora/${confirmed.corpusId}/reunitize`, { textColumn: "abouttxt" });
+  const re = await ok("POST", `/api/projects/${slug}/corpora/${confirmed.corpusId}/reunitize`, {
+    textColumn: "abouttxt",
+  });
   assert.notEqual(re.corpusId, confirmed.corpusId, "re-unitization versions the corpus");
   assert.equal(re.textColumn, "abouttxt");
   assert.equal(re.unitCount, 10, "rows with an empty abouttxt are skipped");
@@ -518,13 +616,20 @@ test("reunitize: versions the corpus onto a metadata text column — original un
   assert.equal(newUnits.total, 10);
   for (const u of newUnits.units) {
     assert.match(u.text, /open source hardware synthesizer/);
-    assert.match(u.meta.name, /^Project \d+$/, "old unit text preserved under the old text column's name");
+    assert.match(
+      u.meta.name,
+      /^Project \d+$/,
+      "old unit text preserved under the old text column's name",
+    );
     assert.ok(!("abouttxt" in u.meta), "the promoted column left the metadata");
     assert.equal(u.meta.state, "CA", "other metadata carries over");
   }
 
   // original corpus untouched
-  const oldUnits = await ok("GET", `/api/projects/${slug}/corpora/${confirmed.corpusId}/units?limit=500`);
+  const oldUnits = await ok(
+    "GET",
+    `/api/projects/${slug}/corpora/${confirmed.corpusId}/units?limit=500`,
+  );
   assert.equal(oldUnits.total, 12);
   assert.ok(oldUnits.units.every((u) => /^Project \d+$/.test(u.text)));
 
@@ -549,13 +654,28 @@ test("reunitize: versions the corpus onto a metadata text column — original un
   assert.equal(ev.at(-1).actor, "human");
   assert.equal(ev.at(-1).refs.corpusId, re.corpusId);
   assert.deepEqual(ev.at(-1).payload, {
-    textColumn: "abouttxt", derivedFrom: confirmed.corpusId, unitCount: 10, skipped: 2,
+    textColumn: "abouttxt",
+    derivedFrom: confirmed.corpusId,
+    unitCount: 10,
+    skipped: 2,
     pii: { mode: "scan", counts: { email: 0, phone: 0, ssn: 0, url_user: 0, name: 0 } },
   });
 
   // 400 on a column that is not in the first unit's meta; 404 unknown corpus
-  await fail("POST", `/api/projects/${slug}/corpora/${confirmed.corpusId}/reunitize`, { textColumn: "no_such_col" }, 400, "VALIDATION");
-  await fail("POST", `/api/projects/${slug}/corpora/corp_missing/reunitize`, { textColumn: "abouttxt" }, 404, "NOT_FOUND");
+  await fail(
+    "POST",
+    `/api/projects/${slug}/corpora/${confirmed.corpusId}/reunitize`,
+    { textColumn: "no_such_col" },
+    400,
+    "VALIDATION",
+  );
+  await fail(
+    "POST",
+    `/api/projects/${slug}/corpora/corp_missing/reunitize`,
+    { textColumn: "abouttxt" },
+    404,
+    "NOT_FOUND",
+  );
 
   S.kick = { slug, origCorpus: confirmed.corpusId, derivedCorpus: re.corpusId };
 });
@@ -577,16 +697,37 @@ test("corpora: instant read scope — derived corpus carries lineage; legacy ent
   const dir = path.join(projectDir(slug), "corpora", legacyId);
   await mkdir(dir, { recursive: true });
   const legacyUnits = [
-    { id: "u_00000000000000a1", text: "legacy unit one talking about nothing in particular today", meta: {}, pos: { row: 0 } },
-    { id: "u_00000000000000a2", text: "legacy unit two carrying some other words entirely here", meta: {}, pos: { row: 1 } },
+    {
+      id: "u_00000000000000a1",
+      text: "legacy unit one talking about nothing in particular today",
+      meta: {},
+      pos: { row: 0 },
+    },
+    {
+      id: "u_00000000000000a2",
+      text: "legacy unit two carrying some other words entirely here",
+      meta: {},
+      pos: { row: 1 },
+    },
   ];
-  await writeFile(path.join(dir, "units.ndjson"), legacyUnits.map((u) => JSON.stringify(u)).join("\n") + "\n", "utf8");
-  await updateProject(slug, (p) => { p.corpora.push({ id: legacyId, name: "legacy corpus" }); });
+  await writeFile(
+    path.join(dir, "units.ndjson"),
+    legacyUnits.map((u) => JSON.stringify(u)).join("\n") + "\n",
+    "utf8",
+  );
+  await updateProject(slug, (p) => {
+    p.corpora.push({ id: legacyId, name: "legacy corpus" });
+  });
 
   const lr = await ok("GET", `/api/projects/${slug}/corpora/${legacyId}/instantread`);
   assert.equal(lr.unitCount, 2, "the read itself still computes");
   assert.deepEqual(lr.scope, {
-    textColumn: null, scheme: null, unitCount: null, junk: null, metaColumns: null, derivedFrom: null,
+    textColumn: null,
+    scheme: null,
+    unitCount: null,
+    junk: null,
+    metaColumns: null,
+    derivedFrom: null,
   });
 });
 
@@ -605,8 +746,14 @@ test("corpora: columns lists real variables with roles/distinct/missing/top valu
   assert.equal(dept.role, "categorical");
   assert.equal(dept.distinct, 2);
   assert.equal(dept.missing, 0);
-  assert.deepEqual(dept.values, [{ value: "ops", n: 32 }, { value: "sales", n: 32 }],
-    "top values (count desc, value asc) ride categorical columns");
+  assert.deepEqual(
+    dept.values,
+    [
+      { value: "ops", n: 32 },
+      { value: "sales", n: 32 },
+    ],
+    "top values (count desc, value asc) ride categorical columns",
+  );
 
   const tenure = r.columns.find((c) => c.name === "tenure");
   assert.equal(tenure.role, "numeric");
@@ -627,7 +774,13 @@ test("corpora: columns lists real variables with roles/distinct/missing/top valu
   const cached2 = (await getProject()).corpora.find((c) => c.id === S.corpusA).columns;
   assert.equal(cached2.computedAt, cached.computedAt, "second call did not recompute");
 
-  await fail("GET", `/api/projects/${S.slug}/corpora/corp_missing00000/columns`, undefined, 404, "NOT_FOUND");
+  await fail(
+    "GET",
+    `/api/projects/${S.slug}/corpora/corp_missing00000/columns`,
+    undefined,
+    404,
+    "NOT_FOUND",
+  );
 });
 
 // =========================================================================
@@ -644,8 +797,10 @@ test("brief: SSE streams progress stages, then paragraphs in order, then done; a
   // progress stages ride ahead of the paragraphs; tick count is timing-
   // dependent (the fast mock usually finishes before the ~2s ticker fires) —
   // tests/server/brief-progress.test.js pins ticks with a slowed mock
-  assert.deepEqual(evs.map((e) => e.event).filter((n) => n !== "tick"),
-    ["sampling", "prompt-composed", "director-called", "validating", "para", "para", "done"]);
+  assert.deepEqual(
+    evs.map((e) => e.event).filter((n) => n !== "tick"),
+    ["sampling", "prompt-composed", "director-called", "validating", "para", "para", "done"],
+  );
   const paras = evs.filter((e) => e.event === "para");
   assert.match(paras[0].data.md, /compensation/);
   assert.ok(Array.isArray(paras[0].data.refs) && paras[0].data.refs.length >= 1);
@@ -667,9 +822,16 @@ test("brief: GET briefs/:bid returns the persisted artifact; missing → 404", a
   assert.equal(brief.authoredBy, "director");
   assert.equal(brief.paragraphs.length, 2);
   assert.match(brief.paragraphs[0].md, /compensation/);
-  assert.ok(Array.isArray(brief.paragraphs[0].refs) && brief.paragraphs[0].refs.length >= 1, "refs ride the stored paragraphs");
+  assert.ok(
+    Array.isArray(brief.paragraphs[0].refs) && brief.paragraphs[0].refs.length >= 1,
+    "refs ride the stored paragraphs",
+  );
   assert.ok(Array.isArray(brief.themes) && brief.themes.length >= 1);
-  assert.equal(brief.textColumn, "response", "the artifact names the column its unit text came from");
+  assert.equal(
+    brief.textColumn,
+    "response",
+    "the artifact names the column its unit text came from",
+  );
   assert.equal(brief.metaColumns, 3);
   await fail("GET", `/api/projects/${S.slug}/briefs/brief_nope`, undefined, 404, "NOT_FOUND");
   await fail("GET", `/api/projects/no-such-project/briefs/${briefId}`, undefined, 404, "NOT_FOUND");
@@ -698,7 +860,11 @@ test("questionbar: compile plan → approve materializes constructs + instrument
   assert.equal(run.status, "pending");
   const planInstrument = p.instruments.find((i) => i.id === approved.instrumentIds[0]);
   const corpusAName = p.corpora.find((c) => c.id === S.corpusA).name;
-  assert.equal(run.name, `${planInstrument.name} · ${corpusAName}`, "approval auto-names the pending run");
+  assert.equal(
+    run.name,
+    `${planInstrument.name} · ${corpusAName}`,
+    "approval auto-names the pending run",
+  );
   assert.equal((await events({ type: "plan.compiled" })).length, 1);
   assert.equal((await events({ type: "plan.approved" })).length, 1);
   assert.equal((await events({ type: "run.preflight" })).length, 1);
@@ -713,13 +879,19 @@ test("constructs: CRUD with ledger; delete guarded by dependent instruments", as
     name: "Pay complaint",
     type: "binary",
     definition: "The unit complains about compensation level or fairness.",
-    criteria: { include: ["names compensation as a problem"], exclude: ["benefits-only complaints"] },
+    criteria: {
+      include: ["names compensation as a problem"],
+      exclude: ["benefits-only complaints"],
+    },
     edgeCases: ["sarcastic praise of compensation counts"],
     examples: [
       { text: "What they pay us is insulting.", label: "yes", kind: "positive" },
       { text: "Great team, decent comp.", label: "no", kind: "negative" },
     ],
-    categories: [{ value: "yes", label: "Yes" }, { value: "no", label: "No" }],
+    categories: [
+      { value: "yes", label: "Yes" },
+      { value: "no", label: "No" },
+    ],
   });
   S.constructId = c.id;
   assert.equal(c.humanTouched, true);
@@ -728,7 +900,10 @@ test("constructs: CRUD with ledger; delete guarded by dependent instruments", as
   const got = await ok("GET", `/api/projects/${S.slug}/constructs/${c.id}`);
   assert.equal(got.name, "Pay complaint");
   const list = await ok("GET", `/api/projects/${S.slug}/constructs`);
-  assert.ok(list.some((x) => x.id === c.id), "GET list includes the construct");
+  assert.ok(
+    list.some((x) => x.id === c.id),
+    "GET list includes the construct",
+  );
 
   const updated = await ok("PUT", `/api/projects/${S.slug}/constructs/${c.id}`, {
     definition: "The unit complains about compensation level, raises, or pay fairness.",
@@ -742,12 +917,18 @@ test("constructs: CRUD with ledger; delete guarded by dependent instruments", as
     type: "binary",
     definition: "The unit praises the team or colleagues.",
     criteria: { include: ["positive remarks about colleagues"], exclude: [] },
-    categories: [{ value: "yes", label: "Yes" }, { value: "no", label: "No" }],
+    categories: [
+      { value: "yes", label: "Yes" },
+      { value: "no", label: "No" },
+    ],
   });
   S.construct2Id = c2.id;
 
   // deletable when unreferenced
-  const tmp = await ok("POST", `/api/projects/${S.slug}/constructs`, { name: "Throwaway", type: "binary" });
+  const tmp = await ok("POST", `/api/projects/${S.slug}/constructs`, {
+    name: "Throwaway",
+    type: "binary",
+  });
   await ok("DELETE", `/api/projects/${S.slug}/constructs/${tmp.id}`);
   await fail("GET", `/api/projects/${S.slug}/constructs/${tmp.id}`, undefined, 404, "NOT_FOUND");
 });
@@ -755,10 +936,14 @@ test("constructs: CRUD with ledger; delete guarded by dependent instruments", as
 test("constructs: docx codebook import returns Director proposals; inductive returns themes", async () => {
   armMock();
   const docx = await import("node:fs/promises").then((fs) =>
-    fs.readFile(path.join(process.cwd(), "tests", "fixtures", "ingest-min.docx")));
+    fs.readFile(path.join(process.cwd(), "tests", "fixtures", "ingest-min.docx")),
+  );
   const form = new FormData();
   form.append("file", new Blob([docx]), "legacy-codebook.docx");
-  const res = await fetch(`${base}/api/projects/${S.slug}/constructs/import`, { method: "POST", body: form });
+  const res = await fetch(`${base}/api/projects/${S.slug}/constructs/import`, {
+    method: "POST",
+    body: form,
+  });
   const body = JSON.parse(await res.text());
   assert.equal(res.status, 200, JSON.stringify(body).slice(0, 300));
   assert.equal(body.data.proposed, true);
@@ -768,7 +953,10 @@ test("constructs: docx codebook import returns Director proposals; inductive ret
   const p = await getProject();
   assert.ok(!p.constructs.some((c) => c.name === "Imported construct"));
 
-  const tax = await ok("POST", `/api/projects/${S.slug}/constructs/inductive`, { corpusId: S.corpusA, n: 20 });
+  const tax = await ok("POST", `/api/projects/${S.slug}/constructs/inductive`, {
+    corpusId: S.corpusA,
+    n: 20,
+  });
   assert.equal(tax.mode, "inductive-hypothesis");
   assert.equal(tax.themes[0].name, "Pay");
 
@@ -785,14 +973,26 @@ test("constructs: draft — concepts formalize via the themes path; questions ta
   mock().setHandler("routes", (req) => {
     captured.push(lastUser(req));
     return {
-      constructs: [{
-        name: "Pay fairness", type: "binary",
-        definition: "The unit evaluates compensation fairness.",
-        criteria: { include: ["names pay fairness"], exclude: [] },
-        edgeCases: [],
-        examples: [{ text: "the salary is too low for this work and it never improves", label: "yes", kind: "positive" }],
-        categories: [{ value: "yes", label: "Yes" }, { value: "no", label: "No" }],
-      }],
+      constructs: [
+        {
+          name: "Pay fairness",
+          type: "binary",
+          definition: "The unit evaluates compensation fairness.",
+          criteria: { include: ["names pay fairness"], exclude: [] },
+          edgeCases: [],
+          examples: [
+            {
+              text: "the salary is too low for this work and it never improves",
+              label: "yes",
+              kind: "positive",
+            },
+          ],
+          categories: [
+            { value: "yes", label: "Yes" },
+            { value: "no", label: "No" },
+          ],
+        },
+      ],
     };
   });
 
@@ -864,7 +1064,10 @@ test("instruments: create + re-version (level resets) + ephemeral preview", asyn
   assert.equal(inst.level, "exploratory");
   assert.equal((await events({ type: "instrument.created", ref: inst.id })).length, 1);
   const list = await ok("GET", `/api/projects/${S.slug}/instruments`);
-  assert.ok(list.some((x) => x.id === inst.id), "GET list includes the instrument");
+  assert.ok(
+    list.some((x) => x.id === inst.id),
+    "GET list includes the instrument",
+  );
   const one = await ok("GET", `/api/projects/${S.slug}/instruments/${inst.id}`);
   assert.equal(one.versionHash, inst.versionHash);
 
@@ -878,7 +1081,9 @@ test("instruments: create + re-version (level resets) + ephemeral preview", asyn
 
   armMock();
   const ids = S.unitsA.slice(0, 3).map((u) => u.id);
-  const preview = await ok("POST", `/api/projects/${S.slug}/instruments/${inst.id}/preview`, { unitIds: ids });
+  const preview = await ok("POST", `/api/projects/${S.slug}/instruments/${inst.id}/preview`, {
+    unitIds: ids,
+  });
   const finals = preview.outputs.filter((o) => o.label !== undefined);
   assert.equal(finals.length, 3);
   for (const o of finals) assert.equal(o.label, ORACLE(H.units.get(o.unitId).text));
@@ -900,16 +1105,26 @@ test("instruments: Director compile re-versions with the authored template", asy
 
 test("instruments: silver-tune streams iterations then done; lands stabilized (real engine + stability injected)", async () => {
   armMock();
-  const { status, events: evs } = await readSse(`/api/projects/${S.slug}/instruments/${S.inst1}/silver-tune`, {
-    method: "POST",
-    body: { n: 24, corpusId: S.corpusA },
-  });
+  const { status, events: evs } = await readSse(
+    `/api/projects/${S.slug}/instruments/${S.inst1}/silver-tune`,
+    {
+      method: "POST",
+      body: { n: 24, corpusId: S.corpusA },
+    },
+  );
   assert.equal(status, 200);
   const iters = evs.filter((e) => e.event === "iteration");
   const done = evs.find((e) => e.event === "done");
-  assert.ok(!evs.some((e) => e.event === "error"), `no error event: ${JSON.stringify(evs.find((e) => e.event === "error")?.data)}`);
+  assert.ok(
+    !evs.some((e) => e.event === "error"),
+    `no error event: ${JSON.stringify(evs.find((e) => e.event === "error")?.data)}`,
+  );
   assert.ok(iters.length >= 1, "at least one iteration streamed");
-  assert.deepEqual(iters.map((e) => e.data.iteration), iters.map((_, i) => i + 1), "iterations arrive in order");
+  assert.deepEqual(
+    iters.map((e) => e.data.iteration),
+    iters.map((_, i) => i + 1),
+    "iterations arrive in order",
+  );
   assert.equal(typeof iters[0].data.agreement, "number");
   assert.ok(done, "done event arrives");
   assert.equal(done.data.instrumentId, S.inst1);
@@ -930,12 +1145,18 @@ test("instruments: stability route returns alpha/pass; module owns the ledger ev
   armMock();
   const before = (await events({ type: "instrument.stability" })).length;
   const r = await ok("POST", `/api/projects/${S.slug}/instruments/${S.inst1}/stability`, {
-    k: 2, n: 12, corpusId: S.corpusA,
+    k: 2,
+    n: 12,
+    corpusId: S.corpusA,
   });
   assert.equal(r.alpha, 1, "accuracy-1.0 mock is perfectly stable");
   assert.equal(r.pass, true);
   const after = (await events({ type: "instrument.stability" })).length;
-  assert.equal(after, before + 1, "exactly one instrument.stability event per check (module-owned)");
+  assert.equal(
+    after,
+    before + 1,
+    "exactly one instrument.stability event per check (module-owned)",
+  );
   const p = await getProject();
   assert.equal(p.instruments.find((i) => i.id === S.inst1).stability.alpha, 1);
 });
@@ -972,7 +1193,10 @@ test("goldsets: create + SRS sample stores pi = n/N on every row; ledger goldset
     n: 24,
   });
   assert.equal(sampled.n, 24);
-  assert.ok(sampled.sample.every((s) => s.pi === 24 / 240), "pi = n/N stored on every sample row");
+  assert.ok(
+    sampled.sample.every((s) => s.pi === 24 / 240),
+    "pi = n/N stored on every sample row",
+  );
 
   const ev = await events({ type: "goldset.sampled", ref: gs.id });
   assert.equal(ev.length, 1);
@@ -983,41 +1207,66 @@ test("goldsets: create + SRS sample stores pi = n/N on every row; ledger goldset
   assert.equal(full.status, "coding");
   assert.equal(full.sample.length, 24);
   const list = await ok("GET", `/api/projects/${S.slug}/goldsets`);
-  assert.ok(list.some((g) => g.id === gs.id && g.n === 24), "GET list carries the goldset meta");
+  assert.ok(
+    list.some((g) => g.id === gs.id && g.n === 24),
+    "GET list carries the goldset meta",
+  );
 });
 
 test("goldsets: stratified sampling allocates proportionally with per-stratum pi", async () => {
   const gs2 = await ok("POST", `/api/projects/${S.slug}/goldsets`, {
-    constructId: S.constructId, tier: "gold", corpusId: S.corpusB,
+    constructId: S.constructId,
+    tier: "gold",
+    corpusId: S.corpusB,
   });
   const sampled = await ok("POST", `/api/projects/${S.slug}/goldsets/${gs2.id}/sample`, {
-    design: "stratified", n: 20, strata: { by: "dept" },
+    design: "stratified",
+    n: 20,
+    strata: { by: "dept" },
   });
   assert.equal(sampled.n, 20);
   const pis = [...new Set(sampled.sample.map((s) => s.pi))];
   for (const pi of pis) assert.ok(pi > 0 && pi <= 1);
   // dept splits 120/120 → 10 from each stratum at pi 10/120
-  assert.ok(pis.every((pi) => Math.abs(pi - 10 / 120) < 1e-12), `per-stratum pi (got ${pis})`);
+  assert.ok(
+    pis.every((pi) => Math.abs(pi - 10 / 120) < 1e-12),
+    `per-stratum pi (got ${pis})`,
+  );
   await ok("DELETE", `/api/projects/${S.slug}/goldsets/${gs2.id}`);
   await fail("GET", `/api/projects/${S.slug}/goldsets/${gs2.id}`, undefined, 404, "NOT_FOUND");
 });
 
 test("goldsets: stratified sampling takes ANY real meta column and 400s a bogus one, listing the real columns", async () => {
   const gs = await ok("POST", `/api/projects/${S.slug}/goldsets`, {
-    constructId: S.constructId, tier: "gold", corpusId: S.corpusB,
+    constructId: S.constructId,
+    tier: "gold",
+    corpusId: S.corpusB,
   });
   // any REAL column works — tenure here, never a hardcoded demo name
   const sampled = await ok("POST", `/api/projects/${S.slug}/goldsets/${gs.id}/sample`, {
-    design: "stratified", n: 20, strata: { by: "tenure" },
+    design: "stratified",
+    n: 20,
+    strata: { by: "tenure" },
   });
   assert.equal(sampled.n, 20);
   // tenure splits 24×10 → 2 per stratum at pi 2/24
   const pis = [...new Set(sampled.sample.map((s) => s.pi))];
-  assert.ok(pis.every((pi) => Math.abs(pi - 2 / 24) < 1e-12), `per-stratum pi over tenure (got ${pis})`);
+  assert.ok(
+    pis.every((pi) => Math.abs(pi - 2 / 24) < 1e-12),
+    `per-stratum pi over tenure (got ${pis})`,
+  );
 
-  const err = await fail("POST", `/api/projects/${S.slug}/goldsets/${gs.id}/sample`, {
-    design: "stratified", n: 20, strata: { by: "sentiment_bucket" },
-  }, 400, "VALIDATION");
+  const err = await fail(
+    "POST",
+    `/api/projects/${S.slug}/goldsets/${gs.id}/sample`,
+    {
+      design: "stratified",
+      n: 20,
+      strata: { by: "sentiment_bucket" },
+    },
+    400,
+    "VALIDATION",
+  );
   assert.match(err.message, /sentiment_bucket/, "the bad column is named");
   for (const real of ["respondent_id", "dept", "tenure"]) {
     assert.match(err.message, new RegExp(real), `real column ${real} listed`);
@@ -1027,13 +1276,22 @@ test("goldsets: stratified sampling takes ANY real meta column and 400s a bogus 
 
 test("goldsets: GET carries populationN — the corpus unit count behind the sample", async () => {
   const gs = await ok("GET", `/api/projects/${S.slug}/goldsets/${S.goldsetId}`);
-  assert.equal(gs.populationN, 240, "you code 24 of 240 — the population is disclosed beside the sample");
+  assert.equal(
+    gs.populationN,
+    240,
+    "you code 24 of 240 — the population is disclosed beside the sample",
+  );
   assert.equal(gs.sample.length, 24);
 });
 
 test("freeze BEFORE agreement → 400 (human agreement comes first)", async () => {
-  const err = await fail("POST", `/api/projects/${S.slug}/instruments/${S.inst1}/freeze`,
-    { goldsetId: S.goldsetId }, 400, "VALIDATION");
+  const err = await fail(
+    "POST",
+    `/api/projects/${S.slug}/instruments/${S.inst1}/freeze`,
+    { goldsetId: S.goldsetId },
+    400,
+    "VALIDATION",
+  );
   assert.match(err.message, /human agreement/i);
 });
 
@@ -1043,8 +1301,12 @@ const coderApi = (sess) => `http://127.0.0.1:${sess.port}`;
 
 test("coder sessions: two blind coders label through restricted same-process listeners", async () => {
   armMock();
-  const sessA = await ok("POST", `/api/projects/${S.slug}/goldsets/${S.goldsetId}/coder-session`, { coderId: "coder-A" });
-  const sessB = await ok("POST", `/api/projects/${S.slug}/goldsets/${S.goldsetId}/coder-session`, { coderId: "coder-B" });
+  const sessA = await ok("POST", `/api/projects/${S.slug}/goldsets/${S.goldsetId}/coder-session`, {
+    coderId: "coder-A",
+  });
+  const sessB = await ok("POST", `/api/projects/${S.slug}/goldsets/${S.goldsetId}/coder-session`, {
+    coderId: "coder-B",
+  });
   assert.ok(sessA.port > 0 && sessB.port > 0 && sessA.port !== sessB.port);
   assert.match(sessA.url, /^http:\/\/127\.0\.0\.1:\d+\/coder\.html\?coder=coder-A$/);
 
@@ -1052,7 +1314,16 @@ test("coder sessions: two blind coders label through restricted same-process lis
   S.flipUnits = gsFull.sample.slice(0, 2).map((s) => s.unitId); // planted human disagreement
 
   const blindnessCheck = (raw, otherCoder) => {
-    for (const marker of ['"juror"', '"rationale"', '"confidence"', '"aggregate"', '"escalat', '"adjudicated"', '"labels"', '"machine']) {
+    for (const marker of [
+      '"juror"',
+      '"rationale"',
+      '"confidence"',
+      '"aggregate"',
+      '"escalat',
+      '"adjudicated"',
+      '"labels"',
+      '"machine',
+    ]) {
       assert.ok(!raw.includes(marker), `blind payload leaked ${marker}: ${raw.slice(0, 400)}`);
     }
     assert.ok(!raw.includes(otherCoder), `blind payload leaked the other coder (${otherCoder})`);
@@ -1070,11 +1341,16 @@ test("coder sessions: two blind coders label through restricted same-process lis
       if (!data.unit) break;
       assert.equal(typeof data.unit.text, "string");
       const truth = ORACLE(data.unit.text);
-      const label = flip && S.flipUnits.includes(data.unit.id) ? (truth === "yes" ? "no" : "yes") : truth;
+      const label =
+        flip && S.flipUnits.includes(data.unit.id) ? (truth === "yes" ? "no" : "yes") : truth;
       const post = await fetch(`${coderApi(sess)}/api/coder/label`, {
         method: "POST",
         headers: { "content-type": "application/json" },
-        body: JSON.stringify({ unitId: data.unit.id, label, memo: labeled === 0 ? "first memo" : undefined }),
+        body: JSON.stringify({
+          unitId: data.unit.id,
+          label,
+          memo: labeled === 0 ? "first memo" : undefined,
+        }),
       });
       const postRaw = await post.text();
       assert.equal(post.status, 200, postRaw.slice(0, 300));
@@ -1091,7 +1367,10 @@ test("coder sessions: two blind coders label through restricted same-process lis
   assert.deepEqual([progA.data.done, progA.data.total], [24, 24]);
 
   // main-server next route is equally blind
-  const mainNext = await call("GET", `/api/projects/${S.slug}/goldsets/${S.goldsetId}/next?coder=coder-A`);
+  const mainNext = await call(
+    "GET",
+    `/api/projects/${S.slug}/goldsets/${S.goldsetId}/next?coder=coder-A`,
+  );
   assert.equal(mainNext.status, 200);
   blindnessCheck(mainNext.text, "coder-B");
   assert.equal(mainNext.json.data.unit, null, "coder-A is finished");
@@ -1113,9 +1392,15 @@ test("coder sessions: two blind coders label through restricted same-process lis
   assert.equal((await events({ type: "goldset.label", ref: S.goldsetId })).length, 49);
 
   // close coder-B's listener; its port must stop answering
-  const closed = await ok("DELETE", `/api/projects/${S.slug}/goldsets/${S.goldsetId}/coder-session?coderId=coder-B`);
+  const closed = await ok(
+    "DELETE",
+    `/api/projects/${S.slug}/goldsets/${S.goldsetId}/coder-session?coderId=coder-B`,
+  );
   assert.equal(closed.closed, 1);
-  await assert.rejects(fetch(`${coderApi(sessB)}/api/coder/next`), "closed listener refuses connections");
+  await assert.rejects(
+    fetch(`${coderApi(sessB)}/api/coder/next`),
+    "closed listener refuses connections",
+  );
   S.sessA = sessA;
 });
 
@@ -1123,7 +1408,10 @@ test("goldsets: agreement computes the HUMAN report first (persisted + ledgered)
   armMock();
   const r = await ok("GET", `/api/projects/${S.slug}/goldsets/${S.goldsetId}/agreement`);
   assert.equal(r.humanAgreement.n, 24);
-  assert.ok(Math.abs(r.humanAgreement.percent - 22 / 24) < 1e-9, `planted 2 disagreements (got ${r.humanAgreement.percent})`);
+  assert.ok(
+    Math.abs(r.humanAgreement.percent - 22 / 24) < 1e-9,
+    `planted 2 disagreements (got ${r.humanAgreement.percent})`,
+  );
   assert.equal(typeof r.humanAgreement.kappa, "number");
   assert.equal(typeof r.humanAgreement.alpha, "number");
   assert.ok(Array.isArray(r.humanAgreement.confusion), "2-coder confusion matrix included");
@@ -1139,7 +1427,10 @@ test("goldsets: agreement computes the HUMAN report first (persisted + ledgered)
   // machine side: the tuned judge vs adjudicated-or-consensus gold (22 units
   // have consensus; 2 disputed units are excluded until adjudication)
   const mine = r.perInstrument.find((x) => x.instrumentId === S.inst1);
-  assert.ok(mine, `inst1 in perInstrument: ${JSON.stringify(r.perInstrument.map((x) => x.instrumentId))}`);
+  assert.ok(
+    mine,
+    `inst1 in perInstrument: ${JSON.stringify(r.perInstrument.map((x) => x.instrumentId))}`,
+  );
   assert.ok(!mine.error, JSON.stringify(mine.error ?? null));
   assert.equal(mine.agreement.n, 22);
   assert.equal(mine.agreement.percent, 1, "accuracy-1.0 worker matches consensus gold");
@@ -1149,7 +1440,10 @@ test("goldsets: agreement computes the HUMAN report first (persisted + ledgered)
 test("goldsets: adjudication resolves the disputes → status complete + goldset.completed", async () => {
   for (const unitId of S.flipUnits) {
     const truth = ORACLE(H.units.get(unitId).text);
-    const r = await ok("POST", `/api/projects/${S.slug}/goldsets/${S.goldsetId}/adjudicate`, { unitId, label: truth });
+    const r = await ok("POST", `/api/projects/${S.slug}/goldsets/${S.goldsetId}/adjudicate`, {
+      unitId,
+      label: truth,
+    });
     assert.ok(["adjudicating", "complete"].includes(r.status));
   }
   const gs = await ok("GET", `/api/projects/${S.slug}/goldsets/${S.goldsetId}`);
@@ -1173,38 +1467,78 @@ test("goldsets: a gold set on corpus B samples ONLY corpus B's units, never corp
 
   // Corpus A (the FIRST corpus — corpora[0]) and corpus B carry DISTINCT
   // texts so a unit drawn from one can never be mistaken for the other.
-  const csvA = ["respondent_id,dept,response",
-    ...Array.from({ length: 40 }, (_, i) => `a${i},${i % 2 ? "sales" : "ops"},ALPHA answer number ${i} about onboarding paperwork and badge access`)].join("\n") + "\n";
-  const csvB = ["respondent_id,dept,response",
-    ...Array.from({ length: 40 }, (_, i) => `b${i},${i % 2 ? "sales" : "ops"},BRAVO answer number ${i} about parking shuttles and cafeteria hours`)].join("\n") + "\n";
+  const csvA =
+    [
+      "respondent_id,dept,response",
+      ...Array.from(
+        { length: 40 },
+        (_, i) =>
+          `a${i},${i % 2 ? "sales" : "ops"},ALPHA answer number ${i} about onboarding paperwork and badge access`,
+      ),
+    ].join("\n") + "\n";
+  const csvB =
+    [
+      "respondent_id,dept,response",
+      ...Array.from(
+        { length: 40 },
+        (_, i) =>
+          `b${i},${i % 2 ? "sales" : "ops"},BRAVO answer number ${i} about parking shuttles and cafeteria hours`,
+      ),
+    ].join("\n") + "\n";
 
   const upA = await upload(`/api/projects/${slug}/import`, "alpha.csv", csvA);
-  const corpusA = (await ok("POST", `/api/projects/${slug}/import/confirm`, {
-    importId: upA.importId, mapping: { textColumn: "response" }, unitization: { scheme: "response" },
-  })).corpusId;
+  const corpusA = (
+    await ok("POST", `/api/projects/${slug}/import/confirm`, {
+      importId: upA.importId,
+      mapping: { textColumn: "response" },
+      unitization: { scheme: "response" },
+    })
+  ).corpusId;
   const upB = await upload(`/api/projects/${slug}/import`, "bravo.csv", csvB);
-  const corpusB = (await ok("POST", `/api/projects/${slug}/import/confirm`, {
-    importId: upB.importId, mapping: { textColumn: "response" }, unitization: { scheme: "response" },
-  })).corpusId;
+  const corpusB = (
+    await ok("POST", `/api/projects/${slug}/import/confirm`, {
+      importId: upB.importId,
+      mapping: { textColumn: "response" },
+      unitization: { scheme: "response" },
+    })
+  ).corpusId;
 
   const pdirReg = projectDir(slug);
-  const idsIn = async (corpusId) => new Set(
-    (await readNdjson(path.join(pdirReg, "corpora", corpusId, "units.ndjson"))).map((u) => u.id));
+  const idsIn = async (corpusId) =>
+    new Set(
+      (await readNdjson(path.join(pdirReg, "corpora", corpusId, "units.ndjson"))).map((u) => u.id),
+    );
   const idsA = await idsIn(corpusA);
   const idsB = await idsIn(corpusB);
-  assert.equal([...idsA].filter((id) => idsB.has(id)).length, 0, "independent corpora share no unit ids");
+  assert.equal(
+    [...idsA].filter((id) => idsB.has(id)).length,
+    0,
+    "independent corpora share no unit ids",
+  );
 
   const construct = await ok("POST", `/api/projects/${slug}/constructs`, {
-    name: "Topic", type: "nominal",
-    definition: "What the response is about.", criteria: { include: ["on topic"], exclude: [] }, edgeCases: [],
-    categories: [{ value: "onboarding", label: "Onboarding" }, { value: "facilities", label: "Facilities" }],
+    name: "Topic",
+    type: "nominal",
+    definition: "What the response is about.",
+    criteria: { include: ["on topic"], exclude: [] },
+    edgeCases: [],
+    categories: [
+      { value: "onboarding", label: "Onboarding" },
+      { value: "facilities", label: "Facilities" },
+    ],
   });
 
   // The gold set names corpus B (the column under analysis), NOT corpora[0].
-  const gs = await ok("POST", `/api/projects/${slug}/goldsets`, { constructId: construct.id, corpusId: corpusB });
+  const gs = await ok("POST", `/api/projects/${slug}/goldsets`, {
+    constructId: construct.id,
+    corpusId: corpusB,
+  });
   assert.equal(gs.corpusId, corpusB, "create persists the body's corpusId");
 
-  const sampled = await ok("POST", `/api/projects/${slug}/goldsets/${gs.id}/sample`, { design: "srs", n: 12 });
+  const sampled = await ok("POST", `/api/projects/${slug}/goldsets/${gs.id}/sample`, {
+    design: "srs",
+    n: 12,
+  });
   assert.equal(sampled.n, 12);
 
   // THE CORE ASSERTION: every sampled unit id lives in corpus B and in NONE
@@ -1223,30 +1557,57 @@ test("goldsets: a gold set on corpus B samples ONLY corpus B's units, never corp
   // still return corpus B's text when scoped — never corpus A's "first
   // column" text. This is the exact "judging the first column" failure.
   const probe = sampled.sample[0].unitId;
-  const bUnit = (await readNdjson(path.join(pdirReg, "corpora", corpusB, "units.ndjson")))
-    .find((u) => u.id === probe);
+  const bUnit = (await readNdjson(path.join(pdirReg, "corpora", corpusB, "units.ndjson"))).find(
+    (u) => u.id === probe,
+  );
   assert.match(bUnit.text, /^BRAVO/, "corpus B unit carries BRAVO text");
   const aUnitsFile = path.join(pdirReg, "corpora", corpusA, "units.ndjson");
   const aRaw = await readNdjson(aUnitsFile);
-  aRaw.push({ id: probe, text: "ALPHA decoy text for a colliding id", meta: {}, pos: { row: 999 } });
+  aRaw.push({
+    id: probe,
+    text: "ALPHA decoy text for a colliding id",
+    meta: {},
+    pos: { row: 999 },
+  });
   await writeFile(aUnitsFile, aRaw.map((u) => JSON.stringify(u)).join("\n") + "\n");
 
   // scoped to corpus B → corpus B's text (the fix); unscoped order would have
   // returned corpus A (corpora[0]) first.
   const scoped = await ok("GET", `/api/projects/${slug}/evidence/${probe}?corpusId=${corpusB}`);
-  assert.match(scoped.unit.text, /^BRAVO/, "evidence?corpusId=B returns corpus B's text, not the first corpus's");
+  assert.match(
+    scoped.unit.text,
+    /^BRAVO/,
+    "evidence?corpusId=B returns corpus B's text, not the first corpus's",
+  );
 
   // A gold set whose corpus is GONE must refuse to sample (no silent
   // corpora[0] fallback that would invalidate calibration).
-  const orphan = await ok("POST", `/api/projects/${slug}/goldsets`, { constructId: construct.id, corpusId: corpusB });
-  await updateProject(slug, (p) => { p.corpora = p.corpora.filter((c) => c.id !== corpusB); });
-  const err = await fail("POST", `/api/projects/${slug}/goldsets/${orphan.id}/sample`, { design: "srs", n: 5 }, 400, "VALIDATION");
-  assert.match(err.message, new RegExp(corpusB), "the missing corpus is named, not silently swapped");
+  const orphan = await ok("POST", `/api/projects/${slug}/goldsets`, {
+    constructId: construct.id,
+    corpusId: corpusB,
+  });
+  await updateProject(slug, (p) => {
+    p.corpora = p.corpora.filter((c) => c.id !== corpusB);
+  });
+  const err = await fail(
+    "POST",
+    `/api/projects/${slug}/goldsets/${orphan.id}/sample`,
+    { design: "srs", n: 5 },
+    400,
+    "VALIDATION",
+  );
+  assert.match(
+    err.message,
+    new RegExp(corpusB),
+    "the missing corpus is named, not silently swapped",
+  );
 });
 
 test("instruments: freeze mints the certificate (human-first ordering in the ledger) and seals the instrument", async () => {
   armMock();
-  const cert = await ok("POST", `/api/projects/${S.slug}/instruments/${S.inst1}/freeze`, { goldsetId: S.goldsetId });
+  const cert = await ok("POST", `/api/projects/${S.slug}/instruments/${S.inst1}/freeze`, {
+    goldsetId: S.goldsetId,
+  });
   assert.equal(cert.goldsetId, S.goldsetId);
   assert.equal(cert.modelPinned, true);
   assert.equal(cert.agreement.n, 24);
@@ -1264,12 +1625,20 @@ test("instruments: freeze mints the certificate (human-first ordering in the led
   const all = await events();
   const iAgreement = all.findIndex((e) => e.type === "goldset.agreement");
   const iFrozen = all.findIndex((e) => e.type === "instrument.frozen");
-  assert.ok(iAgreement !== -1 && iFrozen !== -1 && iAgreement < iFrozen,
-    `humanAgreement-first ordering (agreement@${iAgreement}, frozen@${iFrozen})`);
+  assert.ok(
+    iAgreement !== -1 && iFrozen !== -1 && iAgreement < iFrozen,
+    `humanAgreement-first ordering (agreement@${iAgreement}, frozen@${iFrozen})`,
+  );
   assert.equal(all[iFrozen].actor, "human");
 
   // frozen → editing forks with lineage
-  await fail("POST", `/api/projects/${S.slug}/instruments/${S.inst1}/freeze`, { goldsetId: S.goldsetId }, 400, "VALIDATION");
+  await fail(
+    "POST",
+    `/api/projects/${S.slug}/instruments/${S.inst1}/freeze`,
+    { goldsetId: S.goldsetId },
+    400,
+    "VALIDATION",
+  );
   const fork = await ok("PUT", `/api/projects/${S.slug}/instruments/${S.inst1}`, {
     payload: judgePayload("Fork after freeze. {{definition}} {{criteria}} {{examples}} {{unit}}"),
   });
@@ -1342,7 +1711,11 @@ test("runs: start frozen-judge run → monitor SSE ticks then done; outputs exac
   const p = await getProject();
   const run = p.runs.find((r) => r.id === S.runId);
   assert.equal(run.status, "complete");
-  assert.equal(run.name, "Pay judge · exit-survey-full.csv", "POST /runs auto-names from the instrument + corpus graph");
+  assert.equal(
+    run.name,
+    "Pay judge · exit-survey-full.csv",
+    "POST /runs auto-names from the instrument + corpus graph",
+  );
   assert.equal(run.escalation.count, 1);
   assert.equal(p.budget.spentUSD, 0, "mock run rolls up $0");
   const runEvents = (await events({ ref: S.runId })).map((e) => `${e.type}:${e.actor}`);
@@ -1363,7 +1736,10 @@ test("runs: pause mid-run then resume to completion (exactly-once outputs)", asy
     payload: judgePayload("Pause-run template. {{definition}} {{criteria}} {{examples}} {{unit}}"),
   });
   S.inst2 = inst2.id;
-  const { runId } = await ok("POST", `/api/projects/${S.slug}/runs`, { instrumentId: S.inst2, corpusId: S.corpusB });
+  const { runId } = await ok("POST", `/api/projects/${S.slug}/runs`, {
+    instrumentId: S.inst2,
+    corpusId: S.corpusB,
+  });
   const paused = await ok("POST", `/api/projects/${S.slug}/runs/${runId}/pause`);
   assert.equal(paused.status, "paused");
   let p = await getProject();
@@ -1392,7 +1768,10 @@ test("runs: abort is ledgered (actor human) and resumable", async () => {
     payload: judgePayload("Abort-run template. {{definition}} {{criteria}} {{examples}} {{unit}}"),
   });
   S.inst3 = inst3.id;
-  const { runId } = await ok("POST", `/api/projects/${S.slug}/runs`, { instrumentId: S.inst3, corpusId: S.corpusB });
+  const { runId } = await ok("POST", `/api/projects/${S.slug}/runs`, {
+    instrumentId: S.inst3,
+    corpusId: S.corpusB,
+  });
   const aborted = await ok("POST", `/api/projects/${S.slug}/runs/${runId}/abort`);
   assert.equal(aborted.status, "aborted");
   const ev = await events({ type: "run.aborted", ref: runId });
@@ -1408,45 +1787,97 @@ test("runs: abort is ledgered (actor human) and resumable", async () => {
 test("runs: budget gate blocks start with 400 BUDGET_EXCEEDED", async (t) => {
   const m = armMock();
   const origCatalog = m.catalog;
-  m.catalog = async () => [{
-    id: "mock-1", name: "Mock", family: "mock", ctx: 128000,
-    pricing: { inUSDper1M: 1000, outUSDper1M: 1000 }, snapshot: "mock-1",
-  }];
-  t.after(() => { m.catalog = origCatalog; });
+  m.catalog = async () => [
+    {
+      id: "mock-1",
+      name: "Mock",
+      family: "mock",
+      ctx: 128000,
+      pricing: { inUSDper1M: 1000, outUSDper1M: 1000 },
+      snapshot: "mock-1",
+    },
+  ];
+  t.after(() => {
+    m.catalog = origCatalog;
+  });
   await ok("PUT", "/api/settings", { project: { slug: S.slug, budget: { capUSD: 0.000001 } } });
-  t.after(async () => { await ok("PUT", "/api/settings", { project: { slug: S.slug, budget: { capUSD: null } } }); });
+  t.after(async () => {
+    await ok("PUT", "/api/settings", { project: { slug: S.slug, budget: { capUSD: null } } });
+  });
 
-  const pf = await ok("POST", `/api/projects/${S.slug}/runs/preflight`, { instrumentId: S.inst1, corpusId: S.corpusB });
+  const pf = await ok("POST", `/api/projects/${S.slug}/runs/preflight`, {
+    instrumentId: S.inst1,
+    corpusId: S.corpusB,
+  });
   assert.ok(pf.estUSD > 0, "nonzero pricing yields a nonzero estimate");
   assert.equal(pf.budget.wouldExceed, true);
 
-  await fail("POST", `/api/projects/${S.slug}/runs`, { instrumentId: S.inst1, corpusId: S.corpusB }, 400, "BUDGET_EXCEEDED");
+  await fail(
+    "POST",
+    `/api/projects/${S.slug}/runs`,
+    { instrumentId: S.inst1, corpusId: S.corpusB },
+    400,
+    "BUDGET_EXCEEDED",
+  );
 });
 
 test("runs: strict project + anthropic instrument → preflight privacyOk false, start 403 PRIVACY_BLOCKED", async () => {
   await ok("POST", "/api/projects", { name: "Locked Project", privacyMode: "strict" });
-  const up = await upload("/api/projects/locked-project/import", "mini.csv",
-    "id,response\n" + Array.from({ length: 6 }, (_, i) => `${i},this is a sufficiently long response text about salary number ${i} for parsing`).join("\n") + "\n");
+  const up = await upload(
+    "/api/projects/locked-project/import",
+    "mini.csv",
+    "id,response\n" +
+      Array.from(
+        { length: 6 },
+        (_, i) =>
+          `${i},this is a sufficiently long response text about salary number ${i} for parsing`,
+      ).join("\n") +
+      "\n",
+  );
   const confirmed = await ok("POST", "/api/projects/locked-project/import/confirm", {
-    importId: up.importId, mapping: { textColumn: "response" }, unitization: { scheme: "response" },
+    importId: up.importId,
+    mapping: { textColumn: "response" },
+    unitization: { scheme: "response" },
   });
   const c = await ok("POST", "/api/projects/locked-project/constructs", {
-    name: "Pay", type: "binary", categories: [{ value: "yes", label: "Y" }, { value: "no", label: "N" }],
+    name: "Pay",
+    type: "binary",
+    categories: [
+      { value: "yes", label: "Y" },
+      { value: "no", label: "N" },
+    ],
   });
   const inst = await ok("POST", "/api/projects/locked-project/instruments", {
     constructId: c.id,
     kind: "judge",
     name: "Cloud judge",
-    payload: { ...judgePayload("T {{definition}} {{criteria}} {{examples}} {{unit}}"), provider: "anthropic", model: "claude-sonnet-4-5", snapshot: null },
+    payload: {
+      ...judgePayload("T {{definition}} {{criteria}} {{examples}} {{unit}}"),
+      provider: "anthropic",
+      model: "claude-sonnet-4-5",
+      snapshot: null,
+    },
   });
-  const pf = await ok("POST", "/api/projects/locked-project/runs/preflight", { instrumentId: inst.id, corpusId: confirmed.corpusId });
+  const pf = await ok("POST", "/api/projects/locked-project/runs/preflight", {
+    instrumentId: inst.id,
+    corpusId: confirmed.corpusId,
+  });
   assert.equal(pf.privacyOk, false);
   assert.match(pf.privacyError, /strict/);
-  await fail("POST", "/api/projects/locked-project/runs", { instrumentId: inst.id, corpusId: confirmed.corpusId }, 403, "PRIVACY_BLOCKED");
+  await fail(
+    "POST",
+    "/api/projects/locked-project/runs",
+    { instrumentId: inst.id, corpusId: confirmed.corpusId },
+    403,
+    "PRIVACY_BLOCKED",
+  );
 
   // no Director slot on this project → the instant read has no honest brief
   // price to quote: briefEstimate is null, never a fabricated $0
-  const ir = await ok("GET", `/api/projects/locked-project/corpora/${confirmed.corpusId}/instantread`);
+  const ir = await ok(
+    "GET",
+    `/api/projects/locked-project/corpora/${confirmed.corpusId}/instantread`,
+  );
   assert.equal(ir.briefEstimate, null, "no Director configured → briefEstimate null");
 });
 
@@ -1468,7 +1899,10 @@ test("runs: panel run → disagreement view ranks by entropy with a juror×juror
     },
   });
   S.panelInst = panel.id;
-  const { runId } = await ok("POST", `/api/projects/${S.slug}/runs`, { instrumentId: panel.id, corpusId: S.corpusB });
+  const { runId } = await ok("POST", `/api/projects/${S.slug}/runs`, {
+    instrumentId: panel.id,
+    corpusId: S.corpusB,
+  });
   S.panelRunId = runId;
   const { events: evs } = await readSse(`/api/projects/${S.slug}/runs/${runId}/monitor`);
   assert.equal(evs.find((e) => e.event === "done")?.data.status, "complete");
@@ -1487,10 +1921,13 @@ test("runs: panel run → disagreement view ranks by entropy with a juror×juror
 
 test("goldsets: uncertainty sampling ranks by cached run outputs", async () => {
   const gs3 = await ok("POST", `/api/projects/${S.slug}/goldsets`, {
-    constructId: S.constructId, tier: "gold", corpusId: S.corpusB,
+    constructId: S.constructId,
+    tier: "gold",
+    corpusId: S.corpusB,
   });
   const sampled = await ok("POST", `/api/projects/${S.slug}/goldsets/${gs3.id}/sample`, {
-    design: "uncertainty", n: 10,
+    design: "uncertainty",
+    n: 10,
   });
   assert.equal(sampled.n, 10);
   assert.ok(sampled.sample.every((s) => s.pi === 10 / 240));
@@ -1515,7 +1952,10 @@ test("reliability: pairwise matrix across instruments, gold and coders — κ/α
     name: "Contrarian judge",
     payload: judgePayload("Contrarian reading. {{definition}} {{criteria}} {{examples}} {{unit}}"),
   });
-  const { runId: runB } = await ok("POST", `/api/projects/${S.slug}/runs`, { instrumentId: r2.id, corpusId: S.corpusB });
+  const { runId: runB } = await ok("POST", `/api/projects/${S.slug}/runs`, {
+    instrumentId: r2.id,
+    corpusId: S.corpusB,
+  });
   const { events: evs } = await readSse(`/api/projects/${S.slug}/runs/${runB}/monitor`);
   assert.equal(evs.find((e) => e.event === "done")?.data.status, "complete");
   armMock(); // restore the shared ORACLE for everything downstream
@@ -1525,7 +1965,9 @@ test("reliability: pairwise matrix across instruments, gold and coders — κ/α
   // coder seconds every label — the consensus rule requires ≥2 unanimous
   // votes before a unit is gold, so the slice still lands in the gold source.
   const gsC = await ok("POST", `/api/projects/${S.slug}/goldsets`, {
-    constructId: S.constructId, tier: "gold", corpusId: S.corpusB,
+    constructId: S.constructId,
+    tier: "gold",
+    corpusId: S.corpusB,
   });
   const gs1 = await ok("GET", `/api/projects/${S.slug}/goldsets/${S.goldsetId}`);
   const inGs1 = new Set(gs1.sample.map((s) => s.unitId));
@@ -1534,21 +1976,37 @@ test("reliability: pairwise matrix across instruments, gold and coders — κ/α
     await ok("POST", `/api/projects/${S.slug}/goldsets/${gsC.id}/queue`, { unitId: u.id });
     for (const coder of ["coder-C", "coder-C2"]) {
       await ok("POST", `/api/projects/${S.slug}/goldsets/${gsC.id}/label`, {
-        coder, unitId: u.id, label: ORACLE(u.text),
+        coder,
+        unitId: u.id,
+        label: ORACLE(u.text),
       });
     }
   }
 
   const ledgerBefore = (await events()).length;
-  const rel = await ok("GET", `/api/projects/${S.slug}/reliability/${S.constructId}?corpusId=${S.corpusB}`);
-  assert.equal((await events()).length, ledgerBefore, "reliability is a PURE read — no ledger writes");
+  const rel = await ok(
+    "GET",
+    `/api/projects/${S.slug}/reliability/${S.constructId}?corpusId=${S.corpusB}`,
+  );
+  assert.equal(
+    (await events()).length,
+    ledgerBefore,
+    "reliability is a PURE read — no ledger writes",
+  );
 
   assert.equal(rel.constructId, S.constructId);
   assert.equal(rel.corpusId, S.corpusB);
 
   // every comparable source is present
   const keys = rel.sources.map((s) => s.key);
-  for (const want of [`inst:${S.inst1}`, `inst:${r2.id}`, "gold", "coder:coder-A", "coder:coder-B", "coder:coder-C"]) {
+  for (const want of [
+    `inst:${S.inst1}`,
+    `inst:${r2.id}`,
+    "gold",
+    "coder:coder-A",
+    "coder:coder-B",
+    "coder:coder-C",
+  ]) {
     assert.ok(keys.includes(want), `source ${want} present (got ${keys.join(", ")})`);
   }
   const sInst1 = rel.sources.find((s) => s.key === `inst:${S.inst1}`);
@@ -1581,39 +2039,63 @@ test("reliability: pairwise matrix across instruments, gold and coders — κ/α
   for (const o of outA) {
     const vb = mapB.get(o.unitId);
     if (vb === undefined) continue;
-    joined.push({ unitId: o.unitId, coder: "a", value: o.label }, { unitId: o.unitId, coder: "b", value: vb });
+    joined.push(
+      { unitId: o.unitId, coder: "a", value: o.label },
+      { unitId: o.unitId, coder: "b", value: vb },
+    );
   }
-  const instPair = rel.pairs.find((x) =>
-    [x.a, x.b].includes(`inst:${S.inst1}`) && [x.a, x.b].includes(`inst:${r2.id}`));
+  const instPair = rel.pairs.find(
+    (x) => [x.a, x.b].includes(`inst:${S.inst1}`) && [x.a, x.b].includes(`inst:${r2.id}`),
+  );
   assert.ok(instPair, "inst1 × contrarian pair present");
   assert.equal(instPair.n, joined.length / 2);
-  assert.equal(instPair.percent, percentAgreement(joined), "percent matches the direct computation");
+  assert.equal(
+    instPair.percent,
+    percentAgreement(joined),
+    "percent matches the direct computation",
+  );
   assert.equal(instPair.kappa, cohenKappa(joined), "κ matches the direct computation exactly");
-  assert.equal(instPair.alpha, krippendorffAlpha(joined, { level: "nominal" }), "α matches the direct computation exactly");
+  assert.equal(
+    instPair.alpha,
+    krippendorffAlpha(joined, { level: "nominal" }),
+    "α matches the direct computation exactly",
+  );
   assert.ok(instPair.percent < 1 && instPair.kappa < 1, "the two instruments disagree measurably");
 
   // coder vs gold
-  const coderGold = rel.pairs.find((x) => [x.a, x.b].includes("coder:coder-A") && [x.a, x.b].includes("gold"));
+  const coderGold = rel.pairs.find(
+    (x) => [x.a, x.b].includes("coder:coder-A") && [x.a, x.b].includes("gold"),
+  );
   assert.ok(coderGold, "coder-vs-gold pair present");
   assert.equal(coderGold.n, 24);
   assert.equal(coderGold.percent, 1, "coder-A matches the gold it produced");
   // κ accumulates 24 × (1/24) → po lands within one ulp of 1, not exactly on it
-  assert.ok(Math.abs(coderGold.kappa - 1) < 1e-9, `κ ≈ 1 for a perfectly agreeing coder (got ${coderGold.kappa})`);
+  assert.ok(
+    Math.abs(coderGold.kappa - 1) < 1e-9,
+    `κ ≈ 1 for a perfectly agreeing coder (got ${coderGold.kappa})`,
+  );
 
   // below the overlap floor: stats are withheld as null, with a note
-  const low = rel.pairs.find((x) => [x.a, x.b].includes("coder:coder-A") && [x.a, x.b].includes("coder:coder-C"));
+  const low = rel.pairs.find(
+    (x) => [x.a, x.b].includes("coder:coder-A") && [x.a, x.b].includes("coder:coder-C"),
+  );
   assert.ok(low, "the under-overlap pair is still listed");
   assert.equal(low.n, 0);
   assert.equal(low.percent, null);
   assert.equal(low.kappa, null);
   assert.equal(low.alpha, null);
-  assert.ok(rel.notes.some((note) => note.includes("coder:coder-A") && note.includes("coder:coder-C")),
-    `a note names the under-overlap pair (got ${JSON.stringify(rel.notes)})`);
+  assert.ok(
+    rel.notes.some((note) => note.includes("coder:coder-A") && note.includes("coder:coder-C")),
+    `a note names the under-overlap pair (got ${JSON.stringify(rel.notes)})`,
+  );
 
   // test–retest: stability reruns are not persisted, and the response says so
   assert.equal(rel.retestAvailable, false);
   assert.ok(!keys.some((key) => key.startsWith("retest:")), "no fabricated retest sources");
-  assert.ok(rel.notes.some((note) => /stability|retest/i.test(note)), "a note explains why retest is unavailable");
+  assert.ok(
+    rel.notes.some((note) => /stability|retest/i.test(note)),
+    "a note explains why retest is unavailable",
+  );
 });
 
 test("reliability: ordinal constructs pass the declared category order into κ/α", async () => {
@@ -1625,7 +2107,9 @@ test("reliability: ordinal constructs pass the declared category order into κ/�
     categories: SCALE.map((v) => ({ value: v, label: v[0].toUpperCase() + v.slice(1) })),
   });
   const gs = await ok("POST", `/api/projects/${S.slug}/goldsets`, {
-    constructId: c.id, tier: "gold", corpusId: S.corpusB,
+    constructId: c.id,
+    tier: "gold",
+    corpusId: S.corpusB,
   });
   const units = S.unitsB.slice(0, 12);
   const rows = [];
@@ -1634,23 +2118,42 @@ test("reliability: ordinal constructs pass the declared category order into κ/�
     await ok("POST", `/api/projects/${S.slug}/goldsets/${gs.id}/queue`, { unitId: u.id });
     const d = SCALE[i % 3];
     const e = i < 2 ? SCALE[(i + 1) % 3] : d; // two planted disagreements
-    await ok("POST", `/api/projects/${S.slug}/goldsets/${gs.id}/label`, { coder: "coder-D", unitId: u.id, label: d });
-    await ok("POST", `/api/projects/${S.slug}/goldsets/${gs.id}/label`, { coder: "coder-E", unitId: u.id, label: e });
-    rows.push({ unitId: u.id, coder: "coder-D", value: d }, { unitId: u.id, coder: "coder-E", value: e });
+    await ok("POST", `/api/projects/${S.slug}/goldsets/${gs.id}/label`, {
+      coder: "coder-D",
+      unitId: u.id,
+      label: d,
+    });
+    await ok("POST", `/api/projects/${S.slug}/goldsets/${gs.id}/label`, {
+      coder: "coder-E",
+      unitId: u.id,
+      label: e,
+    });
+    rows.push(
+      { unitId: u.id, coder: "coder-D", value: d },
+      { unitId: u.id, coder: "coder-E", value: e },
+    );
   }
 
   const rel = await ok("GET", `/api/projects/${S.slug}/reliability/${c.id}?corpusId=${S.corpusB}`);
   assert.equal(rel.constructId, c.id);
-  const pair = rel.pairs.find((x) => [x.a, x.b].includes("coder:coder-D") && [x.a, x.b].includes("coder:coder-E"));
+  const pair = rel.pairs.find(
+    (x) => [x.a, x.b].includes("coder:coder-D") && [x.a, x.b].includes("coder:coder-E"),
+  );
   assert.ok(pair, "coder-D × coder-E pair present");
   assert.equal(pair.n, 12);
   // string ordinal categories make order-sensitive statistics IMPOSSIBLE
   // without the declared order — a number here proves the order was passed,
   // and equality proves it was THE declared order, not alphabetical
-  assert.equal(pair.kappa, cohenKappa(rows, { weighted: "linear", order: SCALE }),
-    "weighted κ over the DECLARED scale order");
-  assert.equal(pair.alpha, krippendorffAlpha(rows, { level: "ordinal", order: SCALE }),
-    "ordinal α over the DECLARED scale order");
+  assert.equal(
+    pair.kappa,
+    cohenKappa(rows, { weighted: "linear", order: SCALE }),
+    "weighted κ over the DECLARED scale order",
+  );
+  assert.equal(
+    pair.alpha,
+    krippendorffAlpha(rows, { level: "ordinal", order: SCALE }),
+    "ordinal α over the DECLARED scale order",
+  );
   assert.equal(pair.percent, percentAgreement(rows));
 });
 
@@ -1663,13 +2166,20 @@ test("analyses: no gold for the construct → level = instrument level, no corre
     kind: "descriptive",
     spec: { of: "label", runId: S.panelRunId },
   });
-  assert.equal(a.level, "exploratory", "panel instrument is exploratory and Team praise has no gold set");
+  assert.equal(
+    a.level,
+    "exploratory",
+    "panel instrument is exploratory and Team praise has no gold set",
+  );
   assert.equal(a.results.estimator, undefined, "no correction estimator without gold");
   assert.equal(a.results.cells, undefined);
   assert.ok(a.results.distribution);
   assert.equal((await events({ type: "analysis.created", ref: a.id })).length, 1);
   const list = await ok("GET", `/api/projects/${S.slug}/analyses`);
-  assert.ok(list.some((x) => x.id === a.id && x.level === "exploratory"), "GET list carries analysis metas");
+  assert.ok(
+    list.some((x) => x.id === a.id && x.level === "exploratory"),
+    "GET list carries analysis metas",
+  );
 });
 
 test("analyses: complete gold set with pi → crosstab auto-corrects (DSL) with naive companion + minExpected honesty", async () => {
@@ -1690,10 +2200,17 @@ test("analyses: complete gold set with pi → crosstab auto-corrects (DSL) with 
   assert.equal(a.results.groupBy, "dept");
   for (const cell of cells) {
     assert.equal(typeof cell.est, "number");
-    assert.equal(typeof cell.naive.est, "number", "naive companion included beside the corrected value");
+    assert.equal(
+      typeof cell.naive.est,
+      "number",
+      "naive companion included beside the corrected value",
+    );
     assert.ok(cell.ciLo <= cell.est && cell.est <= cell.ciHi);
     // planted base rate is 1/3 per dept (with the escalated unit flipping one)
-    assert.ok(Math.abs(cell.est - 1 / 3) < 0.15, `corrected est near planted rate (got ${cell.est})`);
+    assert.ok(
+      Math.abs(cell.est - 1 / 3) < 0.15,
+      `corrected est near planted rate (got ${cell.est})`,
+    );
   }
   if (cells.length === 2 && a.results.diff) {
     assert.equal(typeof a.results.diff.est, "number");
@@ -1707,8 +2224,20 @@ test("analyses: complete gold set with pi → crosstab auto-corrects (DSL) with 
 test("analyses: GET analyses/:id serves the persisted artifact; absent → 404; unknown project → 404", async () => {
   const got = await ok("GET", `/api/projects/${S.slug}/analyses/${S.crosstabAnalysisId}`);
   assert.deepEqual(got, S.crosstabAnalysis, "the artifact on disk deep-equals what POST returned");
-  await fail("GET", `/api/projects/${S.slug}/analyses/an_never_created`, undefined, 404, "NOT_FOUND");
-  await fail("GET", `/api/projects/no-such-project/analyses/${S.crosstabAnalysisId}`, undefined, 404, "NOT_FOUND");
+  await fail(
+    "GET",
+    `/api/projects/${S.slug}/analyses/an_never_created`,
+    undefined,
+    404,
+    "NOT_FOUND",
+  );
+  await fail(
+    "GET",
+    `/api/projects/no-such-project/analyses/${S.crosstabAnalysisId}`,
+    undefined,
+    404,
+    "NOT_FOUND",
+  );
 });
 
 test("analyses: model (logit) corrects coefficients with the naive fit beside", async () => {
@@ -1736,7 +2265,10 @@ test("analyses: triangulation between the frozen judge and a dictionary instrume
     },
   });
   S.dictInst = dict.id;
-  const { runId } = await ok("POST", `/api/projects/${S.slug}/runs`, { instrumentId: dict.id, corpusId: S.corpusB });
+  const { runId } = await ok("POST", `/api/projects/${S.slug}/runs`, {
+    instrumentId: dict.id,
+    corpusId: S.corpusB,
+  });
   S.dictRunId = runId;
   const { events: evs } = await readSse(`/api/projects/${S.slug}/runs/${runId}/monitor`);
   assert.equal(evs.find((e) => e.event === "done")?.data.status, "complete");
@@ -1746,10 +2278,15 @@ test("analyses: triangulation between the frozen judge and a dictionary instrume
     spec: { instrumentIds: [S.inst1, S.dictInst], corpusId: S.corpusB },
   });
   assert.equal(a.results.n, 240);
-  assert.ok(a.results.percentAgreement >= 0.99, `judge and dictionary agree on the planted theme (got ${a.results.percentAgreement})`);
+  assert.ok(
+    a.results.percentAgreement >= 0.99,
+    `judge and dictionary agree on the planted theme (got ${a.results.percentAgreement})`,
+  );
   const longUnit = S.unitsB.find((u) => u.meta.respondent_id === `r${LONG_ROW}`);
-  assert.ok(a.results.divergent.some((d) => d.unitId === longUnit.id),
-    "the Director-escalated unit diverges (judge no vs dictionary yes)");
+  assert.ok(
+    a.results.divergent.some((d) => d.unitId === longUnit.id),
+    "the Director-escalated unit diverges (judge no vs dictionary yes)",
+  );
 });
 
 test("analyses: subgroup reliability audit — machine-vs-gold agreement + κ + error rate by group, flagged >0.1 below overall; corrected cells still ride", async () => {
@@ -1764,7 +2301,10 @@ test("analyses: subgroup reliability audit — machine-vs-gold agreement + κ + 
   // Director-escalated long unit can disagree, so agreement ≥ 23/24
   assert.equal(typeof r.overall?.goldN, "number");
   assert.equal(r.overall.goldN, 24, "every π-bearing gold unit is read");
-  assert.ok(r.overall.percentAgreement >= 23 / 24 - 1e-6, `near-perfect overall agreement (got ${r.overall.percentAgreement})`);
+  assert.ok(
+    r.overall.percentAgreement >= 23 / 24 - 1e-6,
+    `near-perfect overall agreement (got ${r.overall.percentAgreement})`,
+  );
   assert.ok(Math.abs(r.overall.errorRate - (1 - r.overall.percentAgreement)) < 2e-6);
 
   assert.equal(r.groups.length, 2);
@@ -1772,7 +2312,10 @@ test("analyses: subgroup reliability audit — machine-vs-gold agreement + κ + 
     assert.ok(g.n > 0 && g.dist, "n + label distribution stay on every group");
     assert.equal(typeof g.goldN, "number");
     assert.ok(g.goldN > 0, `SRS gold reaches both depts (${g.group}: ${g.goldN})`);
-    assert.ok(g.percentAgreement >= 0.8, `dialed-in worker agrees within ${g.group} (got ${g.percentAgreement})`);
+    assert.ok(
+      g.percentAgreement >= 0.8,
+      `dialed-in worker agrees within ${g.group} (got ${g.percentAgreement})`,
+    );
     assert.ok(Math.abs(g.errorRate - (1 - g.percentAgreement)) < 2e-6, "errorRate = 1 − agreement");
     assert.ok(typeof g.kappa === "number" || g.kappa === null, "κ number|null");
     if (g.kappa === null) assert.equal(typeof g.note, "string", "a null κ explains itself");
@@ -1784,16 +2327,33 @@ test("analyses: subgroup reliability audit — machine-vs-gold agreement + κ + 
       assert.equal(typeof g.corrected.naive.est, "number");
     }
   }
-  assert.equal(r.groups.reduce((n, g) => n + g.goldN, 0), r.overall.goldN, "gold partitions over the groups");
-  assert.ok(r.groups.some((g) => g.corrected), "at least one group carries a corrected estimate");
-  assert.equal(r.estimator, "dslProportion", "the canonical corrected block survives for reporting/replication");
+  assert.equal(
+    r.groups.reduce((n, g) => n + g.goldN, 0),
+    r.overall.goldN,
+    "gold partitions over the groups",
+  );
+  assert.ok(
+    r.groups.some((g) => g.corrected),
+    "at least one group carries a corrected estimate",
+  );
+  assert.equal(
+    r.estimator,
+    "dslProportion",
+    "the canonical corrected block survives for reporting/replication",
+  );
 });
 
 test("analyses: subgroup audit without a complete gold set → 400 with the calibrate-first message", async () => {
-  const err = await fail("POST", `/api/projects/${S.slug}/analyses`, {
-    kind: "subgroup",
-    spec: { by: "dept", runId: S.panelRunId },
-  }, 400, "VALIDATION");
+  const err = await fail(
+    "POST",
+    `/api/projects/${S.slug}/analyses`,
+    {
+      kind: "subgroup",
+      spec: { by: "dept", runId: S.panelRunId },
+    },
+    400,
+    "VALIDATION",
+  );
   assert.match(err.message, /calibrate first/i, "researcher-facing message names the fix");
   assert.match(err.message, /gold/i);
 });
@@ -1818,21 +2378,38 @@ test("analyses: descriptive with spec.runId carries the Explorer contract — pr
   ]);
 
   // crosstabs: top 2 categorical-ish metadata keys, ranked by χ², each {by, table}
-  assert.ok(Array.isArray(r.crosstabs) && r.crosstabs.length === 2,
-    `two metadata crosstabs (got ${JSON.stringify(r.crosstabs?.map((x) => x.by))})`);
-  assert.deepEqual(r.crosstabs.map((x) => x.by).sort(), ["dept", "tenure"], "id-like meta (respondent_id) never crosstabs");
+  assert.ok(
+    Array.isArray(r.crosstabs) && r.crosstabs.length === 2,
+    `two metadata crosstabs (got ${JSON.stringify(r.crosstabs?.map((x) => x.by))})`,
+  );
+  assert.deepEqual(
+    r.crosstabs.map((x) => x.by).sort(),
+    ["dept", "tenure"],
+    "id-like meta (respondent_id) never crosstabs",
+  );
   for (const xt of r.crosstabs) {
-    assert.ok(Array.isArray(xt.table.rows) && Array.isArray(xt.table.cols) && Array.isArray(xt.table.matrix));
+    assert.ok(
+      Array.isArray(xt.table.rows) &&
+        Array.isArray(xt.table.cols) &&
+        Array.isArray(xt.table.matrix),
+    );
     assert.equal(typeof xt.table.chi2, "number");
     assert.equal(typeof xt.table.minExpected, "number");
   }
-  assert.ok((r.crosstabs[0].table.chi2 ?? -1) >= (r.crosstabs[1].table.chi2 ?? -1), "ranked by χ² descending");
+  assert.ok(
+    (r.crosstabs[0].table.chi2 ?? -1) >= (r.crosstabs[1].table.chi2 ?? -1),
+    "ranked by χ² descending",
+  );
 
   // a binary judge run has no co-occurrence surface
   assert.equal(r.cooccurrence, undefined);
 
   // the calibration nudge: first non-calibrated instrument's construct, fixed price
-  assert.deepEqual(r.calibrationNudge, { constructName: "Pay complaint (plan)", estUnits: 150, estMinutes: 35 });
+  assert.deepEqual(r.calibrationNudge, {
+    constructName: "Pay complaint (plan)",
+    estUnits: 150,
+    estMinutes: 35,
+  });
 });
 
 test("analyses: multilabel dictionary run → co-occurrence {labels, matrix} in the Explorer contract", async () => {
@@ -1840,7 +2417,10 @@ test("analyses: multilabel dictionary run → co-occurrence {labels, matrix} in 
     name: "Topics",
     type: "multilabel",
     definition: "Which planted topics the unit touches.",
-    categories: [{ value: "pay", label: "Pay" }, { value: "team", label: "Team" }],
+    categories: [
+      { value: "pay", label: "Pay" },
+      { value: "team", label: "Team" },
+    ],
   });
   const inst = await ok("POST", `/api/projects/${S.slug}/instruments`, {
     constructId: c.id,
@@ -1855,19 +2435,32 @@ test("analyses: multilabel dictionary run → co-occurrence {labels, matrix} in 
       scoring: "count",
     },
   });
-  const { runId } = await ok("POST", `/api/projects/${S.slug}/runs`, { instrumentId: inst.id, corpusId: S.corpusB });
+  const { runId } = await ok("POST", `/api/projects/${S.slug}/runs`, {
+    instrumentId: inst.id,
+    corpusId: S.corpusB,
+  });
   const { events: evs } = await readSse(`/api/projects/${S.slug}/runs/${runId}/monitor`);
   assert.equal(evs.find((e) => e.event === "done")?.data.status, "complete");
 
-  const a = await ok("POST", `/api/projects/${S.slug}/analyses`, { kind: "descriptive", spec: { runId } });
+  const a = await ok("POST", `/api/projects/${S.slug}/analyses`, {
+    kind: "descriptive",
+    spec: { runId },
+  });
   const co = a.results.cooccurrence;
   assert.ok(co, "multilabel labels → co-occurrence present");
   assert.deepEqual(co.labels, ["pay", "team"]);
   // 81 salary units (80 planted + the long row — dictionaries skip escalation),
   // 159 team units, never both in one unit
-  assert.deepEqual(co.matrix, [[81, 0], [0, 159]]);
+  assert.deepEqual(co.matrix, [
+    [81, 0],
+    [0, 159],
+  ]);
   const pay = a.results.prevalence.find((p) => p.label === "pay");
-  assert.deepEqual(pay, { label: "pay", count: 81, share: 0.3375 }, "multilabel prevalence counts each label");
+  assert.deepEqual(
+    pay,
+    { label: "pay", count: 81, share: 0.3375 },
+    "multilabel prevalence counts each label",
+  );
 });
 
 // =========================================================================
@@ -1876,17 +2469,29 @@ test("analyses: multilabel dictionary run → co-occurrence {labels, matrix} in 
 
 test("instruments: dictionary preview returns per-unit hit spans for highlighting; judge previews carry none", async () => {
   const unit = S.unitsB.find((u) => u.text.startsWith("the salary is too low"));
-  const preview = await ok("POST", `/api/projects/${S.slug}/instruments/${S.dictInst}/preview`, { unitIds: [unit.id] });
+  const preview = await ok("POST", `/api/projects/${S.slug}/instruments/${S.dictInst}/preview`, {
+    unitIds: [unit.id],
+  });
   const out = preview.outputs.find((o) => o.unitId === unit.id && o.label !== undefined);
-  assert.ok(Array.isArray(out.hits), `dictionary preview outputs carry hits (got ${JSON.stringify(out)})`);
+  assert.ok(
+    Array.isArray(out.hits),
+    `dictionary preview outputs carry hits (got ${JSON.stringify(out)})`,
+  );
   const salary = out.hits.find((h) => h.term === "salary");
   assert.ok(salary, "the salary term hit is reported");
   assert.equal(salary.category, "pay");
-  assert.equal(unit.text.slice(salary.start, salary.end), "salary", "the span indexes the unit text exactly");
+  assert.equal(
+    unit.text.slice(salary.start, salary.end),
+    "salary",
+    "the span indexes the unit text exactly",
+  );
 
   armMock();
-  const jp = await ok("POST", `/api/projects/${S.slug}/instruments/${S.inst1}/preview`, { unitIds: [unit.id] });
-  for (const o of jp.outputs) assert.equal(o.hits, undefined, "judge previews have no dictionary spans");
+  const jp = await ok("POST", `/api/projects/${S.slug}/instruments/${S.inst1}/preview`, {
+    unitIds: [unit.id],
+  });
+  for (const o of jp.outputs)
+    assert.equal(o.hits, undefined, "judge previews have no dictionary spans");
 });
 
 // =========================================================================
@@ -1910,7 +2515,9 @@ test("evidence: the dossier behind a unit — text, dictionary hits, outputs wit
   const judgeRun = d.outputs.find((o) => o.runId === S.runId);
   assert.ok(judgeRun, "outputs grouped by run include the frozen-judge run");
   assert.equal(judgeRun.outputs[0].label, ORACLE(d.unit.text));
-  assert.ok(typeof judgeRun.outputs[0].rationale === "string" && judgeRun.outputs[0].rationale.length > 0);
+  assert.ok(
+    typeof judgeRun.outputs[0].rationale === "string" && judgeRun.outputs[0].rationale.length > 0,
+  );
   const goldEntry = d.goldLabels.find((g) => g.goldsetId === S.goldsetId);
   assert.ok(goldEntry, "gold labels included");
   assert.equal(goldEntry.coders["coder-A"], ORACLE(d.unit.text));
@@ -1928,7 +2535,10 @@ test("evidence: the dossier behind a unit — text, dictionary hits, outputs wit
 // =========================================================================
 
 test("exports: methods markdown cites the ledger; export.methods is the module's event", async () => {
-  const r = await ok("GET", `/api/projects/${S.slug}/exports/methods?analysisId=${S.crosstabAnalysisId}`);
+  const r = await ok(
+    "GET",
+    `/api/projects/${S.slug}/exports/methods?analysisId=${S.crosstabAnalysisId}`,
+  );
   assert.equal(r.analysisId, S.crosstabAnalysisId);
   assert.match(r.markdown, /^# Methods/);
   assert.match(r.markdown, /design-based supervised learning/);
@@ -1939,7 +2549,9 @@ test("exports: methods markdown cites the ledger; export.methods is the module's
 });
 
 test("exports: replication zip unzips with a verified MANIFEST", async () => {
-  const res = await fetch(`${base}/api/projects/${S.slug}/exports/replication?analyses=${S.crosstabAnalysisId}`);
+  const res = await fetch(
+    `${base}/api/projects/${S.slug}/exports/replication?analyses=${S.crosstabAnalysisId}`,
+  );
   assert.equal(res.status, 200);
   assert.equal(res.headers.get("content-type"), "application/zip");
   const buf = new Uint8Array(await res.arrayBuffer());
@@ -1951,13 +2563,21 @@ test("exports: replication zip unzips with a verified MANIFEST", async () => {
     assert.equal(sha256(strFromU8(files[member])), hash, `MANIFEST hash verifies for ${member}`);
   }
   assert.ok(files["reproduce.py"] && files["reproduce.R"] && files["codebook.md"]);
-  assert.ok(Object.keys(files).some((f) => f.startsWith("gold/")), "gold CSV included");
-  assert.ok(Object.keys(files).some((f) => f.startsWith("outputs/")), "outputs CSV included");
+  assert.ok(
+    Object.keys(files).some((f) => f.startsWith("gold/")),
+    "gold CSV included",
+  );
+  assert.ok(
+    Object.keys(files).some((f) => f.startsWith("outputs/")),
+    "outputs CSV included",
+  );
   assert.equal((await events({ type: "export.replication" })).length, 1);
 });
 
 test("exports: report renders standalone HTML", async () => {
-  const res = await fetch(`${base}/api/projects/${S.slug}/exports/report?analyses=${S.crosstabAnalysisId}`);
+  const res = await fetch(
+    `${base}/api/projects/${S.slug}/exports/report?analyses=${S.crosstabAnalysisId}`,
+  );
   assert.equal(res.status, 200);
   assert.match(res.headers.get("content-type"), /text\/html/);
   const html = await res.text();
@@ -1965,7 +2585,11 @@ test("exports: report renders standalone HTML", async () => {
   assert.match(html, /Demo Project/);
   assert.match(html, /Evidence ladder/);
   // the report canvas previews methods (side-effect-free): still ONE export.methods event
-  assert.equal((await events({ type: "export.methods" })).length, 1, "report rendering minted no export-of-record");
+  assert.equal(
+    (await events({ type: "export.methods" })).length,
+    1,
+    "report rendering minted no export-of-record",
+  );
 });
 
 // =========================================================================
@@ -1993,7 +2617,11 @@ test("exports: labeled-data CSV — the researcher's file back with the run's ve
   assert.ok(!/^#/.test(text), "the CSV stays pure — no comment preamble; state rides the filename");
 
   const { rows, issues } = await parseCsvBody("export-full.csv", text);
-  assert.deepEqual(issues, [], `export must round-trip through the ingest parser cleanly (issues: ${JSON.stringify(issues)})`);
+  assert.deepEqual(
+    issues,
+    [],
+    `export must round-trip through the ingest parser cleanly (issues: ${JSON.stringify(issues)})`,
+  );
   assert.equal(rows.length, 240, "row count = the corpus's unitCount");
 
   // columns: meta under ORIGINAL names first, unit text under the corpus's
@@ -2001,7 +2629,10 @@ test("exports: labeled-data CSV — the researcher's file back with the run's ve
   const cols = Object.keys(rows[0]);
   assert.deepEqual(cols.slice(0, 4), ["respondent_id", "dept", "tenure", "response"]);
   assert.ok(cols.includes("Pay complaint"), "label column carries the construct's name");
-  assert.ok(cols.includes("Pay complaint_confidence"), "judge outputs carry confidence → confidence column present");
+  assert.ok(
+    cols.includes("Pay complaint_confidence"),
+    "judge outputs carry confidence → confidence column present",
+  );
   assert.ok(cols.includes("Pay complaint_escalated"));
   assert.ok(!cols.includes("Pay complaint_error"), "no error column when nothing quarantined");
   assert.equal(cols[cols.length - 1], "unit_id", "unit_id is the last column");
@@ -2015,19 +2646,35 @@ test("exports: labeled-data CSV — the researcher's file back with the run's ve
   const long = byRid.get(`r${LONG_ROW}`);
   assert.equal(long["Pay complaint"], "no", "escalation override is the exported label");
   assert.equal(long["Pay complaint_escalated"], "true");
-  assert.equal(byRid.get("r0")["Pay complaint_escalated"], "", "non-escalated rows leave the flag empty");
+  assert.equal(
+    byRid.get("r0")["Pay complaint_escalated"],
+    "",
+    "non-escalated rows leave the flag empty",
+  );
   const conf = Number(byRid.get("r0")["Pay complaint_confidence"]);
-  assert.ok(conf > 0 && conf <= 1, `confidence is numeric (got ${byRid.get("r0")["Pay complaint_confidence"]})`);
+  assert.ok(
+    conf > 0 && conf <= 1,
+    `confidence is numeric (got ${byRid.get("r0")["Pay complaint_confidence"]})`,
+  );
 
   // the researcher's own columns are intact
   assert.equal(byRid.get("r0").dept, "ops");
   assert.equal(byRid.get("r1").dept, "sales");
   assert.equal(byRid.get("r9").tenure, "9");
   assert.match(byRid.get("r0").response, /salary is too low/);
-  assert.ok(rows.every((r) => /^u_[0-9a-f]{16}$/.test(r.unit_id)), "every row joins back to its unit id");
+  assert.ok(
+    rows.every((r) => /^u_[0-9a-f]{16}$/.test(r.unit_id)),
+    "every row joins back to its unit id",
+  );
 
   // run/instrument under another project → 404, never someone else's data
-  await fail("GET", `/api/projects/kick-project/runs/${S.runId}/export.csv`, undefined, 404, "NOT_FOUND");
+  await fail(
+    "GET",
+    `/api/projects/kick-project/runs/${S.runId}/export.csv`,
+    undefined,
+    404,
+    "NOT_FOUND",
+  );
 });
 
 function makeExportCsv() {
@@ -2036,9 +2683,10 @@ function makeExportCsv() {
   const lines = ["pid,Pay verdict,note,response"];
   for (let i = 0; i < 8; i++) {
     const note = i === 0 ? "=SUM(A1:A9)" : `note ${i}`;
-    const text = i === 2
-      ? "this row is poison for the scripted judge and must quarantine with its reason"
-      : `the salary is ${i % 2 ? "too low for this work" : "fine and the team is kind"} in row ${i} of the export fixture`;
+    const text =
+      i === 2
+        ? "this row is poison for the scripted judge and must quarantine with its reason"
+        : `the salary is ${i % 2 ? "too low for this work" : "fine and the team is kind"} in row ${i} of the export fixture`;
     lines.push(`p${i},${i % 2 ? "yes" : "no"},${note},${text}`);
   }
   return lines.join("\n") + "\n";
@@ -2050,28 +2698,45 @@ test("exports: labeled-data CSV — collision suffixing, quarantine error codes,
   await ok("POST", "/api/projects", { name: "Export Project" });
   const up = await upload(`/api/projects/${EXP.slug}/import`, "verdicts.csv", makeExportCsv());
   const confirmed = await ok("POST", `/api/projects/${EXP.slug}/import/confirm`, {
-    importId: up.importId, mapping: { textColumn: "response" }, unitization: { scheme: "response" },
+    importId: up.importId,
+    mapping: { textColumn: "response" },
+    unitization: { scheme: "response" },
   });
   EXP.corpusId = confirmed.corpusId;
   assert.equal(confirmed.unitCount, 8);
 
   const construct = await ok("POST", `/api/projects/${EXP.slug}/constructs`, {
-    name: "Pay verdict", type: "binary",
-    categories: [{ value: "yes", label: "Yes" }, { value: "no", label: "No" }],
+    name: "Pay verdict",
+    type: "binary",
+    categories: [
+      { value: "yes", label: "Yes" },
+      { value: "no", label: "No" },
+    ],
   });
   const inst = await ok("POST", `/api/projects/${EXP.slug}/instruments`, {
-    constructId: construct.id, kind: "judge", name: "Export judge",
-    payload: judgePayload("[[handler:export-poison]]\nT {{definition}} {{criteria}} {{examples}} {{unit}}"),
+    constructId: construct.id,
+    kind: "judge",
+    name: "Export judge",
+    payload: judgePayload(
+      "[[handler:export-poison]]\nT {{definition}} {{criteria}} {{examples}} {{unit}}",
+    ),
   });
   EXP.instId = inst.id;
   mock().setHandler("export-poison", (req) => {
     const all = req.messages.map((m) => m.content).join("\n");
     const unitText = all.match(/<unit>\n([\s\S]*?)\n<\/unit>/)?.[1] ?? "";
     if (unitText.includes("poison")) return { garbage: true }; // schema-invalid every attempt → quarantine
-    return { rationale: "scripted", label: unitText.includes("salary is too low") ? "yes" : "no", confidence: 0.9 };
+    return {
+      rationale: "scripted",
+      label: unitText.includes("salary is too low") ? "yes" : "no",
+      confidence: 0.9,
+    };
   });
 
-  const { runId } = await ok("POST", `/api/projects/${EXP.slug}/runs`, { instrumentId: inst.id, corpusId: confirmed.corpusId });
+  const { runId } = await ok("POST", `/api/projects/${EXP.slug}/runs`, {
+    instrumentId: inst.id,
+    corpusId: confirmed.corpusId,
+  });
   const { events: evs } = await readSse(`/api/projects/${EXP.slug}/runs/${runId}/monitor`);
   const done = evs.find((e) => e.event === "done");
   assert.equal(done.data.status, "complete");
@@ -2091,7 +2756,10 @@ test("exports: labeled-data CSV — collision suffixing, quarantine error codes,
   // column suffixes (the ingest parser's own _N convention)
   const cols = Object.keys(rows[0]);
   assert.deepEqual(cols.slice(0, 4), ["pid", "Pay verdict", "note", "response"]);
-  assert.ok(cols.includes("Pay verdict_2"), `label column suffixed on collision (got ${cols.join(", ")})`);
+  assert.ok(
+    cols.includes("Pay verdict_2"),
+    `label column suffixed on collision (got ${cols.join(", ")})`,
+  );
   assert.ok(cols.includes("Pay verdict_confidence"));
   assert.ok(cols.includes("Pay verdict_escalated"));
   assert.ok(cols.includes("Pay verdict_error"), "a quarantined run exports the error column");
@@ -2106,12 +2774,24 @@ test("exports: labeled-data CSV — collision suffixing, quarantine error codes,
   // quarantined unit: empty label + the quarantine code in the error column
   const poisoned = byPid.get("p2");
   assert.equal(poisoned["Pay verdict_2"], "", "quarantined unit exports an empty label");
-  assert.equal(poisoned["Pay verdict_error"], "SCHEMA_INVALID", "the quarantine code rides the error column");
+  assert.equal(
+    poisoned["Pay verdict_error"],
+    "SCHEMA_INVALID",
+    "the quarantine code rides the error column",
+  );
   assert.equal(poisoned["Pay verdict_confidence"], "");
-  assert.equal(byPid.get("p1")["Pay verdict_error"], "", "healthy rows leave the error column empty");
+  assert.equal(
+    byPid.get("p1")["Pay verdict_error"],
+    "",
+    "healthy rows leave the error column empty",
+  );
   // formula-injection hardening: =+−@ leaders carry the replication
   // convention's apostrophe prefix
-  assert.equal(byPid.get("p0").note, "'=SUM(A1:A9)", "formula leader neutralized with a leading apostrophe");
+  assert.equal(
+    byPid.get("p0").note,
+    "'=SUM(A1:A9)",
+    "formula leader neutralized with a leading apostrophe",
+  );
   assert.equal(byPid.get("p1").note, "note 1", "ordinary text cells are not prefixed");
 });
 
@@ -2124,13 +2804,23 @@ test("exports: labeled-data CSV — an incomplete run exports what exists under 
     const unitText = all.match(/<unit>\n([\s\S]*?)\n<\/unit>/)?.[1] ?? "";
     const m = unitText.match(/row (\d+)/);
     if (!m || Number(m[1]) >= 2) {
-      throw new ConcordError("PROVIDER_UNREACHABLE", "scripted outage", { url: "mock://down", kind: "TypeError" });
+      throw new ConcordError("PROVIDER_UNREACHABLE", "scripted outage", {
+        url: "mock://down",
+        kind: "TypeError",
+      });
     }
     return { rationale: "scripted", label: "yes", confidence: 0.9 };
   });
-  const { runId } = await ok("POST", `/api/projects/${EXP.slug}/runs`, { instrumentId: EXP.instId, corpusId: EXP.corpusId });
+  const { runId } = await ok("POST", `/api/projects/${EXP.slug}/runs`, {
+    instrumentId: EXP.instId,
+    corpusId: EXP.corpusId,
+  });
   const { events: evs } = await readSse(`/api/projects/${EXP.slug}/runs/${runId}/monitor`);
-  assert.equal(evs.find((e) => e.event === "done")?.data.status, "paused", "the outage pauses the run resumably");
+  assert.equal(
+    evs.find((e) => e.event === "done")?.data.status,
+    "paused",
+    "the outage pauses the run resumably",
+  );
 
   const res = await fetch(`${base}/api/projects/${EXP.slug}/runs/${runId}/export.csv`);
   assert.equal(res.status, 200);
@@ -2140,10 +2830,16 @@ test("exports: labeled-data CSV — an incomplete run exports what exists under 
     "non-complete run → the filename carries -partial",
   );
   const text = await res.text();
-  assert.ok(!/^#/.test(text), "no comment preamble even when partial — the state rides the filename");
+  assert.ok(
+    !/^#/.test(text),
+    "no comment preamble even when partial — the state rides the filename",
+  );
   const { rows } = await parseCsvBody("export-partial.csv", text);
   assert.equal(rows.length, 8, "every corpus unit gets a row; not-yet-run ones are simply empty");
-  assert.ok(Object.keys(rows[0]).includes("Pay verdict_2"), "label column present even on a partial export");
+  assert.ok(
+    Object.keys(rows[0]).includes("Pay verdict_2"),
+    "label column present even on a partial export",
+  );
 });
 
 // =========================================================================
@@ -2156,13 +2852,23 @@ test("goldsets: queue routes a unit to the human queue (pi null, idempotent) —
   const inSample = new Set(gs0.sample.map((s) => s.unitId));
   const unit = S.unitsB.find((u) => !inSample.has(u.id));
 
-  const q = await ok("POST", `/api/projects/${S.slug}/goldsets/${S.goldsetId}/queue`, { unitId: unit.id });
+  const q = await ok("POST", `/api/projects/${S.slug}/goldsets/${S.goldsetId}/queue`, {
+    unitId: unit.id,
+  });
   assert.equal(q.queued, true);
   assert.equal(q.n, 25);
-  const again = await ok("POST", `/api/projects/${S.slug}/goldsets/${S.goldsetId}/queue`, { unitId: unit.id });
+  const again = await ok("POST", `/api/projects/${S.slug}/goldsets/${S.goldsetId}/queue`, {
+    unitId: unit.id,
+  });
   assert.equal(again.already, true, "idempotent per unit");
   assert.equal(again.n, 25);
-  await fail("POST", `/api/projects/${S.slug}/goldsets/${S.goldsetId}/queue`, { unitId: "u_not_a_real_unit" }, 404, "NOT_FOUND");
+  await fail(
+    "POST",
+    `/api/projects/${S.slug}/goldsets/${S.goldsetId}/queue`,
+    { unitId: "u_not_a_real_unit" },
+    404,
+    "NOT_FOUND",
+  );
 
   const gs = await ok("GET", `/api/projects/${S.slug}/goldsets/${S.goldsetId}`);
   assert.equal(gs.sample.length, 25);
@@ -2175,7 +2881,10 @@ test("goldsets: queue routes a unit to the human queue (pi null, idempotent) —
   assert.equal(ev.at(-1).actor, "human");
 
   // adjudicate the queued unit: it now has a GOLD LABEL but pi stays null
-  await ok("POST", `/api/projects/${S.slug}/goldsets/${S.goldsetId}/adjudicate`, { unitId: unit.id, label: ORACLE(unit.text) });
+  await ok("POST", `/api/projects/${S.slug}/goldsets/${S.goldsetId}/adjudicate`, {
+    unitId: unit.id,
+    label: ORACLE(unit.text),
+  });
 
   // CRITICAL INVARIANT: the queued+adjudicated unit must never reach the
   // π-weighted estimators — the stats layer throws on y-without-pi, so this
@@ -2189,7 +2898,11 @@ test("goldsets: queue routes a unit to the human queue (pi null, idempotent) —
 
   // …while plain agreement (which needs no π) DOES read it
   const r = await ok("GET", `/api/projects/${S.slug}/goldsets/${S.goldsetId}/agreement`);
-  assert.equal(r.goldLabeled, 25, "the queued+adjudicated unit counts as gold-labeled for agreement");
+  assert.equal(
+    r.goldLabeled,
+    25,
+    "the queued+adjudicated unit counts as gold-labeled for agreement",
+  );
   const mine = r.perInstrument.find((x) => x.instrumentId === S.inst1);
   assert.ok(!mine.error, JSON.stringify(mine.error ?? null));
   assert.equal(mine.agreement.n, 25, "machine-vs-gold agreement includes the queued unit");
@@ -2202,30 +2915,51 @@ test("goldsets: queue routes a unit to the human queue (pi null, idempotent) —
 test("goldsets: uncodable — recorded outside labels, progress counts it, next skips it, agreement takes the missing-data path", async () => {
   armMock();
   const created = await ok("POST", `/api/projects/${S.slug}/goldsets`, {
-    constructId: S.constructId, tier: "gold", corpusId: S.corpusB,
+    constructId: S.constructId,
+    tier: "gold",
+    corpusId: S.corpusB,
   });
   S.uncodableGsId = created.id;
-  const sampled = await ok("POST", `/api/projects/${S.slug}/goldsets/${created.id}/sample`, { design: "srs", n: 4 });
+  const sampled = await ok("POST", `/api/projects/${S.slug}/goldsets/${created.id}/sample`, {
+    design: "srs",
+    n: 4,
+  });
   const ids = sampled.sample.map((s) => s.unitId);
   S.uncodableIds = ids;
 
   // a submission is a label OR uncodable: true — never both, never neither
-  await fail("POST", `/api/projects/${S.slug}/goldsets/${created.id}/label`,
-    { coder: "uc-A", unitId: ids[0], label: "yes", uncodable: true }, 400, "VALIDATION");
-  await fail("POST", `/api/projects/${S.slug}/goldsets/${created.id}/label`,
-    { coder: "uc-A", unitId: ids[0] }, 400, "VALIDATION");
+  await fail(
+    "POST",
+    `/api/projects/${S.slug}/goldsets/${created.id}/label`,
+    { coder: "uc-A", unitId: ids[0], label: "yes", uncodable: true },
+    400,
+    "VALIDATION",
+  );
+  await fail(
+    "POST",
+    `/api/projects/${S.slug}/goldsets/${created.id}/label`,
+    { coder: "uc-A", unitId: ids[0] },
+    400,
+    "VALIDATION",
+  );
 
   // coder A cannot code ids[0]; progress.done counts labeled + uncodable
-  const p0 = await ok("POST", `/api/projects/${S.slug}/goldsets/${created.id}/label`,
-    { coder: "uc-A", unitId: ids[0], uncodable: true });
+  const p0 = await ok("POST", `/api/projects/${S.slug}/goldsets/${created.id}/label`, {
+    coder: "uc-A",
+    unitId: ids[0],
+    uncodable: true,
+  });
   assert.deepEqual([p0.done, p0.uncodable, p0.total], [1, 1, 4]);
 
   // next skips units the coder labeled OR marked uncodable
   const n0 = await ok("GET", `/api/projects/${S.slug}/goldsets/${created.id}/next?coder=uc-A`);
   assert.notEqual(n0.unit?.id, ids[0], "next must skip the uncodable unit");
   for (const id of ids.slice(1)) {
-    await ok("POST", `/api/projects/${S.slug}/goldsets/${created.id}/label`,
-      { coder: "uc-A", unitId: id, label: ORACLE(H.units.get(id).text) });
+    await ok("POST", `/api/projects/${S.slug}/goldsets/${created.id}/label`, {
+      coder: "uc-A",
+      unitId: id,
+      label: ORACLE(H.units.get(id).text),
+    });
   }
   const fin = await ok("GET", `/api/projects/${S.slug}/goldsets/${created.id}/next?coder=uc-A`);
   assert.equal(fin.unit, null, "labeled + uncodable exhausts the blind queue");
@@ -2234,16 +2968,29 @@ test("goldsets: uncodable — recorded outside labels, progress counts it, next 
   // coder B first marks ids[0] uncodable, then labels it — one disposition
   // per coder per unit, the later submission wins; ids[1] carries a planted
   // disagreement so adjudication has something left to resolve
-  const b0 = await ok("POST", `/api/projects/${S.slug}/goldsets/${created.id}/label`,
-    { coder: "uc-B", unitId: ids[0], uncodable: true });
+  const b0 = await ok("POST", `/api/projects/${S.slug}/goldsets/${created.id}/label`, {
+    coder: "uc-B",
+    unitId: ids[0],
+    uncodable: true,
+  });
   assert.deepEqual([b0.done, b0.uncodable], [1, 1]);
-  const b1 = await ok("POST", `/api/projects/${S.slug}/goldsets/${created.id}/label`,
-    { coder: "uc-B", unitId: ids[0], label: ORACLE(H.units.get(ids[0]).text) });
-  assert.deepEqual([b1.done, b1.uncodable], [1, 0], "labeling a unit clears the coder's uncodable mark");
+  const b1 = await ok("POST", `/api/projects/${S.slug}/goldsets/${created.id}/label`, {
+    coder: "uc-B",
+    unitId: ids[0],
+    label: ORACLE(H.units.get(ids[0]).text),
+  });
+  assert.deepEqual(
+    [b1.done, b1.uncodable],
+    [1, 0],
+    "labeling a unit clears the coder's uncodable mark",
+  );
   for (const id of ids.slice(1)) {
     const truth = ORACLE(H.units.get(id).text);
-    await ok("POST", `/api/projects/${S.slug}/goldsets/${created.id}/label`,
-      { coder: "uc-B", unitId: id, label: id === ids[1] ? (truth === "yes" ? "no" : "yes") : truth });
+    await ok("POST", `/api/projects/${S.slug}/goldsets/${created.id}/label`, {
+      coder: "uc-B",
+      unitId: id,
+      label: id === ids[1] ? (truth === "yes" ? "no" : "yes") : truth,
+    });
   }
 
   // the artifact records the disposition OUTSIDE the labels map
@@ -2257,7 +3004,10 @@ test("goldsets: uncodable — recorded outside labels, progress counts it, next 
   // the human report discloses the counts
   const r = await ok("GET", `/api/projects/${S.slug}/goldsets/${created.id}/agreement`);
   assert.equal(r.humanAgreement.n, 3, "the uncodable unit contributes no agreement row");
-  assert.ok(Math.abs(r.humanAgreement.percent - 2 / 3) < 1e-9, `1 planted disagreement in 3 pairable units (got ${r.humanAgreement.percent})`);
+  assert.ok(
+    Math.abs(r.humanAgreement.percent - 2 / 3) < 1e-9,
+    `1 planted disagreement in 3 pairable units (got ${r.humanAgreement.percent})`,
+  );
   assert.equal(r.humanAgreement.uncodableUnits, 1);
   assert.equal(r.humanAgreement.excludedFromAgreement, 1);
 
@@ -2275,21 +3025,36 @@ test("goldsets: adjudicate exclude — the uncodable-split unit leaves gold and 
 
   // exclude is a disposition, not a label — both together is invalid, and
   // the unit must be in the sample
-  await fail("POST", `/api/projects/${S.slug}/goldsets/${gsId}/adjudicate`,
-    { unitId: ids[1], label: "yes", exclude: true }, 400, "VALIDATION");
-  await fail("POST", `/api/projects/${S.slug}/goldsets/${gsId}/adjudicate`,
-    { unitId: "u_not_in_sample", exclude: true }, 400, "VALIDATION");
+  await fail(
+    "POST",
+    `/api/projects/${S.slug}/goldsets/${gsId}/adjudicate`,
+    { unitId: ids[1], label: "yes", exclude: true },
+    400,
+    "VALIDATION",
+  );
+  await fail(
+    "POST",
+    `/api/projects/${S.slug}/goldsets/${gsId}/adjudicate`,
+    { unitId: "u_not_in_sample", exclude: true },
+    400,
+    "VALIDATION",
+  );
 
   // ids[0] is a label-vs-can't-code conflict (uc-A marked it uncodable,
   // uc-B labeled it) — under the consensus rule that is an OPEN disagreement,
   // not gold, so it takes an adjudication before the set can complete
-  await ok("POST", `/api/projects/${S.slug}/goldsets/${gsId}/adjudicate`,
-    { unitId: ids[0], label: ORACLE(H.units.get(ids[0]).text) });
+  await ok("POST", `/api/projects/${S.slug}/goldsets/${gsId}/adjudicate`, {
+    unitId: ids[0],
+    label: ORACLE(H.units.get(ids[0]).text),
+  });
 
   // the one remaining disagreement (ids[1]) is resolved BY exclusion; every
   // other unit is adjudicated or two-coder consensus gold → the set
   // auto-completes
-  const r = await ok("POST", `/api/projects/${S.slug}/goldsets/${gsId}/adjudicate`, { unitId: ids[1], exclude: true });
+  const r = await ok("POST", `/api/projects/${S.slug}/goldsets/${gsId}/adjudicate`, {
+    unitId: ids[1],
+    exclude: true,
+  });
   assert.equal(r.status, "complete", "an excluded unit counts as resolved");
   assert.equal(r.excluded, 1);
   assert.equal(r.adjudicated, 1, "the conflict adjudication above");
@@ -2311,7 +3076,10 @@ test("goldsets: excluding a designed unit drops it from the DSL gold rows (nGold
   // exclude a π-carrying, previously-adjudicated unit from the ORIGINAL gold
   // set — exclusion withdraws the adjudicated label rather than orphaning it
   const victim = S.flipUnits[0];
-  const r = await ok("POST", `/api/projects/${S.slug}/goldsets/${S.goldsetId}/adjudicate`, { unitId: victim, exclude: true });
+  const r = await ok("POST", `/api/projects/${S.slug}/goldsets/${S.goldsetId}/adjudicate`, {
+    unitId: victim,
+    exclude: true,
+  });
   assert.equal(r.status, "complete", "every remaining sample unit is still resolved");
   assert.equal(r.excluded, 1);
   assert.equal(r.adjudicated, 2, "the excluded unit's prior adjudicated label is withdrawn");
@@ -2319,21 +3087,31 @@ test("goldsets: excluding a designed unit drops it from the DSL gold rows (nGold
   const gs = await ok("GET", `/api/projects/${S.slug}/goldsets/${S.goldsetId}`);
   assert.deepEqual(gs.excluded, [victim]);
   assert.ok(!(victim in gs.adjudicated));
-  assert.equal((await events({ type: "goldset.completed", ref: S.goldsetId })).length, 1, "no duplicate completion event");
+  assert.equal(
+    (await events({ type: "goldset.completed", ref: S.goldsetId })).length,
+    1,
+    "no duplicate completion event",
+  );
 
   // the single π-filtered DSL assembly point (analyses goldFor) respects it
   const a = await ok("POST", `/api/projects/${S.slug}/analyses`, {
-    kind: "model", spec: { x: ["tenure"], family: "logit", runId: S.runId },
+    kind: "model",
+    spec: { x: ["tenure"], family: "logit", runId: S.runId },
   });
   assert.equal(a.level, "corrected");
   assert.equal(a.results.nGold, 23, "the excluded unit is no longer a DSL gold row");
 
   // adjudicating a label re-admits the unit (the exclusion is withdrawn)
-  const back = await ok("POST", `/api/projects/${S.slug}/goldsets/${S.goldsetId}/adjudicate`,
-    { unitId: victim, label: ORACLE(H.units.get(victim).text) });
+  const back = await ok("POST", `/api/projects/${S.slug}/goldsets/${S.goldsetId}/adjudicate`, {
+    unitId: victim,
+    label: ORACLE(H.units.get(victim).text),
+  });
   assert.equal(back.excluded, 0);
   assert.equal(back.adjudicated, 3);
-  assert.deepEqual((await ok("GET", `/api/projects/${S.slug}/goldsets/${S.goldsetId}`)).excluded, []);
+  assert.deepEqual(
+    (await ok("GET", `/api/projects/${S.slug}/goldsets/${S.goldsetId}`)).excluded,
+    [],
+  );
 });
 
 // =========================================================================
@@ -2343,7 +3121,10 @@ test("goldsets: excluding a designed unit drops it from the DSL gold rows (nGold
 test("catalog: aggregated model catalogs with a 1h cache", async () => {
   const r = await ok("GET", "/api/catalog/models");
   assert.equal(r.providers.mock[0].id, "mock-1");
-  assert.ok(Array.isArray(r.providers.anthropic) && r.providers.anthropic.length > 0, "static anthropic catalog");
+  assert.ok(
+    Array.isArray(r.providers.anthropic) && r.providers.anthropic.length > 0,
+    "static anthropic catalog",
+  );
   assert.deepEqual(r.providers.ollama, [], "hermetic ollama catalog");
   const again = await ok("GET", "/api/catalog/models");
   assert.equal(again.cachedAt, r.cachedAt, "second call serves the cache");
@@ -2352,11 +3133,19 @@ test("catalog: aggregated model catalogs with a 1h cache", async () => {
 test("catalog: capability fields — static catalogs decorated from capabilities(), adapter-computed fields pass through", async () => {
   const or = getAdapter({ privacyMode: "open" }, "openrouter").adapter;
   // what the real openrouter catalog() emits post-mapping (supported_parameters → flags)
-  or.catalog = async () => [{
-    id: "acme/no-frills-1", name: "No Frills", family: "acme", ctx: 8192,
-    pricing: { inUSDper1M: 0.1, outUSDper1M: 0.2 }, snapshot: "acme/no-frills-1",
-    structuredOutput: false, noTemperature: true, params: ["max_tokens"],
-  }];
+  or.catalog = async () => [
+    {
+      id: "acme/no-frills-1",
+      name: "No Frills",
+      family: "acme",
+      ctx: 8192,
+      pricing: { inUSDper1M: 0.1, outUSDper1M: 0.2 },
+      snapshot: "acme/no-frills-1",
+      structuredOutput: false,
+      noTemperature: true,
+      params: ["max_tokens"],
+    },
+  ];
   try {
     const r = await ok("GET", "/api/catalog/models?refresh=1");
     for (const name of ["anthropic", "openai", "mock"]) {
@@ -2367,7 +3156,11 @@ test("catalog: capability fields — static catalogs decorated from capabilities
       }
     }
     const o = r.providers.openrouter[0];
-    assert.equal(o.structuredOutput, false, "adapter-computed flag must pass through, not be overwritten");
+    assert.equal(
+      o.structuredOutput,
+      false,
+      "adapter-computed flag must pass through, not be overwritten",
+    );
     assert.equal(o.noTemperature, true);
     assert.deepEqual(o.params, ["max_tokens"]);
   } finally {
@@ -2379,11 +3172,18 @@ test("catalog: capability fields — static catalogs decorated from capabilities
 test("catalog: ?refresh=1 busts BOTH caches — adapter.catalog() is called with {force:true}", async () => {
   const or = getAdapter({ privacyMode: "open" }, "openrouter").adapter;
   const sawForce = [];
-  or.catalog = async (opts = {}) => { sawForce.push(opts.force === true); return []; };
+  or.catalog = async (opts = {}) => {
+    sawForce.push(opts.force === true);
+    return [];
+  };
   try {
     // warm the route cache: a plain refresh forces the adapter once
     await ok("GET", "/api/catalog/models?refresh=1");
-    assert.deepEqual(sawForce.at(-1), true, "?refresh=1 must force the in-adapter cache, not just the route cache");
+    assert.deepEqual(
+      sawForce.at(-1),
+      true,
+      "?refresh=1 must force the in-adapter cache, not just the route cache",
+    );
 
     // a plain GET now serves the route cache → the adapter is NOT re-consulted
     const before = sawForce.length;
@@ -2415,7 +3215,13 @@ test("settings: keys are masked on GET (sk-…last4) and never echoed in full", 
 });
 
 test("settings: loosening privacy mode requires confirmDowngrade and is ledgered", async () => {
-  await fail("PUT", "/api/settings", { project: { slug: "locked-project", privacyMode: "open" } }, 400, "VALIDATION");
+  await fail(
+    "PUT",
+    "/api/settings",
+    { project: { slug: "locked-project", privacyMode: "open" } },
+    400,
+    "VALIDATION",
+  );
   const r = await ok("PUT", "/api/settings", {
     project: { slug: "locked-project", privacyMode: "open" },
     confirmDowngrade: true,
@@ -2432,7 +3238,10 @@ test("settings: loosening privacy mode requires confirmDowngrade and is ledgered
 test("projects: PUT /api/projects/:p shares the settings downgrade guard + ledger, and sets the budget cap", async () => {
   // locked-project is strict again — loosening without confirmation refuses
   await fail("PUT", "/api/projects/locked-project", { privacyMode: "open" }, 400, "VALIDATION");
-  const updated = await ok("PUT", "/api/projects/locked-project", { privacyMode: "open", confirmDowngrade: true });
+  const updated = await ok("PUT", "/api/projects/locked-project", {
+    privacyMode: "open",
+    confirmDowngrade: true,
+  });
   assert.equal(updated.privacyMode, "open");
   const ev = await ledger.query(projectDir("locked-project"), { type: "privacy.mode_changed" });
   // the settings test above ledgered strict→open AND the tighten-back
@@ -2446,7 +3255,10 @@ test("projects: PUT /api/projects/:p shares the settings downgrade guard + ledge
   await fail("PUT", "/api/projects/locked-project", { budget: { capUSD: -1 } }, 400, "VALIDATION");
 
   // tightening back is no downgrade; null clears the cap
-  const back = await ok("PUT", "/api/projects/locked-project", { privacyMode: "strict", budget: { capUSD: null } });
+  const back = await ok("PUT", "/api/projects/locked-project", {
+    privacyMode: "strict",
+    budget: { capUSD: null },
+  });
   assert.equal(back.privacyMode, "strict");
   assert.equal(back.budget.capUSD, null);
   await fail("PUT", "/api/projects/no-such-project", { budget: { capUSD: 1 } }, 404, "NOT_FOUND");
@@ -2541,7 +3353,12 @@ test("runs: launch persists status=running BEFORE answering (no stale-status rac
   await updateProject(S.slug, (p) => {
     const src = p.runs?.[0];
     pendingId = "run_race_pin";
-    p.runs.push({ ...structuredClone(src), id: pendingId, status: "pending", error: { code: "ORPHANED", message: "stale" } });
+    p.runs.push({
+      ...structuredClone(src),
+      id: pendingId,
+      status: "pending",
+      error: { code: "ORPHANED", message: "stale" },
+    });
   });
   await ok("POST", `/api/projects/${S.slug}/runs/${pendingId}/resume`);
   // read IMMEDIATELY — the field bug was a client refresh racing the engine's
@@ -2549,7 +3366,10 @@ test("runs: launch persists status=running BEFORE answering (no stale-status rac
   const p = await ok("GET", `/api/projects/${S.slug}`);
   const r = p.runs.find((x) => x.id === pendingId);
   assert.notEqual(r.status, "pending", "status must not read pending after launch returns");
-  assert.ok(["running", "complete", "paused", "failed"].includes(r.status), `launched status, got ${r.status}`);
+  assert.ok(
+    ["running", "complete", "paused", "failed"].includes(r.status),
+    `launched status, got ${r.status}`,
+  );
   assert.equal(r.error, undefined, "a fresh launch clears stale ORPHANED explanations");
   // settle the background execution so the suite's later assertions see a quiet state
   for (let i = 0; i < 60; i++) {
@@ -2568,11 +3388,14 @@ test("runs: auto-name strips a redundant '· text=<col>' corpus suffix; PUT rena
   armMock();
   // a corpus whose STORED name carries the redundant suffix (the re-unitize
   // naming scheme): the display name in a run label drops it
-  const up = await upload(`/api/projects/${S.slug}/import`, "strip-check.csv",
+  const up = await upload(
+    `/api/projects/${S.slug}/import`,
+    "strip-check.csv",
     "respondent_id,response\n" +
-    "r0,the salary is too low for the hours we put in here\n" +
-    "r1,the team is genuinely kind and the office is comfortable\n" +
-    "r2,nothing else to add about the work or the people\n");
+      "r0,the salary is too low for the hours we put in here\n" +
+      "r1,the team is genuinely kind and the office is comfortable\n" +
+      "r2,nothing else to add about the work or the people\n",
+  );
   const confirmed = await ok("POST", `/api/projects/${S.slug}/import/confirm`, {
     importId: up.importId,
     mapping: { textColumn: "response" },
@@ -2582,45 +3405,87 @@ test("runs: auto-name strips a redundant '· text=<col>' corpus suffix; PUT rena
 
   const ledgerBefore = (await events({})).length;
   const started = await ok("POST", `/api/projects/${S.slug}/runs`, {
-    instrumentId: S.inst1, corpusId: confirmed.corpusId,
+    instrumentId: S.inst1,
+    corpusId: confirmed.corpusId,
   });
   let p = await getProject();
-  assert.equal(p.runs.find((r) => r.id === started.runId).name, "Pay judge · strip-check.csv",
-    "auto-name is '<instrument> · <corpus display name>' with the redundant text= suffix stripped");
+  assert.equal(
+    p.runs.find((r) => r.id === started.runId).name,
+    "Pay judge · strip-check.csv",
+    "auto-name is '<instrument> · <corpus display name>' with the redundant text= suffix stripped",
+  );
   await readSse(`/api/projects/${S.slug}/runs/${started.runId}/monitor`); // settle the background run
 
   // rename persists on the project graph; names are labels, not provenance
-  const renamed = await ok("PUT", `/api/projects/${S.slug}/runs/${started.runId}`, { name: "Salary screen, spot check" });
+  const renamed = await ok("PUT", `/api/projects/${S.slug}/runs/${started.runId}`, {
+    name: "Salary screen, spot check",
+  });
   assert.equal(renamed.name, "Salary screen, spot check");
   p = await getProject();
   assert.equal(p.runs.find((r) => r.id === started.runId).name, "Salary screen, spot check");
   const renameEvents = (await events({})).slice(ledgerBefore).filter((e) => /rename/i.test(e.type));
   assert.equal(renameEvents.length, 0, "renames are not ledgered");
 
-  await fail("PUT", `/api/projects/${S.slug}/runs/${started.runId}`, { name: "x".repeat(121) }, 400, "VALIDATION");
-  await fail("PUT", `/api/projects/${S.slug}/runs/${started.runId}`, { name: "" }, 400, "VALIDATION");
-  await fail("PUT", `/api/projects/${S.slug}/runs/${started.runId}`, { name: 42 }, 400, "VALIDATION");
+  await fail(
+    "PUT",
+    `/api/projects/${S.slug}/runs/${started.runId}`,
+    { name: "x".repeat(121) },
+    400,
+    "VALIDATION",
+  );
+  await fail(
+    "PUT",
+    `/api/projects/${S.slug}/runs/${started.runId}`,
+    { name: "" },
+    400,
+    "VALIDATION",
+  );
+  await fail(
+    "PUT",
+    `/api/projects/${S.slug}/runs/${started.runId}`,
+    { name: 42 },
+    400,
+    "VALIDATION",
+  );
   await fail("PUT", `/api/projects/${S.slug}/runs/run_nope`, { name: "fine" }, 404, "NOT_FOUND");
 });
 
 test("goldsets: create auto-names 'Gold — <construct>' with a (2) suffix on collision; PUT renames; corpusId stored", async () => {
-  const g1 = await ok("POST", `/api/projects/${S.slug}/goldsets`, { constructId: S.construct2Id, corpusId: S.corpusB });
+  const g1 = await ok("POST", `/api/projects/${S.slug}/goldsets`, {
+    constructId: S.construct2Id,
+    corpusId: S.corpusB,
+  });
   assert.equal(g1.name, "Gold — Team praise");
   assert.equal(g1.corpusId, S.corpusB, "the corpus the UI passed is stored on the artifact");
 
-  const g2 = await ok("POST", `/api/projects/${S.slug}/goldsets`, { constructId: S.construct2Id, corpusId: S.corpusB });
+  const g2 = await ok("POST", `/api/projects/${S.slug}/goldsets`, {
+    constructId: S.construct2Id,
+    corpusId: S.corpusB,
+  });
   assert.equal(g2.name, "Gold — Team praise (2)", "second gold set for the construct suffixes");
 
   const list = await ok("GET", `/api/projects/${S.slug}/goldsets`);
-  assert.equal(list.find((g) => g.id === g1.id).name, "Gold — Team praise", "the project meta carries the name");
+  assert.equal(
+    list.find((g) => g.id === g1.id).name,
+    "Gold — Team praise",
+    "the project meta carries the name",
+  );
   assert.equal(list.find((g) => g.id === g1.id).corpusId, S.corpusB);
 
-  const renamed = await ok("PUT", `/api/projects/${S.slug}/goldsets/${g1.id}`, { name: "Praise calibration set" });
+  const renamed = await ok("PUT", `/api/projects/${S.slug}/goldsets/${g1.id}`, {
+    name: "Praise calibration set",
+  });
   assert.equal(renamed.name, "Praise calibration set");
   const full = await ok("GET", `/api/projects/${S.slug}/goldsets/${g1.id}`);
   assert.equal(full.name, "Praise calibration set");
 
-  await fail("PUT", `/api/projects/${S.slug}/goldsets/${g1.id}`, { name: "x".repeat(121) }, 400, "VALIDATION");
+  await fail(
+    "PUT",
+    `/api/projects/${S.slug}/goldsets/${g1.id}`,
+    { name: "x".repeat(121) },
+    400,
+    "VALIDATION",
+  );
   await fail("PUT", `/api/projects/${S.slug}/goldsets/${g1.id}`, { name: "" }, 400, "VALIDATION");
 
   // keep construct2 gold-free for any later exploratory-path assertions
@@ -2634,10 +3499,21 @@ test("report: a persisted project artifact — PUT validates + replaces, POST ap
   assert.deepEqual(p.report, { blocks: [], updatedAt: null });
 
   // PUT validates kinds, shape and the block budget
-  await fail("PUT", `/api/projects/${S.slug}/report`, { blocks: [{ kind: "gif" }] }, 400, "VALIDATION");
+  await fail(
+    "PUT",
+    `/api/projects/${S.slug}/report`,
+    { blocks: [{ kind: "gif" }] },
+    400,
+    "VALIDATION",
+  );
   await fail("PUT", `/api/projects/${S.slug}/report`, { blocks: "nope" }, 400, "VALIDATION");
-  await fail("PUT", `/api/projects/${S.slug}/report`,
-    { blocks: Array.from({ length: 101 }, () => ({ kind: "text", content: "x" })) }, 400, "VALIDATION");
+  await fail(
+    "PUT",
+    `/api/projects/${S.slug}/report`,
+    { blocks: Array.from({ length: 101 }, () => ({ kind: "text", content: "x" })) },
+    400,
+    "VALIDATION",
+  );
 
   // PUT replaces the layout wholesale
   const put = await ok("PUT", `/api/projects/${S.slug}/report`, {
@@ -2655,7 +3531,13 @@ test("report: a persisted project artifact — PUT validates + replaces, POST ap
     block: { kind: "quote", content: { text: quoteText, attribution: "exit interview r3" } },
   });
   assert.deepEqual(appended, { blocks: 3 });
-  await fail("POST", `/api/projects/${S.slug}/report/blocks`, { block: { kind: "hologram" } }, 400, "VALIDATION");
+  await fail(
+    "POST",
+    `/api/projects/${S.slug}/report/blocks`,
+    { block: { kind: "hologram" } },
+    400,
+    "VALIDATION",
+  );
 
   p = await getProject();
   assert.equal(p.report.blocks.length, 3);
@@ -2667,7 +3549,10 @@ test("report: a persisted project artifact — PUT validates + replaces, POST ap
   assert.equal(res.status, 200);
   const html = await res.text();
   assert.match(html, /Pay dominates exit narratives\./);
-  assert.ok(html.includes(quoteText), "the appended quote block's content lands in the exported HTML");
+  assert.ok(
+    html.includes(quoteText),
+    "the appended quote block's content lands in the exported HTML",
+  );
 });
 
 test("constructs: draft proposals carry draftedFrom — the corpus that fed the sample — and accept persists it", async () => {
@@ -2678,10 +3563,16 @@ test("constructs: draft proposals carry draftedFrom — the corpus that fed the 
   });
   assert.ok(r.constructs.length >= 1);
   for (const c of r.constructs) {
-    assert.equal(c.draftedFrom, S.corpusA, "every proposal names the corpus its worked examples came from");
+    assert.equal(
+      c.draftedFrom,
+      S.corpusA,
+      "every proposal names the corpus its worked examples came from",
+    );
   }
 
-  const accepted = await ok("POST", `/api/projects/${S.slug}/constructs/accept`, { constructs: r.constructs });
+  const accepted = await ok("POST", `/api/projects/${S.slug}/constructs/accept`, {
+    constructs: r.constructs,
+  });
   const got = await ok("GET", `/api/projects/${S.slug}/constructs/${accepted.constructIds[0]}`);
   assert.equal(got.draftedFrom, S.corpusA);
   await ok("DELETE", `/api/projects/${S.slug}/constructs/${got.id}`); // keep the graph tidy

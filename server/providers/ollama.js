@@ -33,7 +33,11 @@ export class OllamaAdapter extends Adapter {
     const text = typeof raw.message.content === "string" ? raw.message.content : undefined;
     let json;
     if (req.schema && text !== undefined) {
-      try { json = JSON.parse(text); } catch { /* completeWithRepair handles it */ }
+      try {
+        json = JSON.parse(text);
+      } catch {
+        /* completeWithRepair handles it */
+      }
     }
     // Truncation fast-fail (mirrors openai.js finish_reason==="length" and the
     // anthropic max_tokens guard): num_predict exhausted mid-generation reports
@@ -42,8 +46,11 @@ export class OllamaAdapter extends Adapter {
     // SCHEMA_INVALID; TRUNCATED instead lets withTruncationRetry double the
     // budget. A complete, schema-valid emission passes through even at "length"
     // (the budget was simply generous).
-    if (req.schema && raw.done_reason === "length"
-      && (json === undefined || validateSchema(json, req.schema).length > 0)) {
+    if (
+      req.schema &&
+      raw.done_reason === "length" &&
+      (json === undefined || validateSchema(json, req.schema).length > 0)
+    ) {
       throw new ConcordError(
         "TRUNCATED",
         `ollama: structured output truncated at the token limit; raise maxTokens (currently ${req.maxTokens ?? "default"}) and retry`,

@@ -50,14 +50,10 @@ export function crosstab(units, rowKey, colKey) {
   }
   const rows = sortLabels(rowSet);
   const cols = sortLabels(colSet);
-  const matrix = rows.map((r) =>
-    cols.map((c) => counts.get(r)?.get(c) || 0)
-  );
+  const matrix = rows.map((r) => cols.map((c) => counts.get(r)?.get(c) || 0));
   const rowTotals = matrix.map((row) => row.reduce((a, b) => a + b, 0));
   const colTotals = cols.map((_, j) => matrix.reduce((a, row) => a + row[j], 0));
-  const expected = rows.map((_, i) =>
-    cols.map((_, j) => (rowTotals[i] * colTotals[j]) / total)
-  );
+  const expected = rows.map((_, i) => cols.map((_, j) => (rowTotals[i] * colTotals[j]) / total));
   const df = (rows.length - 1) * (cols.length - 1);
   let chi2 = null;
   let p = null;

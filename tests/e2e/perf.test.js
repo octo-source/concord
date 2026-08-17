@@ -56,7 +56,11 @@ async function ok(method, p, body) {
   }
   const res = await fetch(base + p, init);
   const json = JSON.parse(await res.text());
-  assert.equal(res.status, 200, `${method} ${p} → ${res.status}: ${JSON.stringify(json).slice(0, 300)}`);
+  assert.equal(
+    res.status,
+    200,
+    `${method} ${p} → ${res.status}: ${JSON.stringify(json).slice(0, 300)}`,
+  );
   assert.equal(json.ok, true);
   return json.data;
 }
@@ -110,7 +114,9 @@ test("perf: 10k-row import through HTTP (upload + mapping + confirm) < 10s", asy
   S.corpus10k = confirmed.corpusId;
 
   assert.equal(confirmed.unitCount, 10000);
-  console.log(`    perf: 10k-row import end-to-end ${ms.toFixed(0)}ms (csv ${(csv.length / 1024 / 1024).toFixed(1)}MB, generated in ${genMs.toFixed(0)}ms)`);
+  console.log(
+    `    perf: 10k-row import end-to-end ${ms.toFixed(0)}ms (csv ${(csv.length / 1024 / 1024).toFixed(1)}MB, generated in ${genMs.toFixed(0)}ms)`,
+  );
   assert.ok(ms < 10_000, `10k import budget 10s, took ${ms.toFixed(0)}ms`);
 });
 
@@ -143,20 +149,31 @@ test("perf: full-corpus dictionary run via the engine on the demo corpus (2,500 
     type: "binary",
     definition: "The unit uses compensation vocabulary.",
     criteria: { include: ["pay/salary/compensation terms"], exclude: [] },
-    categories: [{ value: "yes", label: "Yes" }, { value: "no", label: "No" }],
+    categories: [
+      { value: "yes", label: "Yes" },
+      { value: "no", label: "No" },
+    ],
   });
   const inst = await ok("POST", `/api/projects/${S.slug}/instruments`, {
     constructId: construct.id,
     kind: "dictionary",
     name: "Pay dictionary",
     payload: {
-      categories: [{
-        name: "pay",
-        terms: [
-          { term: "pay" }, { term: "pay*" }, { term: "salar*" }, { term: "compensation" },
-          { term: "underpaid" }, { term: "raise" }, { term: "bonus" }, { term: "wage*" },
-        ],
-      }],
+      categories: [
+        {
+          name: "pay",
+          terms: [
+            { term: "pay" },
+            { term: "pay*" },
+            { term: "salar*" },
+            { term: "compensation" },
+            { term: "underpaid" },
+            { term: "raise" },
+            { term: "bonus" },
+            { term: "wage*" },
+          ],
+        },
+      ],
       negation: { enabled: false, window: 3 },
       scoring: "count",
     },
@@ -192,18 +209,28 @@ test("perf: full-corpus dictionary run via the engine on the demo corpus (2,500 
       kind: "dictionary",
       name: "Pay dictionary (re-measure)",
       payload: {
-        categories: [{
-          name: "pay",
-          terms: [
-            { term: "pay" }, { term: "pay*" }, { term: "salar*" }, { term: "compensation" },
-            { term: "underpaid" }, { term: "raise" }, { term: "bonus" }, { term: "wages" },
-          ],
-        }],
+        categories: [
+          {
+            name: "pay",
+            terms: [
+              { term: "pay" },
+              { term: "pay*" },
+              { term: "salar*" },
+              { term: "compensation" },
+              { term: "underpaid" },
+              { term: "raise" },
+              { term: "bonus" },
+              { term: "wages" },
+            ],
+          },
+        ],
         negation: { enabled: false, window: 3 },
         scoring: "count",
       },
     });
-    console.log(`    perf: first measurement ${ms.toFixed(0)}ms (over budget under suite contention) — re-measuring once`);
+    console.log(
+      `    perf: first measurement ${ms.toFixed(0)}ms (over budget under suite contention) — re-measuring once`,
+    );
     await new Promise((r) => setTimeout(r, 2000));
     ({ ms, runId, done } = await measureRun(inst2.id));
   }
@@ -214,9 +241,16 @@ test("perf: full-corpus dictionary run via the engine on the demo corpus (2,500 
     spec: { runId },
   });
   const yes = analysis.results.prevalence.find((p) => p.label === "yes");
-  assert.ok(yes && yes.share > 0.15 && yes.share < 0.45,
-    `dictionary sees the planted pay vocabulary (${JSON.stringify(yes)})`);
+  assert.ok(
+    yes && yes.share > 0.15 && yes.share < 0.45,
+    `dictionary sees the planted pay vocabulary (${JSON.stringify(yes)})`,
+  );
 
-  console.log(`    perf: dictionary engine run over 2,500 demo units ${ms.toFixed(0)}ms ($${done.data.cost?.actualUSD ?? 0})`);
-  assert.ok(ms < 10_000, `dictionary engine-run budget 10s, took ${ms.toFixed(0)}ms (after one contention re-measure)`);
+  console.log(
+    `    perf: dictionary engine run over 2,500 demo units ${ms.toFixed(0)}ms ($${done.data.cost?.actualUSD ?? 0})`,
+  );
+  assert.ok(
+    ms < 10_000,
+    `dictionary engine-run budget 10s, took ${ms.toFixed(0)}ms (after one contention re-measure)`,
+  );
 });

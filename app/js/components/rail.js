@@ -12,7 +12,11 @@ export const DEFAULT_SECTIONS = [
   { id: "constructs", title: "Constructs", emptyHint: "What do you want to measure?" },
   { id: "instruments", title: "Instruments", emptyHint: "Compiled from constructs." },
   { id: "runs", title: "Runs", emptyHint: "Nothing has been measured yet." },
-  { id: "analyses", title: "Analyses", emptyHint: "Crosstabs, models, and triangulation. Corrected where gold labels exist." },
+  {
+    id: "analyses",
+    title: "Analyses",
+    emptyHint: "Crosstabs, models, and triangulation. Corrected where gold labels exist.",
+  },
 ];
 
 /**
@@ -61,19 +65,23 @@ function build(nav, { sections, activeId, onSelect }) {
 
     for (const item of items) {
       const isActive = item.id === activeId;
-      const btn = el("button", {
-        class: `rail__item${isActive ? " rail__item--active" : ""}`,
-        type: "button",
-        tabindex: "-1",
-        title: item.title ?? null, // full text when the label is truncated
-        dataset: { id: item.id, section: section.id },
-        aria: { current: isActive ? "true" : null },
-        onclick: () => {
-          if (item.href) location.hash = item.href;
-          onSelect?.(item, section.id);
+      const btn = el(
+        "button",
+        {
+          class: `rail__item${isActive ? " rail__item--active" : ""}`,
+          type: "button",
+          tabindex: "-1",
+          title: item.title ?? null, // full text when the label is truncated
+          dataset: { id: item.id, section: section.id },
+          aria: { current: isActive ? "true" : null },
+          onclick: () => {
+            if (item.href) location.hash = item.href;
+            onSelect?.(item, section.id);
+          },
         },
-      },
-        el("span", { class: "rail__item-label" },
+        el(
+          "span",
+          { class: "rail__item-label" },
           item.label,
           glyph.render({ authoredBy: item.authoredBy, humanTouched: item.humanTouched ?? true }),
         ),
@@ -88,10 +96,16 @@ function build(nav, { sections, activeId, onSelect }) {
     }
 
     nav.append(
-      el("section", { class: "rail__section", aria: { label: section.title } },
-        el("h2", { class: "rail__heading overline" },
+      el(
+        "section",
+        { class: "rail__section", aria: { label: section.title } },
+        el(
+          "h2",
+          { class: "rail__heading overline" },
           section.title,
-          items.length ? el("span", { class: "rail__heading-count data" }, String(items.length)) : null,
+          items.length
+            ? el("span", { class: "rail__heading-count data" }, String(items.length))
+            : null,
         ),
         items.length
           ? list

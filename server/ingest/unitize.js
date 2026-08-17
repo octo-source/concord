@@ -8,9 +8,34 @@ import { bestTextColumn } from "./mapping.js";
 
 // Abbreviations that end with "." but do not end a sentence.
 const ABBREV = [
-  "Dr.", "Mr.", "Mrs.", "Ms.", "Prof.", "St.", "vs.", "etc.", "e.g.", "i.e.",
-  "U.S.", "No.", "Fig.", "Jr.", "Sr.", "al.", "Inc.", "Ltd.", "Co.", "Ave.",
-  "Dept.", "approx.", "Mt.", "Rev.", "Gen.", "Sgt.", "Capt.", "Col.",
+  "Dr.",
+  "Mr.",
+  "Mrs.",
+  "Ms.",
+  "Prof.",
+  "St.",
+  "vs.",
+  "etc.",
+  "e.g.",
+  "i.e.",
+  "U.S.",
+  "No.",
+  "Fig.",
+  "Jr.",
+  "Sr.",
+  "al.",
+  "Inc.",
+  "Ltd.",
+  "Co.",
+  "Ave.",
+  "Dept.",
+  "approx.",
+  "Mt.",
+  "Rev.",
+  "Gen.",
+  "Sgt.",
+  "Capt.",
+  "Col.",
 ];
 const ABBREV_LOWER = ABBREV.map((a) => a.toLowerCase());
 
@@ -41,7 +66,16 @@ export function splitSentences(text) {
     const ch = t[i];
     if (ch !== "." && ch !== "!" && ch !== "?") continue;
     let j = i;
-    while (j + 1 < t.length && (t[j + 1] === "." || t[j + 1] === "!" || t[j + 1] === "?" || t[j + 1] === '"' || t[j + 1] === "'" || t[j + 1] === ")")) j++;
+    while (
+      j + 1 < t.length &&
+      (t[j + 1] === "." ||
+        t[j + 1] === "!" ||
+        t[j + 1] === "?" ||
+        t[j + 1] === '"' ||
+        t[j + 1] === "'" ||
+        t[j + 1] === ")")
+    )
+      j++;
     let k = j + 1;
     if (k >= t.length) break; // end of text closes last sentence below
     if (!/\s/.test(t[k])) continue; // needs whitespace after punctuation
@@ -82,7 +116,10 @@ function pickTextColumn(rows, textColumn, issues) {
     }
   }
   if (!bestName) throw new ConcordError("NO_TEXT_COLUMN", "cannot determine a text column", {});
-  issues?.push?.({ kind: "text_column_guess", detail: `no clear text column; using "${bestName}"` });
+  issues?.push?.({
+    kind: "text_column_guess",
+    detail: `no clear text column; using "${bestName}"`,
+  });
   return bestName;
 }
 
@@ -100,9 +137,13 @@ export function unitize(corpusId, parsed, scheme, { textColumn, ignoreColumns } 
   const bases = []; // {text, meta, pos}
   if (Array.isArray(parsed.rows)) {
     if (scheme !== "response" && scheme !== "sentence") {
-      throw new ConcordError("BAD_SCHEME", `scheme "${scheme}" does not apply to tabular rows`, { scheme });
+      throw new ConcordError("BAD_SCHEME", `scheme "${scheme}" does not apply to tabular rows`, {
+        scheme,
+      });
     }
-    const col = parsed.rows.length ? pickTextColumn(parsed.rows, textColumn, parsed.issues) : textColumn;
+    const col = parsed.rows.length
+      ? pickTextColumn(parsed.rows, textColumn, parsed.issues)
+      : textColumn;
     const ignore = new Set(ignoreColumns ?? []);
     ignore.delete(col); // the text column is never droppable — the explicit choice wins
     parsed.rows.forEach((row, r) => {
@@ -116,7 +157,9 @@ export function unitize(corpusId, parsed, scheme, { textColumn, ignoreColumns } 
     });
   } else if (Array.isArray(parsed.docs)) {
     if (scheme !== "paragraph" && scheme !== "sentence" && scheme !== "response") {
-      throw new ConcordError("BAD_SCHEME", `scheme "${scheme}" does not apply to documents`, { scheme });
+      throw new ConcordError("BAD_SCHEME", `scheme "${scheme}" does not apply to documents`, {
+        scheme,
+      });
     }
     parsed.docs.forEach((doc, di) => {
       if (scheme === "response") {
@@ -136,7 +179,9 @@ export function unitize(corpusId, parsed, scheme, { textColumn, ignoreColumns } 
     });
   } else if (Array.isArray(parsed.turns)) {
     if (scheme !== "turn" && scheme !== "sentence") {
-      throw new ConcordError("BAD_SCHEME", `scheme "${scheme}" does not apply to transcripts`, { scheme });
+      throw new ConcordError("BAD_SCHEME", `scheme "${scheme}" does not apply to transcripts`, {
+        scheme,
+      });
     }
     parsed.turns.forEach((turn, ti) => {
       const text = String(turn.text ?? "").trim();
@@ -149,7 +194,9 @@ export function unitize(corpusId, parsed, scheme, { textColumn, ignoreColumns } 
       });
     });
   } else {
-    throw new ConcordError("BAD_PARSED", "parsed result has none of rows/docs/turns", { keys: Object.keys(parsed) });
+    throw new ConcordError("BAD_PARSED", "parsed result has none of rows/docs/turns", {
+      keys: Object.keys(parsed),
+    });
   }
 
   const units = [];

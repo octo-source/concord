@@ -75,7 +75,9 @@ async function main() {
     process.exit(1);
   }
   if (failed.length > 0) {
-    console.error(`${failed.length} face(s) missing — the UI falls back per-face via font-display: swap.`);
+    console.error(
+      `${failed.length} face(s) missing — the UI falls back per-face via font-display: swap.`,
+    );
   }
 }
 

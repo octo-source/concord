@@ -26,16 +26,26 @@ export const STAGES = [
  *             (same shape) — e.g. "Reliability →", every agreement statistic
  *             for the construct in one place
  */
-export function render({ current, states = {}, action = null, secondary = null, companion = null } = {}) {
+export function render({
+  current,
+  states = {},
+  action = null,
+  secondary = null,
+  companion = null,
+} = {}) {
   const ci = STAGES.findIndex((s) => s.key === current);
   const items = STAGES.map((s, i) => {
     const state = states[s.key] ?? (i < ci ? "done" : i === ci ? "current" : "next");
-    return el("li", {
-      class: `pipeline__stage pipeline__stage--${state}`,
-      aria: { current: state === "current" ? "step" : null },
-    },
+    return el(
+      "li",
+      {
+        class: `pipeline__stage pipeline__stage--${state}`,
+        aria: { current: state === "current" ? "step" : null },
+      },
       s.label,
-      state === "done" ? el("span", { class: "pipeline__tick", aria: { hidden: "true" } }, "✓") : null,
+      state === "done"
+        ? el("span", { class: "pipeline__tick", aria: { hidden: "true" } }, "✓")
+        : null,
       s.mark ? el("span", { class: "pipeline__mark", aria: { hidden: "true" } }, s.mark) : null,
     );
   });
@@ -46,12 +56,18 @@ export function render({ current, states = {}, action = null, secondary = null, 
       return el("a", { class: cls, href: a.href, title: a.title ?? null }, a.label);
     }
     if (typeof a?.onclick === "function") {
-      return el("button", { class: cls, type: "button", onclick: a.onclick, title: a.title ?? null }, a.label);
+      return el(
+        "button",
+        { class: cls, type: "button", onclick: a.onclick, title: a.title ?? null },
+        a.label,
+      );
     }
     return null;
   };
 
-  return el("nav", { class: "pipeline", aria: { label: "Measurement pipeline" } },
+  return el(
+    "nav",
+    { class: "pipeline", aria: { label: "Measurement pipeline" } },
     el("ol", { class: "pipeline__stages", role: "list" }, ...items),
     goEl(action),
     goEl(secondary),

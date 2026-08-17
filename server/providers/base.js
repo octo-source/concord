@@ -18,7 +18,13 @@ export class Adapter {
   }
 
   capabilities() {
-    return { structuredOutput: false, pinning: false, batch: false, local: false, family: this.name };
+    return {
+      structuredOutput: false,
+      pinning: false,
+      batch: false,
+      local: false,
+      family: this.name,
+    };
   }
 
   // → [{id, name, family, ctx, pricing:{inUSDper1M, outUSDper1M}, snapshot}]
@@ -57,7 +63,11 @@ function providerErrorDetail(data) {
   const raw = err.metadata?.raw;
   if (typeof raw === "string" && raw.trim()) {
     let inner;
-    try { inner = JSON.parse(raw); } catch { /* raw is not JSON — use verbatim */ }
+    try {
+      inner = JSON.parse(raw);
+    } catch {
+      /* raw is not JSON — use verbatim */
+    }
     const innerMsg = inner?.error?.message;
     msg = typeof innerMsg === "string" && innerMsg ? innerMsg : raw;
   }
@@ -90,23 +100,41 @@ export async function httpJSON(method, url, { headers = {}, body, timeoutMs = 12
         signal: ctrl.signal,
       });
     } catch (err) {
-      throw new ConcordError("PROVIDER_UNREACHABLE", `request to ${url} failed: ${err?.message ?? err}`, { url, kind: err?.name }, { cause: err });
+      throw new ConcordError(
+        "PROVIDER_UNREACHABLE",
+        `request to ${url} failed: ${err?.message ?? err}`,
+        { url, kind: err?.name },
+        { cause: err },
+      );
     }
     let text;
     try {
       text = await res.text();
     } catch (err) {
-      throw new ConcordError("PROVIDER_UNREACHABLE", `reading response body from ${url} failed: ${err?.message ?? err}`, { url, kind: err?.name }, { cause: err });
+      throw new ConcordError(
+        "PROVIDER_UNREACHABLE",
+        `reading response body from ${url} failed: ${err?.message ?? err}`,
+        { url, kind: err?.name },
+        { cause: err },
+      );
     }
     let data;
-    try { data = text ? JSON.parse(text) : null; } catch { data = text; }
+    try {
+      data = text ? JSON.parse(text) : null;
+    } catch {
+      data = text;
+    }
     if (!res.ok) {
       const detail = providerErrorDetail(data);
-      throw new ConcordError("PROVIDER_HTTP", `${method} ${url} → HTTP ${res.status}${detail ? ` — ${detail}` : ""}`, {
-        status: res.status,
-        body: data,
-        retryAfterMs: parseRetryAfter(res.headers.get("retry-after")),
-      });
+      throw new ConcordError(
+        "PROVIDER_HTTP",
+        `${method} ${url} → HTTP ${res.status}${detail ? ` — ${detail}` : ""}`,
+        {
+          status: res.status,
+          body: data,
+          retryAfterMs: parseRetryAfter(res.headers.get("retry-after")),
+        },
+      );
     }
     return data;
   } finally {
@@ -120,9 +148,17 @@ export async function httpJSON(method, url, { headers = {}, body, timeoutMs = 12
 // throw raw TypeErrors.
 export function malformedResponse(provider, raw) {
   let snippet;
-  try { snippet = typeof raw === "string" ? raw : JSON.stringify(raw); } catch { snippet = String(raw); }
+  try {
+    snippet = typeof raw === "string" ? raw : JSON.stringify(raw);
+  } catch {
+    snippet = String(raw);
+  }
   snippet = String(snippet ?? raw).slice(0, 200);
-  return new ConcordError("PROVIDER_HTTP", `malformed response from ${provider}: expected envelope missing`, { provider, body: snippet });
+  return new ConcordError(
+    "PROVIDER_HTTP",
+    `malformed response from ${provider}: expected envelope missing`,
+    { provider, body: snippet },
+  );
 }
 
 // Live model lists (Anthropic /v1/models, OpenAI /v1/models) carry ids and
@@ -186,7 +222,13 @@ const retryClass = (err) => {
 // pacing, exponential backoff with jitter. Budgets per retryClass above:
 // max 6 attempts for 429/5xx, max 3 for PROVIDER_UNREACHABLE.
 export class Pool {
-  constructor({ concurrency = 4, rpm = 0, baseDelayMs = 250, maxAttempts = 6, windowMs = 60_000 } = {}) {
+  constructor({
+    concurrency = 4,
+    rpm = 0,
+    baseDelayMs = 250,
+    maxAttempts = 6,
+    windowMs = 60_000,
+  } = {}) {
     this.concurrency = Math.max(1, concurrency);
     this.rpm = rpm || 0;
     this.baseDelayMs = baseDelayMs;
@@ -217,7 +259,10 @@ export class Pool {
         const cls = retryClass(err);
         if (!cls) throw err;
         lastErr = err;
-        const budget = cls === "unreachable" ? Math.min(UNREACHABLE_MAX_ATTEMPTS, this.maxAttempts) : this.maxAttempts;
+        const budget =
+          cls === "unreachable"
+            ? Math.min(UNREACHABLE_MAX_ATTEMPTS, this.maxAttempts)
+            : this.maxAttempts;
         if (attempt >= budget) {
           // Unreachable keeps its identity (callers branch on the code and
           // details.kind); HTTP exhaustion keeps the historical shape.
@@ -227,8 +272,13 @@ export class Pool {
           // from returned-but-failed attempts) onto the thrown error, and
           // retryAfterMs rides the same details. Dropping them here lost a
           // metering consumer behind a Pool the abandoned unit's spend.
-          const details = { attempts: attempt, lastStatus: err?.details?.status, lastMessage: err?.message };
-          if (err?.details?.attemptsUsage != null) details.attemptsUsage = err.details.attemptsUsage;
+          const details = {
+            attempts: attempt,
+            lastStatus: err?.details?.status,
+            lastMessage: err?.message,
+          };
+          if (err?.details?.attemptsUsage != null)
+            details.attemptsUsage = err.details.attemptsUsage;
           if (err?.details?.retryAfterMs != null) details.retryAfterMs = err.details.retryAfterMs;
           throw new ConcordError(
             "RATE_LIMITED_EXHAUSTED",
@@ -292,7 +342,9 @@ export function validateSchema(value, schema, path = "$") {
   const declared = schema.type ? [].concat(schema.type) : [];
   const types = declared.length ? declared : schema.properties ? ["object"] : [];
   if (types.length && !types.some((t) => typeMatches(value, t))) {
-    problems.push(`${path}: expected ${types.join("|")}, got ${value === null ? "null" : Array.isArray(value) ? "array" : typeof value}`);
+    problems.push(
+      `${path}: expected ${types.join("|")}, got ${value === null ? "null" : Array.isArray(value) ? "array" : typeof value}`,
+    );
     return problems; // wrong type → deeper checks are noise
   }
   if (types.includes("object") && value && typeof value === "object" && !Array.isArray(value)) {
@@ -313,22 +365,32 @@ export function validateSchema(value, schema, path = "$") {
     value.forEach((v, i) => problems.push(...validateSchema(v, schema.items, `${path}[${i}]`)));
   }
   if (typeof value === "number") {
-    if (schema.minimum != null && value < schema.minimum) problems.push(`${path}: ${value} < minimum ${schema.minimum}`);
-    if (schema.maximum != null && value > schema.maximum) problems.push(`${path}: ${value} > maximum ${schema.maximum}`);
+    if (schema.minimum != null && value < schema.minimum)
+      problems.push(`${path}: ${value} < minimum ${schema.minimum}`);
+    if (schema.maximum != null && value > schema.maximum)
+      problems.push(`${path}: ${value} > maximum ${schema.maximum}`);
   }
   return problems;
 }
 
 function typeMatches(value, type) {
   switch (type) {
-    case "object": return value !== null && typeof value === "object" && !Array.isArray(value);
-    case "array": return Array.isArray(value);
-    case "string": return typeof value === "string";
-    case "number": return typeof value === "number" && Number.isFinite(value);
-    case "integer": return Number.isInteger(value);
-    case "boolean": return typeof value === "boolean";
-    case "null": return value === null;
-    default: return true;
+    case "object":
+      return value !== null && typeof value === "object" && !Array.isArray(value);
+    case "array":
+      return Array.isArray(value);
+    case "string":
+      return typeof value === "string";
+    case "number":
+      return typeof value === "number" && Number.isFinite(value);
+    case "integer":
+      return Number.isInteger(value);
+    case "boolean":
+      return typeof value === "boolean";
+    case "null":
+      return value === null;
+    default:
+      return true;
   }
 }
 
@@ -338,16 +400,29 @@ function extractCandidate(res) {
   if (res.json !== undefined) return { value: res.json, found: true };
   let text = typeof res.text === "string" ? res.text.trim() : "";
   text = text.replace(/^```(?:json)?\s*/i, "").replace(/\s*```$/, "");
-  try { return { value: JSON.parse(text), found: true }; } catch { /* fall through */ }
+  try {
+    return { value: JSON.parse(text), found: true };
+  } catch {
+    /* fall through */
+  }
   const first = text.indexOf("{");
   const last = text.lastIndexOf("}");
   if (first !== -1 && last > first) {
-    try { return { value: JSON.parse(text.slice(first, last + 1)), found: true }; } catch { /* fall through */ }
+    try {
+      return { value: JSON.parse(text.slice(first, last + 1)), found: true };
+    } catch {
+      /* fall through */
+    }
   }
   return { value: undefined, found: false };
 }
 
-const textOf = (res) => (typeof res?.text === "string" ? res.text : res?.json !== undefined ? JSON.stringify(res.json) : "");
+const textOf = (res) =>
+  typeof res?.text === "string"
+    ? res.text
+    : res?.json !== undefined
+      ? JSON.stringify(res.json)
+      : "";
 
 // ---------------------------------------------------------------------------
 // Per-attempt usage accounting
@@ -484,12 +559,17 @@ export async function completeWithRepair(adapter, req, { maxRepairs = 2 } = {}) 
     addAttempt(totals, res.usage);
     const { value, found } = extractCandidate(res);
     problems = found ? validateSchema(value, req.schema) : ["response is not parseable JSON"];
-    if (problems.length === 0) return { ...res, json: value, repairs: i, attemptsUsage: { ...totals } };
+    if (problems.length === 0)
+      return { ...res, json: value, repairs: i, attemptsUsage: { ...totals } };
     last = res;
   }
-  throw new ConcordError("SCHEMA_INVALID", `response failed schema validation after ${maxRepairs} repair attempt(s)`, {
-    problems,
-    lastText: textOf(last),
-    attemptsUsage: { ...totals }, // every attempt returned (and billed) — callers meter quarantined spend from this
-  });
+  throw new ConcordError(
+    "SCHEMA_INVALID",
+    `response failed schema validation after ${maxRepairs} repair attempt(s)`,
+    {
+      problems,
+      lastText: textOf(last),
+      attemptsUsage: { ...totals }, // every attempt returned (and billed) — callers meter quarantined spend from this
+    },
+  );
 }

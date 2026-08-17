@@ -58,7 +58,11 @@ async function call(method, p, body) {
   const res = await fetch(base + p, init);
   const text = await res.text();
   let json = null;
-  try { json = JSON.parse(text); } catch { /* non-JSON */ }
+  try {
+    json = JSON.parse(text);
+  } catch {
+    /* non-JSON */
+  }
   return { status: res.status, json, text };
 }
 
@@ -71,9 +75,14 @@ async function ok(method, p, body) {
 
 async function fail(method, p, body, status, code) {
   const r = await call(method, p, body);
-  assert.equal(r.status, status, `${method} ${p} expected ${status}, got ${r.status}: ${r.text?.slice(0, 300)}`);
+  assert.equal(
+    r.status,
+    status,
+    `${method} ${p} expected ${status}, got ${r.status}: ${r.text?.slice(0, 300)}`,
+  );
   assert.equal(r.json?.ok, false);
-  if (code) assert.equal(r.json.error.code, code, `expected error code ${code}, got ${r.json.error.code}`);
+  if (code)
+    assert.equal(r.json.error.code, code, `expected error code ${code}, got ${r.json.error.code}`);
   return r.json.error;
 }
 
@@ -82,7 +91,11 @@ async function upload(p, filename, content) {
   form.append("file", new Blob([content]), filename);
   const res = await fetch(base + p, { method: "POST", body: form });
   const json = JSON.parse(await res.text());
-  assert.equal(res.status, 200, `upload ${p} → ${res.status}: ${JSON.stringify(json).slice(0, 300)}`);
+  assert.equal(
+    res.status,
+    200,
+    `upload ${p} → ${res.status}: ${JSON.stringify(json).slice(0, 300)}`,
+  );
   return json.data;
 }
 
@@ -90,9 +103,10 @@ function makeCsv() {
   // 40 rows of comfortably-long text so the response column detects as text
   const lines = ["respondent_id,response"];
   for (let i = 0; i < 40; i++) {
-    const text = i % 3 === 0
-      ? "the salary is too low for this work and it never improves around here"
-      : "the office is comfortable and the team is genuinely kind to everyone";
+    const text =
+      i % 3 === 0
+        ? "the salary is too low for this work and it never improves around here"
+        : "the office is comfortable and the team is genuinely kind to everyone";
     lines.push(`r${i},${text}`);
   }
   return lines.join("\n") + "\n";
@@ -132,17 +146,27 @@ test("setup: project + corpus + construct + a goldset carrying committed work", 
     name: "Pay complaint",
     type: "binary",
     definition: "The unit complains about compensation level or fairness.",
-    criteria: { include: ["names compensation as a problem"], exclude: ["benefits-only complaints"] },
+    criteria: {
+      include: ["names compensation as a problem"],
+      exclude: ["benefits-only complaints"],
+    },
     edgeCases: [],
     examples: [
       { text: "What they pay us is insulting.", label: "yes", kind: "positive" },
       { text: "Great team, decent comp.", label: "no", kind: "negative" },
     ],
-    categories: [{ value: "yes", label: "Yes" }, { value: "no", label: "No" }],
+    categories: [
+      { value: "yes", label: "Yes" },
+      { value: "no", label: "No" },
+    ],
   });
   S.constructId = construct.id;
 
-  const gs = await ok("POST", G(), { constructId: S.constructId, tier: "gold", corpusId: S.corpusId });
+  const gs = await ok("POST", G(), {
+    constructId: S.constructId,
+    tier: "gold",
+    corpusId: S.corpusId,
+  });
   S.goldsetId = gs.id;
   const sampled = await ok("POST", G(`/${gs.id}/sample`), { design: "srs", n: 10 });
   assert.equal(sampled.n, 10, "a FRESH goldset samples without any confirmation");
@@ -170,7 +194,13 @@ test("setup: project + corpus + construct + a goldset carrying committed work", 
 });
 
 test("(a) sample over committed work without force → 409 CONFIRM_REQUIRED with exact counts; nothing is touched", async () => {
-  const err = await fail("POST", G(`/${S.goldsetId}/sample`), { design: "srs", n: 10 }, 409, "CONFIRM_REQUIRED");
+  const err = await fail(
+    "POST",
+    G(`/${S.goldsetId}/sample`),
+    { design: "srs", n: 10 },
+    409,
+    "CONFIRM_REQUIRED",
+  );
   assert.deepEqual(err.details, PLANTED, "detail carries the exact committed-work counts");
   assert.match(err.message, /10 human labels/, "message states the real label count");
   assert.match(err.message, /2 coders/, "message states the real coder count");
@@ -200,7 +230,11 @@ test("(b) sample with force: true → 200, new sample drawn, all committed work 
   }
   assert.deepEqual(artifact.adjudicated ?? {}, {}, "adjudications emptied");
   assert.deepEqual(artifact.excluded ?? [], [], "exclusions emptied");
-  assert.equal(artifact.humanAgreement, undefined, "stale human-agreement report dropped with the labels it measured");
+  assert.equal(
+    artifact.humanAgreement,
+    undefined,
+    "stale human-agreement report dropped with the labels it measured",
+  );
   assert.equal(artifact.status, "coding", "the normal sample flow's status transition still runs");
 });
 
@@ -219,7 +253,11 @@ test("(c) delete over committed work without force → 409 CONFIRM_REQUIRED; the
   // recommit work on the (now clean) goldset: one coder, three labels
   const full = await ok("GET", G(`/${S.goldsetId}`));
   for (const s of full.sample.slice(0, 3)) {
-    await ok("POST", G(`/${S.goldsetId}/label`), { coder: "coder-C", unitId: s.unitId, label: "yes" });
+    await ok("POST", G(`/${S.goldsetId}/label`), {
+      coder: "coder-C",
+      unitId: s.unitId,
+      label: "yes",
+    });
   }
 
   const err = await fail("DELETE", G(`/${S.goldsetId}`), undefined, 409, "CONFIRM_REQUIRED");
@@ -236,11 +274,19 @@ test("(d) delete with ?force=1 → 200; goldset gone from the project and the ar
   await fail("GET", G(`/${S.goldsetId}`), undefined, 404, "NOT_FOUND");
   const list = await ok("GET", G());
   assert.ok(!list.some((g) => g.id === S.goldsetId), "project meta no longer lists the goldset");
-  await assert.rejects(stat(goldsetArtifact(S.goldsetId)), { code: "ENOENT" }, "artifact file removed from disk");
+  await assert.rejects(
+    stat(goldsetArtifact(S.goldsetId)),
+    { code: "ENOENT" },
+    "artifact file removed from disk",
+  );
 });
 
 test("(e) fresh goldsets keep the old behavior: sample, resample, and delete all work without force", async () => {
-  const gs = await ok("POST", G(), { constructId: S.constructId, tier: "gold", corpusId: S.corpusId });
+  const gs = await ok("POST", G(), {
+    constructId: S.constructId,
+    tier: "gold",
+    corpusId: S.corpusId,
+  });
   const first = await ok("POST", G(`/${gs.id}/sample`), { design: "srs", n: 10 });
   assert.equal(first.n, 10, "first draw needs no confirmation");
   // a sample EXISTS now, but no human work is committed — resampling stays free

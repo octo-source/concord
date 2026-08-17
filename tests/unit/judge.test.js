@@ -3,7 +3,13 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 
-import { assemble, judgeUnit, outputSchemaFor, jsonSchemaFor, DEFAULT_TEMPLATE } from "../../server/instruments/judge.js";
+import {
+  assemble,
+  judgeUnit,
+  outputSchemaFor,
+  jsonSchemaFor,
+  DEFAULT_TEMPLATE,
+} from "../../server/instruments/judge.js";
 import { MockAdapter } from "../../server/providers/mock.js";
 import { createConstruct } from "../../server/core/objects.js";
 import { ConcordError } from "../../server/core/errors.js";
@@ -82,7 +88,12 @@ const judgePayload = {
   workerClass: "frontier",
 };
 
-const unit = { id: "u_1", text: "I quit because my salary was insultingly low.", meta: {}, pos: {} };
+const unit = {
+  id: "u_1",
+  text: "I quit because my salary was insultingly low.",
+  meta: {},
+  pos: {},
+};
 
 // A stub adapter that returns scripted responses in order (for repair /
 // quarantine paths). completeWithRepair only needs .complete().
@@ -94,7 +105,12 @@ function scriptedAdapter(responses) {
     complete: async (req) => {
       calls.push(req);
       const r = responses[Math.min(i++, responses.length - 1)];
-      return { text: typeof r === "string" ? r : JSON.stringify(r), usage: { inputTokens: 10, outputTokens: 5 }, finishReason: "stop", raw: {} };
+      return {
+        text: typeof r === "string" ? r : JSON.stringify(r),
+        usage: { inputTokens: 10, outputTokens: 5 },
+        finishReason: "stop",
+        raw: {},
+      };
     },
   };
 }
@@ -107,14 +123,22 @@ test("outputSchemaFor: binary defaults to yes/no", () => {
 
 test("outputSchemaFor: binary with two declared categories uses their values", () => {
   const c = createConstruct({
-    name: "B", type: "binary", definition: "d",
-    categories: [{ value: "present", label: "Present" }, { value: "absent", label: "Absent" }],
+    name: "B",
+    type: "binary",
+    definition: "d",
+    categories: [
+      { value: "present", label: "Present" },
+      { value: "absent", label: "Absent" },
+    ],
   });
   assert.deepEqual(outputSchemaFor(c), { type: "binary", options: ["present", "absent"] });
 });
 
 test("outputSchemaFor: nominal → kclass with category values", () => {
-  assert.deepEqual(outputSchemaFor(nominalConstruct), { type: "kclass", options: ["pay", "management", "workload"] });
+  assert.deepEqual(outputSchemaFor(nominalConstruct), {
+    type: "kclass",
+    options: ["pay", "management", "workload"],
+  });
 });
 
 test("outputSchemaFor: ordinal → likert with anchors (anchor, else label)", () => {
@@ -128,7 +152,10 @@ test("outputSchemaFor: ordinal → likert with anchors (anchor, else label)", ()
 test("outputSchemaFor: continuous → score0to100; multilabel and extraction", () => {
   // a declared scale rides the schema so prompt and enforcement agree
   assert.deepEqual(outputSchemaFor(continuousConstruct), { type: "score0to100", min: 0, max: 100 });
-  assert.deepEqual(outputSchemaFor(multilabelConstruct), { type: "multilabel", options: ["pay", "growth"] });
+  assert.deepEqual(outputSchemaFor(multilabelConstruct), {
+    type: "multilabel",
+    options: ["pay", "growth"],
+  });
   assert.deepEqual(outputSchemaFor(extractionConstruct), { type: "extraction" });
 });
 
@@ -142,7 +169,14 @@ test("outputSchemaFor: nominal without categories throws VALIDATION", () => {
 // ---------------------------------------------------------------- jsonSchemaFor
 
 test("jsonSchemaFor: rationale is the FIRST property (reason before verdict)", () => {
-  for (const c of [binaryConstruct, nominalConstruct, ordinalConstruct, continuousConstruct, multilabelConstruct, extractionConstruct]) {
+  for (const c of [
+    binaryConstruct,
+    nominalConstruct,
+    ordinalConstruct,
+    continuousConstruct,
+    multilabelConstruct,
+    extractionConstruct,
+  ]) {
     const js = jsonSchemaFor(outputSchemaFor(c));
     assert.equal(Object.keys(js.properties)[0], "rationale", `${c.type}: rationale first`);
   }
@@ -198,7 +232,11 @@ test('assemble: workerClass "small" prepends tighter rubric anchoring; frontier 
   const small = assemble(binaryConstruct, { ...judgePayload, workerClass: "small" }, unit);
   const frontier = assemble(binaryConstruct, judgePayload, unit);
   assert.match(small[0].content, /EXACTLY as written/);
-  assert.ok(small[0].content.indexOf("EXACTLY as written") < small[0].content.indexOf(binaryConstruct.definition), "scaffold is PREPENDED");
+  assert.ok(
+    small[0].content.indexOf("EXACTLY as written") <
+      small[0].content.indexOf(binaryConstruct.definition),
+    "scaffold is PREPENDED",
+  );
   assert.doesNotMatch(frontier[0].content, /EXACTLY as written/);
 });
 
@@ -211,28 +249,52 @@ test("assemble: likert anchors and allowed options are described to the model", 
 
 test("assemble: empty promptTemplate falls back to the default template", () => {
   const messages = assemble(binaryConstruct, { ...judgePayload, promptTemplate: "" }, unit);
-  assert.ok(messages.map((m) => m.content).join("\n").includes(binaryConstruct.definition));
+  assert.ok(
+    messages
+      .map((m) => m.content)
+      .join("\n")
+      .includes(binaryConstruct.definition),
+  );
 });
 
 test("assemble: template text after {{unit}} stays in the user turn", () => {
-  const tpl = "Definition: {{definition}}\nCriteria: {{criteria}}\nExamples: {{examples}}\nUnit: {{unit}}\nRemember: code conservatively.";
+  const tpl =
+    "Definition: {{definition}}\nCriteria: {{criteria}}\nExamples: {{examples}}\nUnit: {{unit}}\nRemember: code conservatively.";
   const messages = assemble(binaryConstruct, { ...judgePayload, promptTemplate: tpl }, unit);
   assert.ok(messages[1].content.includes("Remember: code conservatively."));
   assert.ok(!messages[0].content.includes("Remember: code conservatively."));
 });
 
 test("assemble: owns the <unit> wrapper — legacy <unit>{{unit}}</unit> templates do not double-wrap", () => {
-  const tpl = "Definition: {{definition}}\nCriteria: {{criteria}}\nExamples: {{examples}}\nUnit to code:\n<unit>{{unit}}</unit>\nCode conservatively.";
+  const tpl =
+    "Definition: {{definition}}\nCriteria: {{criteria}}\nExamples: {{examples}}\nUnit to code:\n<unit>{{unit}}</unit>\nCode conservatively.";
   const messages = assemble(binaryConstruct, { ...judgePayload, promptTemplate: tpl }, unit);
   const all = messages.map((m) => m.content).join("\n");
-  assert.equal(all.split("<unit>").length - 1, 1, "exactly one <unit> open tag in the assembled messages");
-  assert.equal(all.split("</unit>").length - 1, 1, "exactly one </unit> close tag in the assembled messages");
-  assert.ok(messages[1].content.includes(`<unit>\n${unit.text}\n</unit>`), "the surviving wrapper is assemble's own fenced block");
-  assert.ok(messages[1].content.includes("Code conservatively."), "template text after the slot still rides in the user turn");
+  assert.equal(
+    all.split("<unit>").length - 1,
+    1,
+    "exactly one <unit> open tag in the assembled messages",
+  );
+  assert.equal(
+    all.split("</unit>").length - 1,
+    1,
+    "exactly one </unit> close tag in the assembled messages",
+  );
+  assert.ok(
+    messages[1].content.includes(`<unit>\n${unit.text}\n</unit>`),
+    "the surviving wrapper is assemble's own fenced block",
+  );
+  assert.ok(
+    messages[1].content.includes("Code conservatively."),
+    "template text after the slot still rides in the user turn",
+  );
 });
 
 test("assemble: missing unit text throws VALIDATION", () => {
-  assert.throws(() => assemble(binaryConstruct, judgePayload, {}), (e) => e.code === "VALIDATION");
+  assert.throws(
+    () => assemble(binaryConstruct, judgePayload, {}),
+    (e) => e.code === "VALIDATION",
+  );
 });
 
 // ---------------------------------------------------------------- judgeUnit
@@ -328,7 +390,10 @@ test("judgeUnit: PROVIDER_REFUSAL propagates untouched (no repair loop)", async 
       throw new ConcordError("PROVIDER_REFUSAL", "model refused");
     },
   };
-  await assert.rejects(() => judgeUnit(adapter, binaryConstruct, judgePayload, unit), (e) => e.code === "PROVIDER_REFUSAL");
+  await assert.rejects(
+    () => judgeUnit(adapter, binaryConstruct, judgePayload, unit),
+    (e) => e.code === "PROVIDER_REFUSAL",
+  );
   assert.equal(adapter.calls, 1);
 });
 
@@ -347,14 +412,27 @@ function truncatingAdapter(failures, good) {
     calls,
     complete: async (req) => {
       calls.push(req);
-      if (i++ < failures) throw new ConcordError("TRUNCATED", "structured output hit maxTokens; response is not valid JSON");
-      return { text: JSON.stringify(good), usage: { inputTokens: 10, outputTokens: 5 }, finishReason: "stop", raw: {} };
+      if (i++ < failures)
+        throw new ConcordError(
+          "TRUNCATED",
+          "structured output hit maxTokens; response is not valid JSON",
+        );
+      return {
+        text: JSON.stringify(good),
+        usage: { inputTokens: 10, outputTokens: 5 },
+        finishReason: "stop",
+        raw: {},
+      };
     },
   };
 }
 
 test("judgeUnit: TRUNCATED once → ONE retry at exactly 2× the budget; both maxTokens observed", async () => {
-  const adapter = truncatingAdapter(1, { rationale: "mentions salary", label: "yes", confidence: 0.9 });
+  const adapter = truncatingAdapter(1, {
+    rationale: "mentions salary",
+    label: "yes",
+    confidence: 0.9,
+  });
   const payload = { ...judgePayload, params: { temperature: 0, maxTokens: 384 } };
   const out = await judgeUnit(adapter, binaryConstruct, payload, unit);
   assert.equal(out.label, "yes");
@@ -368,13 +446,23 @@ test("judgeUnit: retry budget is capped at 8192 (workers are high-volume)", asyn
   const payload = { ...judgePayload, params: { temperature: 0, maxTokens: 6000 } };
   const out = await judgeUnit(adapter, binaryConstruct, payload, unit);
   assert.equal(out.label, "no");
-  assert.deepEqual(adapter.calls.map((c) => c.maxTokens), [6000, 8192], "min(2×6000, 8192) = 8192");
+  assert.deepEqual(
+    adapter.calls.map((c) => c.maxTokens),
+    [6000, 8192],
+    "min(2×6000, 8192) = 8192",
+  );
 });
 
 test("judgeUnit: TRUNCATED twice propagates (the engine quarantines with the reason)", async () => {
   const adapter = truncatingAdapter(2, { rationale: "r", label: "yes" });
   await assert.rejects(
-    () => judgeUnit(adapter, binaryConstruct, { ...judgePayload, params: { temperature: 0, maxTokens: 384 } }, unit),
+    () =>
+      judgeUnit(
+        adapter,
+        binaryConstruct,
+        { ...judgePayload, params: { temperature: 0, maxTokens: 384 } },
+        unit,
+      ),
     (e) => e instanceof ConcordError && e.code === "TRUNCATED",
   );
   assert.equal(adapter.calls.length, 2, "ONE retry, then propagate — never an unbounded loop");
@@ -383,7 +471,13 @@ test("judgeUnit: TRUNCATED twice propagates (the engine quarantines with the rea
 test("judgeUnit: already at the 8192 worker cap → no second call, TRUNCATED propagates", async () => {
   const adapter = truncatingAdapter(1, { rationale: "r", label: "yes" });
   await assert.rejects(
-    () => judgeUnit(adapter, binaryConstruct, { ...judgePayload, params: { temperature: 0, maxTokens: 8192 } }, unit),
+    () =>
+      judgeUnit(
+        adapter,
+        binaryConstruct,
+        { ...judgePayload, params: { temperature: 0, maxTokens: 8192 } },
+        unit,
+      ),
     (e) => e.code === "TRUNCATED",
   );
   assert.equal(adapter.calls.length, 1, "nothing larger to try under the cap");
@@ -394,7 +488,12 @@ test("judgeUnit: params.seed threads into the request (mock varies by seed)", as
   adapter.setOracle(() => "pay");
   const seen = new Set();
   for (const seed of ["s1", "s2", "s3", "s4", "s5", "s6"]) {
-    const out = await judgeUnit(adapter, nominalConstruct, { ...judgePayload, params: { ...judgePayload.params, seed } }, unit);
+    const out = await judgeUnit(
+      adapter,
+      nominalConstruct,
+      { ...judgePayload, params: { ...judgePayload.params, seed } },
+      unit,
+    );
     seen.add(JSON.stringify(out));
   }
   assert.ok(seen.size > 1, "distinct seeds must decorrelate outputs");

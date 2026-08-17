@@ -30,7 +30,13 @@ const projectLocks = new Map(); // resolved project dir -> promise queue
 function withProjectLock(key, fn) {
   const prev = projectLocks.get(key) || Promise.resolve();
   const next = prev.then(fn, fn);
-  projectLocks.set(key, next.then(() => undefined, () => undefined));
+  projectLocks.set(
+    key,
+    next.then(
+      () => undefined,
+      () => undefined,
+    ),
+  );
   return next;
 }
 
@@ -53,7 +59,8 @@ export async function retryTransient(fn, { attempts = 6, baseMs = 40 } = {}) {
       const transient = TRANSIENT_FS_CODES.has(err?.code);
       if (!transient || i >= attempts - 1) {
         if (transient) {
-          err.message += " — another program (often Dropbox sync) held the file; the action is safe to retry";
+          err.message +=
+            " — another program (often Dropbox sync) held the file; the action is safe to retry";
         }
         throw err;
       }
@@ -90,8 +97,10 @@ export async function loadProject(slug, dir = projectsDir()) {
   try {
     return rehydrateProject(JSON.parse(await readFile(file, "utf8")));
   } catch (err) {
-    if (err.code === "ENOENT") throw new ConcordError("NOT_FOUND", `Project '${slug}' not found`, { slug });
-    if (err instanceof SyntaxError) throw new ConcordError("CORRUPT", `project.json for '${slug}' is not valid JSON`, { slug });
+    if (err.code === "ENOENT")
+      throw new ConcordError("NOT_FOUND", `Project '${slug}' not found`, { slug });
+    if (err instanceof SyntaxError)
+      throw new ConcordError("CORRUPT", `project.json for '${slug}' is not valid JSON`, { slug });
     throw err;
   }
 }
@@ -120,7 +129,11 @@ export async function saveProject(project, dir = projectsDir()) {
 // loadProject-then-saveProject by hand.
 export async function createProjectIfAbsent(project, dir = projectsDir()) {
   if (!project || typeof project.slug !== "string" || !project.slug) {
-    throw new ConcordError("VALIDATION", "createProjectIfAbsent requires a project with a slug", {});
+    throw new ConcordError(
+      "VALIDATION",
+      "createProjectIfAbsent requires a project with a slug",
+      {},
+    );
   }
   const slug = project.slug;
   return withProjectLock(path.resolve(dir, slug), async () => {
@@ -129,7 +142,9 @@ export async function createProjectIfAbsent(project, dir = projectsDir()) {
     } catch (err) {
       if (err?.code === "NOT_FOUND") return writeProject(project, dir); // truly absent → create
       if (err?.code === "CORRUPT") {
-        throw new ConcordError("VALIDATION", `a project with slug '${slug}' already exists`, { slug });
+        throw new ConcordError("VALIDATION", `a project with slug '${slug}' already exists`, {
+          slug,
+        });
       }
       throw err; // a real I/O fault must surface, not masquerade as a conflict
     }
@@ -147,7 +162,9 @@ export async function updateProject(slug, mutatorFn, dir = projectsDir()) {
     const result = await mutatorFn(project);
     const updated = result === undefined ? project : result;
     if (!updated || updated.slug !== slug) {
-      throw new ConcordError("VALIDATION", "updateProject mutator must keep the project slug", { slug });
+      throw new ConcordError("VALIDATION", "updateProject mutator must keep the project slug", {
+        slug,
+      });
     }
     return writeProject(updated, dir);
   });
@@ -156,7 +173,11 @@ export async function updateProject(slug, mutatorFn, dir = projectsDir()) {
 // ------------------------------------------------------------------ NDJSON
 
 function badNdjson(file, lineNo) {
-  return new ConcordError("BAD_NDJSON", `Malformed NDJSON at line ${lineNo} of ${path.basename(file)}`, { file, line: lineNo });
+  return new ConcordError(
+    "BAD_NDJSON",
+    `Malformed NDJSON at line ${lineNo} of ${path.basename(file)}`,
+    { file, line: lineNo },
+  );
 }
 
 async function endsWithNewline(file) {
@@ -221,7 +242,10 @@ function withAppendLock(key, fn) {
   const prev = appendLocks.get(key) || Promise.resolve();
   const next = prev.then(fn, fn);
   // Keep the chain from growing forever and never reject the stored tail.
-  const settled = next.then(() => undefined, () => undefined);
+  const settled = next.then(
+    () => undefined,
+    () => undefined,
+  );
   appendLocks.set(key, settled);
   // Best-effort cleanup: once this is the tail and it has settled, drop the
   // entry so the Map does not retain a key per file for the process lifetime.
@@ -249,34 +273,36 @@ export async function appendNdjson(file, obj) {
   await mkdir(path.dirname(file), { recursive: true });
   const line = JSON.stringify(obj) + "\n";
   const bytes = Buffer.byteLength(line);
-  return withAppendLock(path.resolve(file), () => retryTransient(async () => {
-    // Heal first with a read-write handle (Windows forbids ftruncate on append-
-    // mode handles), then append with O_APPEND semantics so concurrent
-    // in-process appends interleave whole lines instead of clobbering offsets.
-    let size = 0;
-    let fh = null;
-    await appendFaultInjector?.();
-    try {
-      fh = await open(file, "r+");
-    } catch (err) {
-      if (err.code !== "ENOENT") throw err; // missing file: appendFile creates it
-    }
-    if (fh) {
+  return withAppendLock(path.resolve(file), () =>
+    retryTransient(async () => {
+      // Heal first with a read-write handle (Windows forbids ftruncate on append-
+      // mode handles), then append with O_APPEND semantics so concurrent
+      // in-process appends interleave whole lines instead of clobbering offsets.
+      let size = 0;
+      let fh = null;
+      await appendFaultInjector?.();
       try {
-        ({ size } = await fh.stat());
-        if (size > 0) {
-          const last = Buffer.alloc(1);
-          await fh.read(last, 0, 1, size - 1);
-          if (last[0] !== 0x0a) size = await truncateTornTail(fh, size);
-        }
-      } finally {
-        await fh.close();
+        fh = await open(file, "r+");
+      } catch (err) {
+        if (err.code !== "ENOENT") throw err; // missing file: appendFile creates it
       }
-    }
-    await appendFaultInjector?.();
-    await appendFile(file, line, "utf8");
-    return { size: size + bytes };
-  }));
+      if (fh) {
+        try {
+          ({ size } = await fh.stat());
+          if (size > 0) {
+            const last = Buffer.alloc(1);
+            await fh.read(last, 0, 1, size - 1);
+            if (last[0] !== 0x0a) size = await truncateTornTail(fh, size);
+          }
+        } finally {
+          await fh.close();
+        }
+      }
+      await appendFaultInjector?.();
+      await appendFile(file, line, "utf8");
+      return { size: size + bytes };
+    }),
+  );
 }
 
 // Streamed NDJSON reader. filter applies first, then offset/limit count

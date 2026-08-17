@@ -61,7 +61,11 @@ function mergeCues(cues, maxMergeGapSeconds = DEFAULT_MAX_MERGE_GAP_SECONDS) {
 }
 
 function splitBlocks(raw) {
-  return raw.replace(/\r\n?/g, "\n").split(/\n{2,}/).map((b) => b.trim()).filter(Boolean);
+  return raw
+    .replace(/\r\n?/g, "\n")
+    .split(/\n{2,}/)
+    .map((b) => b.trim())
+    .filter(Boolean);
 }
 
 const TIMING = /(\S+)\s+-->\s+(\S+)/;
@@ -73,7 +77,10 @@ export function parseVTT(raw, issues = []) {
     const lines = block.split("\n");
     let ti = lines.findIndex((l) => TIMING.test(l));
     if (ti === -1) {
-      issues.push({ kind: "bad_cue", detail: `no timing line in block: ${lines[0]?.slice(0, 40)}` });
+      issues.push({
+        kind: "bad_cue",
+        detail: `no timing line in block: ${lines[0]?.slice(0, 40)}`,
+      });
       continue;
     }
     const [, a, b] = TIMING.exec(lines[ti]);
@@ -83,7 +90,10 @@ export function parseVTT(raw, issues = []) {
       issues.push({ kind: "bad_timestamp", detail: lines[ti].slice(0, 60) });
       continue;
     }
-    const body = lines.slice(ti + 1).join("\n").trim();
+    const body = lines
+      .slice(ti + 1)
+      .join("\n")
+      .trim();
     const { speaker, text } = cueSpeakerText(body);
     cues.push({ speaker, t0, t1, text: stripTags(text) });
   }
@@ -106,18 +116,30 @@ export function parseZoomJSON(raw, issues = []) {
   let segs = null;
   if (Array.isArray(data)) segs = data;
   else if (data && typeof data === "object") {
-    for (const key of ["transcripts", "transcript", "segments", "timeline", "results", "monologues", "utterances"]) {
+    for (const key of [
+      "transcripts",
+      "transcript",
+      "segments",
+      "timeline",
+      "results",
+      "monologues",
+      "utterances",
+    ]) {
       if (Array.isArray(data[key])) {
         segs = data[key];
         break;
       }
     }
   }
-  if (!segs) throw new ConcordError("BAD_TRANSCRIPT", "no segment array found in transcript JSON", { keys: Object.keys(data || {}) });
+  if (!segs)
+    throw new ConcordError("BAD_TRANSCRIPT", "no segment array found in transcript JSON", {
+      keys: Object.keys(data || {}),
+    });
   const cues = [];
   for (const seg of segs) {
     if (!seg || typeof seg !== "object") continue;
-    const speaker = seg.speaker ?? seg.speaker_name ?? seg.username ?? seg.user_name ?? seg.name ?? null;
+    const speaker =
+      seg.speaker ?? seg.speaker_name ?? seg.username ?? seg.user_name ?? seg.name ?? null;
     let t0 = toSeconds(seg.start_time ?? seg.start ?? seg.ts ?? seg.t0 ?? seg.offset);
     let t1 = toSeconds(seg.end_time ?? seg.end ?? seg.end_ts ?? seg.t1);
     if (t1 === null && t0 !== null && seg.duration != null) {
@@ -159,8 +181,14 @@ export async function parse(filePath, { maxMergeGapSeconds } = {}) {
   let cues;
   if (ext === ".vtt" || /^﻿?WEBVTT/.test(raw)) cues = parseVTT(raw, issues);
   else if (ext === ".srt") cues = parseSRT(raw, issues);
-  else if (ext === ".json" || raw.trimStart().startsWith("{") || raw.trimStart().startsWith("[")) cues = parseZoomJSON(raw, issues);
-  else throw new ConcordError("BAD_TRANSCRIPT", `unrecognized transcript format: ${ext || "no extension"}`, { filePath });
+  else if (ext === ".json" || raw.trimStart().startsWith("{") || raw.trimStart().startsWith("["))
+    cues = parseZoomJSON(raw, issues);
+  else
+    throw new ConcordError(
+      "BAD_TRANSCRIPT",
+      `unrecognized transcript format: ${ext || "no extension"}`,
+      { filePath },
+    );
   const turns = mergeCues(cues, maxMergeGapSeconds ?? DEFAULT_MAX_MERGE_GAP_SECONDS);
   if (turns.length === 0) issues.push({ kind: "empty", detail: "no turns extracted" });
   return { turns, issues };

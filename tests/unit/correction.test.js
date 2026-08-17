@@ -26,12 +26,7 @@ function assertThrowsCode(fn, code) {
 
 test("dslMean golden: Ŷ=[1,0,1,0], gold units 1,2 (π=0.5, Y=[1,1]) → est = 1.0 exactly", () => {
   // pseudo: [1 + 2(1−1), 0 + 2(1−0), 1, 0] = [1, 2, 1, 0] → mean 1.0
-  const units = [
-    { yhat: 1, y: 1, pi: 0.5 },
-    { yhat: 0, y: 1, pi: 0.5 },
-    { yhat: 1 },
-    { yhat: 0 },
-  ];
+  const units = [{ yhat: 1, y: 1, pi: 0.5 }, { yhat: 0, y: 1, pi: 0.5 }, { yhat: 1 }, { yhat: 0 }];
   const r = dslMean(units);
   assert.ok(Math.abs(r.est - 1.0) < EPS);
   // sandwich: devs [0,1,0,−1] → B = 2/4 = 0.5 → var = 0.5/4 → se = sqrt(0.125)
@@ -54,27 +49,22 @@ test("dslMean: all-gold π=1 reduces to the gold mean exactly", () => {
 // ---------- dslProportion ----------
 
 test("dslProportion: same estimator as dslMean on 0/1 data; naive uses Wald se", () => {
-  const units = [
-    { yhat: 1, y: 1, pi: 0.5 },
-    { yhat: 0, y: 1, pi: 0.5 },
-    { yhat: 1 },
-    { yhat: 0 },
-  ];
+  const units = [{ yhat: 1, y: 1, pi: 0.5 }, { yhat: 0, y: 1, pi: 0.5 }, { yhat: 1 }, { yhat: 0 }];
   const r = dslProportion(units);
   assert.ok(Math.abs(r.est - 1.0) < EPS);
   assert.ok(Math.abs(r.se - Math.sqrt(0.125)) < EPS);
   assert.ok(Math.abs(r.naive.est - 0.5) < EPS);
-  assert.ok(Math.abs(r.naive.se - Math.sqrt(0.5 * 0.5 / 4)) < EPS); // Wald
+  assert.ok(Math.abs(r.naive.se - Math.sqrt((0.5 * 0.5) / 4)) < EPS); // Wald
 });
 
 test("dslProportion rejects non-binary yhat/y", () => {
   assertThrowsCode(
     () => dslProportion([{ yhat: 0.7, y: 1, pi: 0.5 }, { yhat: 0 }]),
-    "E_STAT_INPUT"
+    "E_STAT_INPUT",
   );
   assertThrowsCode(
     () => dslProportion([{ yhat: 1, y: 0.5, pi: 0.5 }, { yhat: 0 }]),
-    "E_STAT_INPUT"
+    "E_STAT_INPUT",
   );
 });
 
@@ -154,7 +144,7 @@ test("I2: ppiMean rejects unequal gold inclusion probabilities (PPI assumes SRS)
       err instanceof ConcordError &&
       err.code === "E_STAT_INPUT" &&
       /equal-probability/.test(err.message) &&
-      /DSL/.test(err.message)
+      /DSL/.test(err.message),
   );
   // equal π (within 1e-12) stays fine
   const ok = ppiMean([
@@ -172,12 +162,7 @@ test("I2: ppiMean rejects unequal gold inclusion probabilities (PPI assumes SRS)
 //   Ŷ_all = [1,2,3,4] → mean 5/2, v_f = sampleVar = 5/3
 //   gold: Ŷ_g = [1,2], Y = [2,3] → v_Y = 1/2, ĉ = sampleCov(Y,Ŷ_g) = 1/2
 function autoLambdaUnits() {
-  return [
-    { yhat: 1, y: 2, pi: 0.5 },
-    { yhat: 2, y: 3, pi: 0.5 },
-    { yhat: 3 },
-    { yhat: 4 },
-  ];
+  return [{ yhat: 1, y: 2, pi: 0.5 }, { yhat: 2, y: 3, pi: 0.5 }, { yhat: 3 }, { yhat: 4 }];
 }
 
 test("R1(a): lambda 1 path equals classical exactly", () => {
@@ -214,12 +199,7 @@ test("R1: auto-λ golden — λ̂ = ĉ/v_f, estimate and SE match the hand deriv
 });
 
 test("R1: auto-λ degenerate — constant Ŷ carries no information → λ̂ = 0 (gold-only)", () => {
-  const units = [
-    { yhat: 1, y: 2, pi: 0.5 },
-    { yhat: 1, y: 3, pi: 0.5 },
-    { yhat: 1 },
-    { yhat: 1 },
-  ];
+  const units = [{ yhat: 1, y: 2, pi: 0.5 }, { yhat: 1, y: 3, pi: 0.5 }, { yhat: 1 }, { yhat: 1 }];
   const r = ppiMean(units, { lambda: "auto" });
   assert.equal(r.lambda, 0);
   assert.ok(Math.abs(r.est - 2.5) < EPS);
@@ -239,13 +219,16 @@ test("dslOLS golden: noiseless y = 2 + 3x − 1.5z, machine bias +0.8x, all gold
     units.push({ yhat: y + 0.8 * x, y, pi: 1, x: [x, z] });
   }
   const r = dslOLS(units, 2);
-  assert.deepEqual(r.coef.map((c) => c.name), ["(Intercept)", "x1", "x2"]);
+  assert.deepEqual(
+    r.coef.map((c) => c.name),
+    ["(Intercept)", "x1", "x2"],
+  );
   assert.ok(Math.abs(r.coef[0].est - 2) < EPS);
   assert.ok(Math.abs(r.coef[1].est - 3) < EPS);
-  assert.ok(Math.abs(r.coef[2].est - (-1.5)) < EPS);
+  assert.ok(Math.abs(r.coef[2].est - -1.5) < EPS);
   assert.ok(Math.abs(r.naive[0].est - 2) < EPS);
   assert.ok(Math.abs(r.naive[1].est - 3.8) < EPS);
-  assert.ok(Math.abs(r.naive[2].est - (-1.5)) < EPS);
+  assert.ok(Math.abs(r.naive[2].est - -1.5) < EPS);
   // noiseless: residuals 0 → se 0, p 0 for nonzero coefs (never NaN)
   for (const c of r.coef) {
     assert.ok(Number.isFinite(c.se) && c.se >= 0 && c.se < 1e-9);
@@ -331,7 +314,10 @@ test("dslLogit all-gold π=1 equals models.logit on Y; naive equals logit on Ŷ"
   const r = dslLogit(units, 1);
   const fitY = logit(ys, X);
   const fitYhat = logit(yhats, X);
-  assert.deepEqual(r.coef.map((c) => c.name), ["(Intercept)", "x1"]);
+  assert.deepEqual(
+    r.coef.map((c) => c.name),
+    ["(Intercept)", "x1"],
+  );
   for (let j = 0; j < 2; j++) {
     assert.ok(Math.abs(r.coef[j].est - fitY.coef[j]) < 1e-6);
     assert.ok(Math.abs(r.naive[j].est - fitYhat.coef[j]) < 1e-9);
@@ -349,7 +335,14 @@ test("edge: DSL requires gold units, valid pi, n ≥ 2", () => {
   // y without pi is a data bug, not silent non-gold
   assertThrowsCode(() => dslMean([{ yhat: 1, y: 1 }, { yhat: 0 }]), "E_STAT_INPUT");
   // pi without y likewise
-  assertThrowsCode(() => dslMean([{ yhat: 1, pi: 0.5 }, { yhat: 0, y: 0, pi: 0.5 }]), "E_STAT_INPUT");
+  assertThrowsCode(
+    () =>
+      dslMean([
+        { yhat: 1, pi: 0.5 },
+        { yhat: 0, y: 0, pi: 0.5 },
+      ]),
+    "E_STAT_INPUT",
+  );
   assertThrowsCode(() => dslMean([{ yhat: 1, y: 1, pi: 0 }, { yhat: 0 }]), "E_STAT_INPUT");
   assertThrowsCode(() => dslMean([{ yhat: 1, y: 1, pi: 1.2 }, { yhat: 0 }]), "E_STAT_INPUT");
   assertThrowsCode(() => dslMean([{ yhat: NaN, y: 1, pi: 0.5 }, { yhat: 0 }]), "E_STAT_INPUT");
@@ -366,6 +359,6 @@ test("edge: dslOLS/dslLogit validate covariates and sample size", () => {
 test("edge: ppiMean needs ≥ 2 gold units", () => {
   assertThrowsCode(
     () => ppiMean([{ yhat: 1, y: 1, pi: 0.5 }, { yhat: 0 }, { yhat: 1 }]),
-    "E_STAT_INSUFFICIENT"
+    "E_STAT_INSUFFICIENT",
   );
 });

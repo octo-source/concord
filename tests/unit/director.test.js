@@ -18,7 +18,12 @@ import path from "node:path";
 import { fileURLToPath } from "node:url";
 
 import { ConcordError } from "../../server/core/errors.js";
-import { createProject, createConstruct, createRun, createAnalysis } from "../../server/core/objects.js";
+import {
+  createProject,
+  createConstruct,
+  createRun,
+  createAnalysis,
+} from "../../server/core/objects.js";
 import { saveProject, loadProject, updateProject, projectDir } from "../../server/core/store.js";
 import * as ledger from "../../server/core/ledger.js";
 import { newId, unitId } from "../../server/core/ids.js";
@@ -29,8 +34,17 @@ import { compile as compileDictionary } from "../../server/instruments/dictionar
 import { callDirector, directorCosts } from "../../server/director/director.js";
 import * as prompts from "../../server/director/prompts.js";
 import { generateBrief } from "../../server/director/brief.js";
-import { draftConstructs, importCodebook, inductiveTaxonomy, acceptConstructs } from "../../server/director/constructs.js";
-import { compileInstrument, seedDictionary, acceptInstrument } from "../../server/director/compiler.js";
+import {
+  draftConstructs,
+  importCodebook,
+  inductiveTaxonomy,
+  acceptConstructs,
+} from "../../server/director/constructs.js";
+import {
+  compileInstrument,
+  seedDictionary,
+  acceptInstrument,
+} from "../../server/director/compiler.js";
 import { silverTune } from "../../server/director/silver.js";
 import { recommendPanel } from "../../server/director/panels.js";
 import { makeEscalator } from "../../server/director/escalate.js";
@@ -60,9 +74,10 @@ async function makeProject({ privacyMode = "open", director, handler } = {}) {
     name: `Dir Test ${++projSeq}`,
     slug: `dir-test-${projSeq}`,
     privacyMode,
-    director: director === undefined
-      ? { provider: "mock", model: "mock-director", snapshot: "mock-1" }
-      : director,
+    director:
+      director === undefined
+        ? { provider: "mock", model: "mock-director", snapshot: "mock-1" }
+        : director,
   });
   if (handler && project.director) project.director.systemSuffix = `[[handler:${handler}]]`;
   await saveProject(project);
@@ -87,7 +102,11 @@ async function makeCorpus(project, { n = 40, depts = ["Sales", "Ops"], textOf } 
   });
   const dir = path.join(projectDir(project.slug), "corpora", corpusId);
   await mkdir(dir, { recursive: true });
-  await writeFile(path.join(dir, "units.ndjson"), units.map((u) => JSON.stringify(u)).join("\n") + "\n", "utf8");
+  await writeFile(
+    path.join(dir, "units.ndjson"),
+    units.map((u) => JSON.stringify(u)).join("\n") + "\n",
+    "utf8",
+  );
   const fresh = await updateProject(project.slug, (p) => {
     p.corpora.push({ id: corpusId, name: `corpus-${corpusId}`, unitCount: n });
   });
@@ -109,14 +128,19 @@ function binaryConstruct(extra = {}) {
       { text: "The pay is insulting for what we do.", label: "yes", kind: "positive" },
       { text: "Great team, decent salary.", label: "no", kind: "negative" },
     ],
-    categories: [{ value: "yes", label: "Yes" }, { value: "no", label: "No" }],
+    categories: [
+      { value: "yes", label: "Yes" },
+      { value: "no", label: "No" },
+    ],
     authoredBy: "director",
     humanTouched: false,
     ...extra,
   });
 }
 
-const sampleIdsIn = (text) => [...new Set([...String(text).matchAll(/unit (u_[0-9a-f]{16})/g)].map((m) => m[1]))];
+const sampleIdsIn = (text) => [
+  ...new Set([...String(text).matchAll(/unit (u_[0-9a-f]{16})/g)].map((m) => m[1])),
+];
 const lastUser = (req) => [...req.messages].reverse().find((m) => m.role === "user")?.content ?? "";
 
 // ---------------------------------------------------------------- director.js
@@ -126,7 +150,12 @@ test("callDirector: unset director slot → CONFIG_MISSING with a researcher-fac
   await assert.rejects(
     callDirector(project, {
       messages: [{ role: "user", content: "x" }],
-      schema: { type: "object", additionalProperties: false, required: ["ok"], properties: { ok: { type: "boolean" } } },
+      schema: {
+        type: "object",
+        additionalProperties: false,
+        required: ["ok"],
+        properties: { ok: { type: "boolean" } },
+      },
     }),
     (err) => {
       assert.equal(err.code, "CONFIG_MISSING");
@@ -145,7 +174,12 @@ test("callDirector: strict-mode project with a network director → PRIVACY_BLOC
   await assert.rejects(
     callDirector(project, {
       messages: [{ role: "user", content: "x" }],
-      schema: { type: "object", additionalProperties: false, required: ["ok"], properties: { ok: { type: "boolean" } } },
+      schema: {
+        type: "object",
+        additionalProperties: false,
+        required: ["ok"],
+        properties: { ok: { type: "boolean" } },
+      },
     }),
     { code: "PRIVACY_BLOCKED" },
   );
@@ -153,22 +187,32 @@ test("callDirector: strict-mode project with a network director → PRIVACY_BLOC
 
 test("callDirector: schema is mandatory — Director outputs are artifacts", async () => {
   const project = await makeProject({ handler: "noschema" });
-  await assert.rejects(
-    callDirector(project, { messages: [{ role: "user", content: "x" }] }),
-    { code: "VALIDATION" },
-  );
+  await assert.rejects(callDirector(project, { messages: [{ role: "user", content: "x" }] }), {
+    code: "VALIDATION",
+  });
 });
 
 test("callDirector: appends systemSuffix to the system message and meters per-project cost", async () => {
   const project = await makeProject({ handler: "t-suffix" });
   let seenSystem = null;
   mock.setHandler("t-suffix", (req) => {
-    seenSystem = req.messages.filter((m) => m.role === "system").map((m) => m.content).join("\n");
+    seenSystem = req.messages
+      .filter((m) => m.role === "system")
+      .map((m) => m.content)
+      .join("\n");
     return { ok: true };
   });
-  const schema = { type: "object", additionalProperties: false, required: ["ok"], properties: { ok: { type: "boolean" } } };
+  const schema = {
+    type: "object",
+    additionalProperties: false,
+    required: ["ok"],
+    properties: { ok: { type: "boolean" } },
+  };
   const res = await callDirector(project, {
-    messages: [{ role: "system", content: "Director preamble." }, { role: "user", content: "hello" }],
+    messages: [
+      { role: "system", content: "Director preamble." },
+      { role: "user", content: "hello" },
+    ],
     schema,
   });
   assert.deepEqual(res.json, { ok: true });
@@ -192,21 +236,43 @@ test("prompts: every exported response schema is strict (additionalProperties:fa
   const constructs = [
     binaryConstruct(),
     createConstruct({
-      name: "Theme", type: "nominal",
-      categories: [{ value: "pay", label: "Pay" }, { value: "mgmt", label: "Management" }],
-      authoredBy: "director", humanTouched: false,
+      name: "Theme",
+      type: "nominal",
+      categories: [
+        { value: "pay", label: "Pay" },
+        { value: "mgmt", label: "Management" },
+      ],
+      authoredBy: "director",
+      humanTouched: false,
     }),
-    createConstruct({ name: "Tone", type: "continuous", scale: { min: 0, max: 100 }, authoredBy: "director", humanTouched: false }),
     createConstruct({
-      name: "Topics", type: "multilabel",
-      categories: [{ value: "pay", label: "Pay" }, { value: "growth", label: "Growth" }],
-      authoredBy: "director", humanTouched: false,
+      name: "Tone",
+      type: "continuous",
+      scale: { min: 0, max: 100 },
+      authoredBy: "director",
+      humanTouched: false,
+    }),
+    createConstruct({
+      name: "Topics",
+      type: "multilabel",
+      categories: [
+        { value: "pay", label: "Pay" },
+        { value: "growth", label: "Growth" },
+      ],
+      authoredBy: "director",
+      humanTouched: false,
     }),
   ];
   const schemas = [
-    prompts.BRIEF_SCHEMA, prompts.CONSTRUCTS_SCHEMA, prompts.TAXONOMY_SCHEMA,
-    prompts.COMPILE_SCHEMA, prompts.REWRITE_SCHEMA, prompts.PANEL_SCHEMA,
-    prompts.ANALYST_SCHEMA, prompts.QUESTION_PLAN_SCHEMA, prompts.DICTIONARY_SEED_SCHEMA,
+    prompts.BRIEF_SCHEMA,
+    prompts.CONSTRUCTS_SCHEMA,
+    prompts.TAXONOMY_SCHEMA,
+    prompts.COMPILE_SCHEMA,
+    prompts.REWRITE_SCHEMA,
+    prompts.PANEL_SCHEMA,
+    prompts.ANALYST_SCHEMA,
+    prompts.QUESTION_PLAN_SCHEMA,
+    prompts.DICTIONARY_SEED_SCHEMA,
     ...constructs.map((c) => prompts.judgeResponseSchema(c)),
     ...constructs.map((c) => prompts.escalationSchema(c)),
   ];
@@ -215,9 +281,16 @@ test("prompts: every exported response schema is strict (additionalProperties:fa
     if (!node || typeof node !== "object") return;
     if (node.properties) {
       nodes++;
-      assert.equal(node.additionalProperties, false, `${at} has properties but allows additional ones`);
+      assert.equal(
+        node.additionalProperties,
+        false,
+        `${at} has properties but allows additional ones`,
+      );
       for (const key of node.required ?? []) {
-        assert.ok(key in node.properties, `${at}.required lists "${key}" which is not a declared property`);
+        assert.ok(
+          key in node.properties,
+          `${at}.required lists "${key}" which is not a declared property`,
+        );
       }
       for (const [k, sub] of Object.entries(node.properties)) walk(sub, `${at}.${k}`);
     }
@@ -234,7 +307,13 @@ test("prompts: judgeResponseSchema is rationale-first and label-constrained by c
   assert.deepEqual(bin.required, ["rationale", "label", "confidence"]);
 
   const cont = prompts.judgeResponseSchema(
-    createConstruct({ name: "Tone", type: "continuous", scale: { min: 0, max: 100 }, authoredBy: "director", humanTouched: false }),
+    createConstruct({
+      name: "Tone",
+      type: "continuous",
+      scale: { min: 0, max: 100 },
+      authoredBy: "director",
+      humanTouched: false,
+    }),
   );
   assert.equal(cont.properties.label.type, "number");
   assert.equal(cont.properties.label.minimum, 0);
@@ -242,9 +321,14 @@ test("prompts: judgeResponseSchema is rationale-first and label-constrained by c
 
   const multi = prompts.judgeResponseSchema(
     createConstruct({
-      name: "Topics", type: "multilabel",
-      categories: [{ value: "pay", label: "Pay" }, { value: "growth", label: "Growth" }],
-      authoredBy: "director", humanTouched: false,
+      name: "Topics",
+      type: "multilabel",
+      categories: [
+        { value: "pay", label: "Pay" },
+        { value: "growth", label: "Growth" },
+      ],
+      authoredBy: "director",
+      humanTouched: false,
     }),
   );
   assert.equal(multi.properties.label.type, "array");
@@ -258,7 +342,10 @@ test("prompts: worker-class compile instructions differ (lean frontier; 2 exampl
   const small = prompts.compilePrompt(c, "small");
   for (const p of [frontier, mid, small]) {
     assert.equal(typeof p.system, "string");
-    assert.ok(p.user.includes("{{unit}}"), "compile prompt tells the Director about the required template slots");
+    assert.ok(
+      p.user.includes("{{unit}}"),
+      "compile prompt tells the Director about the required template slots",
+    );
     assert.ok(p.user.includes(c.definition), "construct definition shown to the Director");
   }
   assert.match(frontier.user, /lean/i);
@@ -270,7 +357,9 @@ test("prompts: worker-class compile instructions differ (lean frontier; 2 exampl
 
 test("prompts: brief prompt demands evidence anchoring and red flags", () => {
   const { system, user } = prompts.briefPrompt({
-    projectName: "P", corpusName: "C", unitCount: 1200,
+    projectName: "P",
+    corpusName: "C",
+    unitCount: 1200,
     sample: [{ id: "u_0123456789abcdef", text: "The pay is low.", meta: { dept: "Sales" } }],
     metaSummary: "dept: Sales, Ops",
   });
@@ -300,26 +389,43 @@ test("brief: stratified seeded sample, ref validation, streaming, persistence, l
         { md: "Tenure shapes tone.", refs: [ids[3], ids[4]] },
       ],
       themes: [
-        { name: "Pay", definition: "Compensation level and fairness.", quoteRefs: [ids[0], ids[5], "u_0000000000000000"] },
-        { name: "Management", definition: "Supervisor behavior.", quoteRefs: [ids[2], ids[6], ids[7]] },
+        {
+          name: "Pay",
+          definition: "Compensation level and fairness.",
+          quoteRefs: [ids[0], ids[5], "u_0000000000000000"],
+        },
+        {
+          name: "Management",
+          definition: "Supervisor behavior.",
+          quoteRefs: [ids[2], ids[6], ids[7]],
+        },
       ],
-      redFlags: [{ kind: "duplicates", detail: "Several near-identical responses.", refs: [ids[8]] }],
+      redFlags: [
+        { kind: "duplicates", detail: "Several near-identical responses.", refs: [ids[8]] },
+      ],
       suggestedQuestions: ["Which departments complain about pay?"],
     };
   });
 
   const seen = [];
-  const brief = await generateBrief(project, corpusId, { onParagraph: (p, i) => seen.push({ i, md: p.md }) });
+  const brief = await generateBrief(project, corpusId, {
+    onParagraph: (p, i) => seen.push({ i, md: p.md }),
+  });
 
   // sample: 200–500, stratified, deterministic
   const ids = sampledSets[0];
   assert.equal(ids.length, 200, `sample size ${ids.length}, expected 200 for a 1200-unit corpus`);
   for (const id of ids) assert.ok(byId.has(id), `sampled id ${id} is a real unit`);
   const sampledUnits = ids.map((id) => byId.get(id));
-  assert.ok(new Set(sampledUnits.map((u) => u.meta.dept)).size === 2, "sample spans both departments");
+  assert.ok(
+    new Set(sampledUnits.map((u) => u.meta.dept)).size === 2,
+    "sample spans both departments",
+  );
   const lens = units.map((u) => u.text.length).sort((a, b) => a - b);
   const [t1, t2] = [lens[Math.floor(lens.length / 3)], lens[Math.floor((2 * lens.length) / 3)]];
-  const terciles = new Set(sampledUnits.map((u) => (u.text.length <= t1 ? 0 : u.text.length <= t2 ? 1 : 2)));
+  const terciles = new Set(
+    sampledUnits.map((u) => (u.text.length <= t1 ? 0 : u.text.length <= t2 ? 1 : 2)),
+  );
   assert.equal(terciles.size, 3, "sample spans all three length terciles");
 
   // invalid refs dropped + counted
@@ -353,7 +459,11 @@ test("brief: stratified seeded sample, ref validation, streaming, persistence, l
 
   // determinism: a second brief sees the identical sample
   await generateBrief(project, corpusId, {});
-  assert.deepEqual(sampledSets[1], sampledSets[0], "stratified sample must be seeded/deterministic");
+  assert.deepEqual(
+    sampledSets[1],
+    sampledSets[0],
+    "stratified sample must be seeded/deterministic",
+  );
 });
 
 test("brief: unknown corpus → NOT_FOUND", async () => {
@@ -365,28 +475,38 @@ test("brief: names the corpus's text column in the prompt and records textColumn
   const project = await makeProject({ handler: "t-brief-scope" });
   const { corpusId } = await makeCorpus(project, { n: 40 });
   // stamp the provenance import/confirm now records on the corpus entry
-  Object.assign(project, await updateProject(project.slug, (p) => {
-    const c = p.corpora.find((x) => x.id === corpusId);
-    c.textColumn = "abouttxt";
-    c.metaColumns = 60;
-  }));
+  Object.assign(
+    project,
+    await updateProject(project.slug, (p) => {
+      const c = p.corpora.find((x) => x.id === corpusId);
+      c.textColumn = "abouttxt";
+      c.metaColumns = 60;
+    }),
+  );
 
   let userSeen = null;
   mock.setHandler("t-brief-scope", (req) => {
     userSeen = lastUser(req);
     return {
-      unitOfAnalysis: "one row", paragraphs: [{ md: "p.", refs: [] }],
-      themes: [], redFlags: [], suggestedQuestions: [],
+      unitOfAnalysis: "one row",
+      paragraphs: [{ md: "p.", refs: [] }],
+      themes: [],
+      redFlags: [],
+      suggestedQuestions: [],
     };
   });
   const brief = await generateBrief(project, corpusId, {});
-  assert.ok(userSeen.includes("Unit text comes from the column 'abouttxt'"),
-    `prompt names the text column (got: ${String(userSeen).slice(0, 200)})`);
+  assert.ok(
+    userSeen.includes("Unit text comes from the column 'abouttxt'"),
+    `prompt names the text column (got: ${String(userSeen).slice(0, 200)})`,
+  );
   assert.match(userSeen, /60 metadata columns are summarized alongside/);
   assert.equal(brief.textColumn, "abouttxt");
   assert.equal(brief.metaColumns, 60);
 
-  const onDisk = JSON.parse(await readFile(path.join(projectDir(project.slug), "briefs", `${brief.id}.json`), "utf8"));
+  const onDisk = JSON.parse(
+    await readFile(path.join(projectDir(project.slug), "briefs", `${brief.id}.json`), "utf8"),
+  );
   assert.equal(onDisk.textColumn, "abouttxt");
   assert.equal(onDisk.metaColumns, 60);
 });
@@ -398,8 +518,11 @@ test("brief: legacy corpus entry without provenance → no fabricated column nam
   mock.setHandler("t-brief-legacy", (req) => {
     userSeen = lastUser(req);
     return {
-      unitOfAnalysis: "one row", paragraphs: [{ md: "p.", refs: [] }],
-      themes: [], redFlags: [], suggestedQuestions: [],
+      unitOfAnalysis: "one row",
+      paragraphs: [{ md: "p.", refs: [] }],
+      themes: [],
+      redFlags: [],
+      suggestedQuestions: [],
     };
   });
   const brief = await generateBrief(project, corpusId, {});
@@ -415,7 +538,11 @@ test("constructs: draftConstructs returns director-authored proposals with examp
   const sampleUnits = [
     { id: "u_aaaaaaaaaaaaaaa1", text: "The pay is insulting for the hours we put in.", meta: {} },
     { id: "u_aaaaaaaaaaaaaaa2", text: "My manager never listens to the team.", meta: {} },
-    { id: "u_aaaaaaaaaaaaaaa3", text: "Honestly the salary was fine, I left for growth.", meta: {} },
+    {
+      id: "u_aaaaaaaaaaaaaaa3",
+      text: "Honestly the salary was fine, I left for growth.",
+      meta: {},
+    },
   ];
   let promptText = null;
   mock.setHandler("t-draft", (req) => {
@@ -423,23 +550,47 @@ test("constructs: draftConstructs returns director-authored proposals with examp
     return {
       constructs: [
         {
-          name: "Pay complaint", type: "binary",
+          name: "Pay complaint",
+          type: "binary",
           definition: "The unit complains about compensation level or fairness.",
-          criteria: { include: ["names pay, salary, or compensation as a problem"], exclude: ["benefits-only complaints"] },
+          criteria: {
+            include: ["names pay, salary, or compensation as a problem"],
+            exclude: ["benefits-only complaints"],
+          },
           edgeCases: ["sarcastic praise of pay is a complaint"],
           examples: [
-            { text: "The pay is insulting for the hours we put in.", label: "yes", kind: "positive" },
-            { text: "Honestly the salary was fine, I left for growth.", label: "no", kind: "nearmiss" },
+            {
+              text: "The pay is insulting for the hours we put in.",
+              label: "yes",
+              kind: "positive",
+            },
+            {
+              text: "Honestly the salary was fine, I left for growth.",
+              label: "no",
+              kind: "nearmiss",
+            },
           ],
-          categories: [{ value: "yes", label: "Yes" }, { value: "no", label: "No" }],
+          categories: [
+            { value: "yes", label: "Yes" },
+            { value: "no", label: "No" },
+          ],
         },
         {
-          name: "Management complaint", type: "binary",
+          name: "Management complaint",
+          type: "binary",
           definition: "The unit criticizes direct management behavior.",
-          criteria: { include: ["criticism of a manager or supervisor"], exclude: ["criticism of company strategy"] },
+          criteria: {
+            include: ["criticism of a manager or supervisor"],
+            exclude: ["criticism of company strategy"],
+          },
           edgeCases: [],
-          examples: [{ text: "My manager never listens to the team.", label: "yes", kind: "positive" }],
-          categories: [{ value: "yes", label: "Yes" }, { value: "no", label: "No" }],
+          examples: [
+            { text: "My manager never listens to the team.", label: "yes", kind: "positive" },
+          ],
+          categories: [
+            { value: "yes", label: "Yes" },
+            { value: "no", label: "No" },
+          ],
         },
       ],
     };
@@ -451,7 +602,10 @@ test("constructs: draftConstructs returns director-authored proposals with examp
     assert.equal(c.authoredBy, "director");
     assert.equal(c.humanTouched, false);
     for (const ex of c.examples) {
-      assert.ok(sampleUnits.some((u) => u.text.includes(ex.text)), `worked example "${ex.text}" must be mined from the sample`);
+      assert.ok(
+        sampleUnits.some((u) => u.text.includes(ex.text)),
+        `worked example "${ex.text}" must be mined from the sample`,
+      );
     }
   }
   assert.ok(promptText.includes(sampleUnits[0].text), "sample units shown to the Director");
@@ -461,7 +615,10 @@ test("constructs: draftConstructs returns director-authored proposals with examp
   const ids = await acceptConstructs(project, out);
   assert.equal(ids.length, 2);
   const fresh = await loadProject(project.slug);
-  assert.deepEqual(fresh.constructs.map((c) => c.id), ids);
+  assert.deepEqual(
+    fresh.constructs.map((c) => c.id),
+    ids,
+  );
   const events = await ledger.query(projectDir(project.slug), { type: "construct.created" });
   assert.equal(events.length, 2);
   assert.deepEqual(events.map((e) => e.refs.constructId).sort(), [...ids].sort());
@@ -471,13 +628,20 @@ test("constructs: draftConstructs stamps draftedFrom when a corpus fed the sampl
   const project = await makeProject({ handler: "t-draft-prov" });
   const { corpusId, units } = await makeCorpus(project, { n: 12 });
   mock.setHandler("t-draft-prov", () => ({
-    constructs: [{
-      name: "Pay complaint", type: "binary",
-      definition: "The unit complains about compensation level or fairness.",
-      criteria: { include: ["names pay as a problem"], exclude: [] },
-      edgeCases: [], examples: [],
-      categories: [{ value: "yes", label: "Yes" }, { value: "no", label: "No" }],
-    }],
+    constructs: [
+      {
+        name: "Pay complaint",
+        type: "binary",
+        definition: "The unit complains about compensation level or fairness.",
+        criteria: { include: ["names pay as a problem"], exclude: [] },
+        edgeCases: [],
+        examples: [],
+        categories: [
+          { value: "yes", label: "Yes" },
+          { value: "no", label: "No" },
+        ],
+      },
+    ],
   }));
 
   // sample drawn from a registered corpus → proposals carry its id
@@ -486,9 +650,11 @@ test("constructs: draftConstructs stamps draftedFrom when a corpus fed the sampl
   assert.equal(out[0].draftedFrom, corpusId, "the proposal names the corpus that fed the sample");
 
   // ad-hoc units that belong to no registered corpus → no stamp, no guess
-  const loose = await draftConstructs(project, ["pay"], [
-    { id: "u_ffffffffffffff01", text: "a loose unit from nowhere in particular", meta: {} },
-  ]);
+  const loose = await draftConstructs(
+    project,
+    ["pay"],
+    [{ id: "u_ffffffffffffff01", text: "a loose unit from nowhere in particular", meta: {} }],
+  );
   assert.equal(loose[0].draftedFrom, undefined);
 
   // acceptance persists the provenance onto the project graph
@@ -499,24 +665,36 @@ test("constructs: draftConstructs stamps draftedFrom when a corpus fed the sampl
 
 test("constructs: importCodebook parses a DOCX and structures it via one Director call", async () => {
   const project = await makeProject({ handler: "t-import" });
-  const buf = await readFile(path.join(path.dirname(fileURLToPath(import.meta.url)), "..", "fixtures", "ingest-min.docx"));
+  const buf = await readFile(
+    path.join(path.dirname(fileURLToPath(import.meta.url)), "..", "fixtures", "ingest-min.docx"),
+  );
   let promptText = null;
   mock.setHandler("t-import", (req) => {
     promptText = lastUser(req);
     return {
-      constructs: [{
-        name: "Imported construct", type: "binary",
-        definition: "From the legacy codebook.",
-        criteria: { include: ["per legacy rule"], exclude: [] },
-        edgeCases: [], examples: [],
-        categories: [{ value: "yes", label: "Yes" }, { value: "no", label: "No" }],
-      }],
+      constructs: [
+        {
+          name: "Imported construct",
+          type: "binary",
+          definition: "From the legacy codebook.",
+          criteria: { include: ["per legacy rule"], exclude: [] },
+          edgeCases: [],
+          examples: [],
+          categories: [
+            { value: "yes", label: "Yes" },
+            { value: "no", label: "No" },
+          ],
+        },
+      ],
     };
   });
   const out = await importCodebook(project, buf, "docx");
   assert.equal(out.length, 1);
   assert.equal(out[0].authoredBy, "director");
-  assert.ok(promptText.includes("First paragraph from DOCX."), "document text reaches the Director");
+  assert.ok(
+    promptText.includes("First paragraph from DOCX."),
+    "document text reaches the Director",
+  );
   await assert.rejects(importCodebook(project, buf, "txt"), { code: "VALIDATION" });
 });
 
@@ -527,7 +705,11 @@ test("constructs: inductiveTaxonomy is framed as hypothesis generation with vali
     const ids = sampleIdsIn(lastUser(req));
     return {
       themes: [
-        { name: "Pay", definition: "Compensation grievances.", quoteRefs: [ids[0], ids[1], "u_ffffffffffffffff"] },
+        {
+          name: "Pay",
+          definition: "Compensation grievances.",
+          quoteRefs: [ids[0], ids[1], "u_ffffffffffffffff"],
+        },
         { name: "Management", definition: "Supervisor friction.", quoteRefs: [ids[2]] },
       ],
       note: "Hypotheses only.",
@@ -561,7 +743,11 @@ test("compiler: workerClass scaffolding is enforced on the compiled template", a
   }));
 
   const small = await compileInstrument(project, construct, {
-    workerClass: "small", provider: "mock", model: "mock-1", snapshot: "mock-1", outputSchemaFor,
+    workerClass: "small",
+    provider: "mock",
+    model: "mock-1",
+    snapshot: "mock-1",
+    outputSchemaFor,
   });
   assert.equal(small.kind, "judge");
   assert.equal(small.authoredBy, "director");
@@ -580,14 +766,26 @@ test("compiler: workerClass scaffolding is enforced on the compiled template", a
   assert.match(small.payload.promptTemplate, /No code fences/);
 
   const frontier = await compileInstrument(project, construct, {
-    workerClass: "frontier", provider: "mock", model: "mock-1", snapshot: "mock-1", outputSchemaFor,
+    workerClass: "frontier",
+    provider: "mock",
+    model: "mock-1",
+    snapshot: "mock-1",
+    outputSchemaFor,
   });
-  assert.doesNotMatch(frontier.payload.promptTemplate, /Respond ONLY with a single JSON object/,
-    "frontier templates stay lean — no small-class scaffolding");
+  assert.doesNotMatch(
+    frontier.payload.promptTemplate,
+    /Respond ONLY with a single JSON object/,
+    "frontier templates stay lean — no small-class scaffolding",
+  );
   assert.ok(frontier.payload.promptTemplate.includes("{{unit}}"));
 
   await assert.rejects(
-    compileInstrument(project, construct, { workerClass: "huge", provider: "mock", model: "mock-1", outputSchemaFor }),
+    compileInstrument(project, construct, {
+      workerClass: "huge",
+      provider: "mock",
+      model: "mock-1",
+      outputSchemaFor,
+    }),
     { code: "VALIDATION" },
   );
 
@@ -613,7 +811,10 @@ test("compiler: class budgets tolerate reasoning-model thinking tokens (small �
   const floors = { small: 1024, mid: 1536, frontier: 2048 };
   for (const [workerClass, floor] of Object.entries(floors)) {
     const inst = await compileInstrument(project, construct, {
-      workerClass, provider: "mock", model: "mock-1", snapshot: "mock-1",
+      workerClass,
+      provider: "mock",
+      model: "mock-1",
+      snapshot: "mock-1",
       promptTemplate: "T {{definition}} {{criteria}} {{examples}} {{unit}}", // escape hatch: no Director call
       outputSchemaFor: () => ({ type: "binary", options: ["yes", "no"] }),
     });
@@ -629,7 +830,7 @@ test("compiler: seedDictionary validates the proposed term list through dictiona
   const construct = binaryConstruct({ name: "Pay language" });
   mock.setHandler("t-dict", () => ({
     categories: [
-      { name: "pay", terms: ["pay", "salar*", "under*paid", "\"work life balance\"", "wage"] },
+      { name: "pay", terms: ["pay", "salar*", "under*paid", '"work life balance"', "wage"] },
       { name: "NOT_ok", terms: ["nope"] },
     ],
     note: "seed list",
@@ -640,9 +841,18 @@ test("compiler: seedDictionary validates the proposed term list through dictiona
   assert.equal(instrument.kind, "dictionary");
   assert.equal(instrument.authoredBy, "director");
   const cat = instrument.payload.categories.find((c) => c.name === "pay");
-  assert.deepEqual(cat.terms.map((t) => t.term), ["pay", "salar*", "\"work life balance\"", "wage"]);
-  assert.ok(dropped.some((d) => d.term === "under*paid" && /\*/.test(d.reason)), "misplaced wildcard dropped with reason");
-  assert.ok(dropped.some((d) => d.category === "NOT_ok"), "reserved category name dropped with reason");
+  assert.deepEqual(
+    cat.terms.map((t) => t.term),
+    ["pay", "salar*", '"work life balance"', "wage"],
+  );
+  assert.ok(
+    dropped.some((d) => d.term === "under*paid" && /\*/.test(d.reason)),
+    "misplaced wildcard dropped with reason",
+  );
+  assert.ok(
+    dropped.some((d) => d.category === "NOT_ok"),
+    "reserved category name dropped with reason",
+  );
   assert.equal(instrument.payload.scoring, "percentOfWords");
   // the surviving payload must compile cleanly
   compileDictionary(instrument.payload);
@@ -654,13 +864,21 @@ test("silver: tuning loop plateaus, records the curve, versions per iteration, a
   const project = await makeProject({ handler: "t-silver" });
   const { units } = await makeCorpus(project, { n: 200 });
   const construct = binaryConstruct();
-  Object.assign(project, await updateProject(project.slug, (p) => { p.constructs.push(construct); }));
+  Object.assign(
+    project,
+    await updateProject(project.slug, (p) => {
+      p.constructs.push(construct);
+    }),
+  );
 
   let rewrites = 0;
   mock.setHandler("t-silver", (req) => {
     if (req.schema?.properties?.promptTemplate) {
       rewrites++;
-      return { promptTemplate: `Revision ${rewrites}. {{definition}} {{criteria}} {{examples}} <unit>{{unit}}</unit>`, note: `tightened rule ${rewrites}` };
+      return {
+        promptTemplate: `Revision ${rewrites}. {{definition}} {{criteria}} {{examples}} <unit>{{unit}}</unit>`,
+        note: `tightened rule ${rewrites}`,
+      };
     }
     return { rationale: "Pay is named as the problem.", label: "yes", confidence: 0.92 };
   });
@@ -668,9 +886,13 @@ test("silver: tuning loop plateaus, records the curve, versions per iteration, a
   // Researcher-supplied template (the raw escape hatch): no Director compile
   // call, so the t-silver handler only ever sees label + rewrite requests.
   const instrument = await compileInstrument(project, construct, {
-    workerClass: "small", provider: "mock", model: "mock-1", snapshot: "mock-1",
+    workerClass: "small",
+    provider: "mock",
+    model: "mock-1",
+    snapshot: "mock-1",
     outputSchemaFor: () => ({ type: "binary", options: ["yes", "no"] }),
-    promptTemplate: "Initial template. {{definition}} {{criteria}} {{examples}} <unit>{{unit}}</unit>",
+    promptTemplate:
+      "Initial template. {{definition}} {{criteria}} {{examples}} <unit>{{unit}}</unit>",
   });
   await acceptInstrument(project, instrument);
 
@@ -678,11 +900,20 @@ test("silver: tuning loop plateaus, records the curve, versions per iteration, a
   const engineCalls = [];
   const engine = {
     async runEphemeral(p, inst, sampleUnits) {
-      engineCalls.push({ versionHash: inst.versionHash, version: inst.version, n: sampleUnits.length });
+      engineCalls.push({
+        versionHash: inst.versionHash,
+        version: inst.version,
+        n: sampleUnits.length,
+      });
       const t = targets[Math.min(engineCalls.length - 1, targets.length - 1)];
       const agree = Math.round(sampleUnits.length * t);
       return {
-        outputs: sampleUnits.map((u, k) => ({ unitId: u.id, juror: inst.versionHash, label: k < agree ? "yes" : "no", confidence: 0.8 })),
+        outputs: sampleUnits.map((u, k) => ({
+          unitId: u.id,
+          juror: inst.versionHash,
+          label: k < agree ? "yes" : "no",
+          confidence: 0.8,
+        })),
         cost: { actualUSD: 0, inputTokens: 10, outputTokens: 5 },
         quarantine: [],
       };
@@ -698,21 +929,41 @@ test("silver: tuning loop plateaus, records the curve, versions per iteration, a
 
   const iterations = [];
   const { instrument: tuned, curve } = await silverTune(project, instrument, units, {
-    engine, stability, onIteration: (it) => iterations.push(it),
+    engine,
+    stability,
+    onIteration: (it) => iterations.push(it),
   });
 
   // curve: 4 iterations, exact scripted agreements, plateau at Δ < 0.01
   assert.equal(curve.length, 4, "must stop at iteration 4 (Δagreement 0.005 < 0.01)");
-  assert.deepEqual(curve.map((c) => c.agreement), [0.6, 0.75, 0.79, 0.795]);
+  assert.deepEqual(
+    curve.map((c) => c.agreement),
+    [0.6, 0.75, 0.79, 0.795],
+  );
   assert.equal(rewrites, 3, "no rewrite after the plateau iteration");
   assert.equal(engineCalls.length, 4);
   // each engine call ran the instrument VERSION of that iteration
-  assert.deepEqual(engineCalls.map((c) => c.versionHash), curve.map((c) => c.versionHash));
-  assert.equal(new Set(curve.map((c) => c.versionHash)).size, 4, "every iteration is a distinct version");
-  assert.equal(tuned.versionHash, curve[3].versionHash, "final instrument is the last iteration's version");
+  assert.deepEqual(
+    engineCalls.map((c) => c.versionHash),
+    curve.map((c) => c.versionHash),
+  );
+  assert.equal(
+    new Set(curve.map((c) => c.versionHash)).size,
+    4,
+    "every iteration is a distinct version",
+  );
+  assert.equal(
+    tuned.versionHash,
+    curve[3].versionHash,
+    "final instrument is the last iteration's version",
+  );
   assert.equal(typeof curve[1].note, "string");
   assert.ok(curve[1].note.length > 0, "rewrite note recorded on the next iteration");
-  assert.deepEqual(iterations.map((i) => i.agreement), [0.6, 0.75, 0.79, 0.795], "onIteration streamed in order");
+  assert.deepEqual(
+    iterations.map((i) => i.agreement),
+    [0.6, 0.75, 0.79, 0.795],
+    "onIteration streamed in order",
+  );
 
   // stability ran on the FINAL version; pass + ≥1 iteration → stabilized
   assert.equal(stabilityCalls.length, 1);
@@ -731,7 +982,10 @@ test("silver: tuning loop plateaus, records the curve, versions per iteration, a
   assert.equal(gs.status, "complete");
   assert.equal(gs.constructId, construct.id);
   assert.equal(gs.sample.length, 200);
-  assert.ok(gs.sample.every((s) => s.pi === 1), "pi = 200/200 = 1 for a full-coverage sample");
+  assert.ok(
+    gs.sample.every((s) => s.pi === 1),
+    "pi = 200/200 = 1 for a full-coverage sample",
+  );
   assert.equal(gs.coders.length, 1);
   assert.equal(gs.coders[0].coderId, "director");
   assert.equal(Object.keys(gs.coders[0].labels).length, 200);
@@ -750,27 +1004,45 @@ test("silver: tuning loop plateaus, records the curve, versions per iteration, a
   // instrument.stability is the stability MODULE's append (stability.js:113);
   // the double injected here does not ledger, and silverTune must not
   // re-append the event itself (BUG-1: double-counted stability runs).
-  assert.equal((await ledger.query(pdir, { type: "instrument.stability" })).length, 0,
-    "silverTune must not ledger instrument.stability — the stability module owns that event");
+  assert.equal(
+    (await ledger.query(pdir, { type: "instrument.stability" })).length,
+    0,
+    "silverTune must not ledger instrument.stability — the stability module owns that event",
+  );
   const tunedEv = (await ledger.query(pdir, { type: "instrument.silver_tuned" }))[0];
   assert.equal(tunedEv.refs.instrumentId, tuned.id);
   assert.equal(tunedEv.refs.goldsetId, tuned.silver.goldsetId);
 
   // director labeled 200 units + 3 rewrites
-  assert.ok(directorCosts(project).calls >= 203, `expected ≥203 director calls, saw ${directorCosts(project).calls}`);
+  assert.ok(
+    directorCosts(project).calls >= 203,
+    `expected ≥203 director calls, saw ${directorCosts(project).calls}`,
+  );
 });
 
 test("silver: stability failure leaves the level exploratory; missing engine/stability is a hard error", async () => {
   const project = await makeProject({ handler: "t-silver2" });
   const { units } = await makeCorpus(project, { n: 10 });
   const construct = binaryConstruct();
-  Object.assign(project, await updateProject(project.slug, (p) => { p.constructs.push(construct); }));
+  Object.assign(
+    project,
+    await updateProject(project.slug, (p) => {
+      p.constructs.push(construct);
+    }),
+  );
   mock.setHandler("t-silver2", (req) => {
-    if (req.schema?.properties?.promptTemplate) return { promptTemplate: `R {{definition}} {{criteria}} {{examples}} {{unit}} ${Math.random()}`, note: "n" };
+    if (req.schema?.properties?.promptTemplate)
+      return {
+        promptTemplate: `R {{definition}} {{criteria}} {{examples}} {{unit}} ${Math.random()}`,
+        note: "n",
+      };
     return { rationale: "r", label: "yes", confidence: 0.9 };
   });
   const instrument = await compileInstrument(project, construct, {
-    workerClass: "mid", provider: "mock", model: "mock-1", snapshot: "mock-1",
+    workerClass: "mid",
+    provider: "mock",
+    model: "mock-1",
+    snapshot: "mock-1",
     outputSchemaFor: () => ({ type: "binary", options: ["yes", "no"] }),
     promptTemplate: "T {{definition}} {{criteria}} {{examples}} {{unit}}",
   });
@@ -779,24 +1051,46 @@ test("silver: stability failure leaves the level exploratory; missing engine/sta
   const engine = {
     async runEphemeral(p, inst, sampleUnits) {
       return {
-        outputs: sampleUnits.map((u, k) => ({ unitId: u.id, juror: inst.versionHash, label: k < 5 ? "yes" : "no" })),
-        cost: { actualUSD: 0 }, quarantine: [],
+        outputs: sampleUnits.map((u, k) => ({
+          unitId: u.id,
+          juror: inst.versionHash,
+          label: k < 5 ? "yes" : "no",
+        })),
+        cost: { actualUSD: 0 },
+        quarantine: [],
       };
     },
   };
-  const stability = { async stabilityCheck() { return { alpha: 0.41, pass: false, runs: [] }; } };
+  const stability = {
+    async stabilityCheck() {
+      return { alpha: 0.41, pass: false, runs: [] };
+    },
+  };
 
-  const { instrument: tuned, curve } = await silverTune(project, instrument, units, { engine, stability });
+  const { instrument: tuned, curve } = await silverTune(project, instrument, units, {
+    engine,
+    stability,
+  });
   assert.equal(curve.length, 2, "identical agreement on iteration 2 → plateau");
   assert.equal(tuned.level, "exploratory", "failed stability must not stabilize");
-  assert.equal(tuned.stability.alpha, 0.41, "the check's alpha is still recorded (contract shape: {alpha, k, n, ranAt})");
+  assert.equal(
+    tuned.stability.alpha,
+    0.41,
+    "the check's alpha is still recorded (contract shape: {alpha, k, n, ranAt})",
+  );
   // The verdict's ledger append belongs to the stability module (asserted
   // against the REAL module in runs.test.js); the double here does not
   // ledger and silverTune must not re-append the event (BUG-1).
   const stEvents = await ledger.query(projectDir(project.slug), { type: "instrument.stability" });
-  assert.equal(stEvents.length, 0, "silverTune does not re-ledger the stability verdict — the stability module owns that event");
+  assert.equal(
+    stEvents.length,
+    0,
+    "silverTune does not re-ledger the stability verdict — the stability module owns that event",
+  );
 
-  await assert.rejects(silverTune(project, instrument, units, { stability }), { code: "VALIDATION" });
+  await assert.rejects(silverTune(project, instrument, units, { stability }), {
+    code: "VALIDATION",
+  });
   await assert.rejects(silverTune(project, instrument, units, { engine }), { code: "VALIDATION" });
 });
 
@@ -813,9 +1107,17 @@ async function silverFixture({ handler, n = 8, targets = [0.5, 0.8, 0.805] }) {
   const project = await makeProject({ handler });
   const { units } = await makeCorpus(project, { n });
   const construct = binaryConstruct();
-  Object.assign(project, await updateProject(project.slug, (p) => { p.constructs.push(construct); }));
+  Object.assign(
+    project,
+    await updateProject(project.slug, (p) => {
+      p.constructs.push(construct);
+    }),
+  );
   const instrument = await compileInstrument(project, construct, {
-    workerClass: "mid", provider: "mock", model: "mock-1", snapshot: "mock-1",
+    workerClass: "mid",
+    provider: "mock",
+    model: "mock-1",
+    snapshot: "mock-1",
     outputSchemaFor: () => ({ type: "binary", options: ["yes", "no"] }),
     promptTemplate: "T {{definition}} {{criteria}} {{examples}} {{unit}}",
   });
@@ -826,13 +1128,21 @@ async function silverFixture({ handler, n = 8, targets = [0.5, 0.8, 0.805] }) {
       const t = targets[Math.min(call++, targets.length - 1)];
       const agree = Math.round(sampleUnits.length * t);
       return {
-        outputs: sampleUnits.map((u, k) => ({ unitId: u.id, juror: inst.versionHash, label: k < agree ? "yes" : "no" })),
+        outputs: sampleUnits.map((u, k) => ({
+          unitId: u.id,
+          juror: inst.versionHash,
+          label: k < agree ? "yes" : "no",
+        })),
         cost: { actualUSD: 0 },
         quarantine: [],
       };
     },
   };
-  const stability = { async stabilityCheck() { return { alpha: 0.9, pass: true, runs: [] }; } };
+  const stability = {
+    async stabilityCheck() {
+      return { alpha: 0.9, pass: true, runs: [] };
+    },
+  };
   return { project, units, instrument, engine, stability };
 }
 
@@ -841,33 +1151,56 @@ test("silver: Director budgets are reasoning-tolerant — labeling ≥1536, rewr
   mock.setHandler("t-silver-budget", (req) => {
     if (req.schema?.properties?.promptTemplate) {
       budgets.rewrite.push(req.maxTokens);
-      return { promptTemplate: `R${budgets.rewrite.length} {{definition}} {{criteria}} {{examples}} {{unit}}`, note: "n" };
+      return {
+        promptTemplate: `R${budgets.rewrite.length} {{definition}} {{criteria}} {{examples}} {{unit}}`,
+        note: "n",
+      };
     }
     budgets.label.push(req.maxTokens);
     return { rationale: "r", label: "yes", confidence: 0.9 };
   });
-  const { project, units, instrument, engine, stability } = await silverFixture({ handler: "t-silver-budget" });
+  const { project, units, instrument, engine, stability } = await silverFixture({
+    handler: "t-silver-budget",
+  });
   await silverTune(project, instrument, units, { engine, stability });
   assert.ok(budgets.label.length >= 8, `labeling calls observed (got ${budgets.label.length})`);
   for (const b of budgets.label) {
-    assert.ok(b >= 1536, `per-unit silver labeling budget ${b} must be ≥1536 — reasoning Directors bill thinking tokens against max_tokens`);
+    assert.ok(
+      b >= 1536,
+      `per-unit silver labeling budget ${b} must be ≥1536 — reasoning Directors bill thinking tokens against max_tokens`,
+    );
   }
   assert.ok(budgets.rewrite.length >= 1, "at least one rewrite call observed");
   for (const b of budgets.rewrite) {
-    assert.ok(b >= 2048, `prompt-rewrite budget ${b} must be ≥2048 — reasoning Directors bill thinking tokens against max_tokens`);
+    assert.ok(
+      b >= 2048,
+      `prompt-rewrite budget ${b} must be ≥2048 — reasoning Directors bill thinking tokens against max_tokens`,
+    );
   }
 });
 
 test("silver: a TRUNCATED labeling call escapes stage-named — 'Director silver-labeling:' prefix, code + details + original message preserved", async () => {
   mock.setHandler("t-silver-trunc", (req) => {
-    if (req.schema?.properties?.promptTemplate) return { promptTemplate: "R {{definition}} {{criteria}} {{examples}} {{unit}}", note: "n" };
-    throw new ConcordError("TRUNCATED", `structured output truncated at the token limit; raise maxTokens (currently ${req.maxTokens}) and retry`, { finishReason: "length" });
+    if (req.schema?.properties?.promptTemplate)
+      return { promptTemplate: "R {{definition}} {{criteria}} {{examples}} {{unit}}", note: "n" };
+    throw new ConcordError(
+      "TRUNCATED",
+      `structured output truncated at the token limit; raise maxTokens (currently ${req.maxTokens}) and retry`,
+      { finishReason: "length" },
+    );
   });
-  const { project, units, instrument, engine, stability } = await silverFixture({ handler: "t-silver-trunc", n: 4 });
+  const { project, units, instrument, engine, stability } = await silverFixture({
+    handler: "t-silver-trunc",
+    n: 4,
+  });
   await assert.rejects(silverTune(project, instrument, units, { engine, stability }), (err) => {
     assert.equal(err.code, "TRUNCATED", "code preserved through the stage label");
     assert.match(err.message, /^Director silver-labeling: /, "the failing Director stage is named");
-    assert.match(err.message, /truncated at the token limit/, "original message preserved after the prefix");
+    assert.match(
+      err.message,
+      /truncated at the token limit/,
+      "original message preserved after the prefix",
+    );
     assert.equal(err.details.finishReason, "length", "details preserved");
     return true;
   });
@@ -876,15 +1209,26 @@ test("silver: a TRUNCATED labeling call escapes stage-named — 'Director silver
 test("silver: a rewrite failure escapes stage-named — 'Director prompt-rewrite:' prefix, code preserved", async () => {
   mock.setHandler("t-silver-rw-trunc", (req) => {
     if (req.schema?.properties?.promptTemplate) {
-      throw new ConcordError("TRUNCATED", `structured output truncated at the token limit; raise maxTokens (currently ${req.maxTokens}) and retry`, { finishReason: "length" });
+      throw new ConcordError(
+        "TRUNCATED",
+        `structured output truncated at the token limit; raise maxTokens (currently ${req.maxTokens}) and retry`,
+        { finishReason: "length" },
+      );
     }
     return { rationale: "r", label: "yes", confidence: 0.9 };
   });
-  const { project, units, instrument, engine, stability } = await silverFixture({ handler: "t-silver-rw-trunc", n: 4 });
+  const { project, units, instrument, engine, stability } = await silverFixture({
+    handler: "t-silver-rw-trunc",
+    n: 4,
+  });
   await assert.rejects(silverTune(project, instrument, units, { engine, stability }), (err) => {
     assert.equal(err.code, "TRUNCATED");
     assert.match(err.message, /^Director prompt-rewrite: /, "the failing Director stage is named");
-    assert.match(err.message, /truncated at the token limit/, "original message preserved after the prefix");
+    assert.match(
+      err.message,
+      /truncated at the token limit/,
+      "original message preserved after the prefix",
+    );
     return true;
   });
 });
@@ -913,7 +1257,8 @@ test("panels: recommends a family-disjoint panel from registry catalogs", async 
   });
 
   const rec = await recommendPanel(project, construct, {
-    budgetUSDper1k: 2, outputSchemaFor: () => ({ type: "binary", options: ["yes", "no"] }),
+    budgetUSDper1k: 2,
+    outputSchemaFor: () => ({ type: "binary", options: ["yes", "no"] }),
   });
   assert.equal(rec.authoredBy, "director");
   assert.equal(rec.humanTouched, false);
@@ -927,8 +1272,15 @@ test("panels: recommends a family-disjoint panel from registry catalogs", async 
     assert.equal(j.params.temperature, 0);
     assert.ok(j.snapshot, "snapshot resolved from the catalog");
   }
-  assert.equal(new Set(rec.families).size, rec.payload.jurors.length, `families must be disjoint: ${rec.families}`);
-  assert.ok(candidatesShown.includes("claude-haiku-4-5"), "catalog candidates shown to the Director");
+  assert.equal(
+    new Set(rec.families).size,
+    rec.payload.jurors.length,
+    `families must be disjoint: ${rec.families}`,
+  );
+  assert.ok(
+    candidatesShown.includes("claude-haiku-4-5"),
+    "catalog candidates shown to the Director",
+  );
 
   // overlapping families → VALIDATION
   mock.setHandler("t-panel", () => ({
@@ -941,7 +1293,9 @@ test("panels: recommends a family-disjoint panel from registry catalogs", async 
     rationale: "bad",
   }));
   await assert.rejects(
-    recommendPanel(project, construct, { outputSchemaFor: () => ({ type: "binary", options: ["yes", "no"] }) }),
+    recommendPanel(project, construct, {
+      outputSchemaFor: () => ({ type: "binary", options: ["yes", "no"] }),
+    }),
     (err) => err.code === "VALIDATION" && /disjoint/i.test(err.message),
   );
 });
@@ -950,8 +1304,22 @@ test("panels: strict mode offers only local candidates to the Director", async (
   const project = await makeProject({ privacyMode: "strict", handler: "t-panel-strict" });
   const construct = binaryConstruct();
   getAdapter(project, "ollama").adapter.catalog = async () => [
-    { id: "llama3.2:3b", name: "llama3.2:3b", family: "llama", ctx: null, pricing: { inUSDper1M: 0, outUSDper1M: 0 }, snapshot: "sha-l" },
-    { id: "qwen2.5:7b", name: "qwen2.5:7b", family: "qwen", ctx: null, pricing: { inUSDper1M: 0, outUSDper1M: 0 }, snapshot: "sha-q" },
+    {
+      id: "llama3.2:3b",
+      name: "llama3.2:3b",
+      family: "llama",
+      ctx: null,
+      pricing: { inUSDper1M: 0, outUSDper1M: 0 },
+      snapshot: "sha-l",
+    },
+    {
+      id: "qwen2.5:7b",
+      name: "qwen2.5:7b",
+      family: "qwen",
+      ctx: null,
+      pricing: { inUSDper1M: 0, outUSDper1M: 0 },
+      snapshot: "sha-q",
+    },
   ];
   let candidatesShown = null;
   mock.setHandler("t-panel-strict", (req) => {
@@ -969,7 +1337,10 @@ test("panels: strict mode offers only local candidates to the Director", async (
   const rec = await recommendPanel(project, construct, {
     outputSchemaFor: () => ({ type: "binary", options: ["yes", "no"] }),
   });
-  assert.ok(!/anthropic|claude|gpt-5/i.test(candidatesShown), "no network models offered under strict mode");
+  assert.ok(
+    !/anthropic|claude|gpt-5/i.test(candidatesShown),
+    "no network models offered under strict mode",
+  );
   assert.deepEqual(rec.payload.jurors.map((j) => j.provider).sort(), ["mock", "ollama", "ollama"]);
   assert.equal(new Set(rec.families).size, 3, "local families still disjoint");
 });
@@ -983,7 +1354,10 @@ test("panels: strict mode offers only local candidates to the Director", async (
 test("panels: juror budgets are compiler's CLASS_MAX_TOKENS (small ≥1024, mid ≥1536, frontier ≥2048)", async () => {
   const compiler = await import("../../server/director/compiler.js");
   const canonical = compiler.CLASS_MAX_TOKENS;
-  assert.ok(canonical, "compiler.js must export CLASS_MAX_TOKENS — the single source juror budgets import");
+  assert.ok(
+    canonical,
+    "compiler.js must export CLASS_MAX_TOKENS — the single source juror budgets import",
+  );
   const floors = { small: 1024, mid: 1536, frontier: 2048 };
   for (const [workerClass, floor] of Object.entries(floors)) {
     assert.ok(
@@ -1011,7 +1385,8 @@ test("panels: juror budgets are compiler's CLASS_MAX_TOKENS (small ≥1024, mid 
   assert.equal(rec.payload.jurors.length, 3);
   for (const j of rec.payload.jurors) {
     assert.equal(
-      j.params.maxTokens, canonical[j.workerClass],
+      j.params.maxTokens,
+      canonical[j.workerClass],
       `${j.workerClass} juror budget must be the canonical CLASS_MAX_TOKENS.${j.workerClass}, not a stale private copy`,
     );
     assert.ok(
@@ -1037,15 +1412,28 @@ test("escalate: Director disagreement produces a marked replacement with a one-l
     };
   });
   const escalate = makeEscalator(project, construct);
-  const unit = { id: "u_e1e1e1e1e1e1e1e1", text: "Pay was fine honestly — the hours were the problem.", meta: {} };
-  const workerOutput = { unitId: unit.id, juror: "vh_worker", label: "yes", confidence: 0.41, rationale: "mentions pay" };
+  const unit = {
+    id: "u_e1e1e1e1e1e1e1e1",
+    text: "Pay was fine honestly — the hours were the problem.",
+    meta: {},
+  };
+  const workerOutput = {
+    unitId: unit.id,
+    juror: "vh_worker",
+    label: "yes",
+    confidence: 0.41,
+    rationale: "mentions pay",
+  };
 
   const replacement = await escalate(unit, workerOutput);
   assert.ok(replacement, "disagreement must produce a replacement");
   assert.equal(replacement.unitId, unit.id);
   assert.equal(replacement.juror, "director");
-  assert.equal(replacement.escalatedBy, "director",
-    "the replacement carries structural provenance — the engine copies escalatedBy onto the written line while keeping the worker's juror hash");
+  assert.equal(
+    replacement.escalatedBy,
+    "director",
+    "the replacement carries structural provenance — the engine copies escalatedBy onto the written line while keeping the worker's juror hash",
+  );
   assert.equal(replacement.label, "no");
   assert.equal(replacement.escalated, true);
   assert.match(replacement.rationale, /Worker over-weighted/);
@@ -1053,15 +1441,30 @@ test("escalate: Director disagreement produces a marked replacement with a one-l
   assert.ok(promptSeen.includes("yes"), "worker label shown to the Director");
   assert.ok(promptSeen.includes(unit.text), "unit text shown to the Director");
 
-  mock.setHandler("t-esc", () => ({ rationale: "Agree with the worker.", label: "yes", confidence: 0.9, reason: "" }));
+  mock.setHandler("t-esc", () => ({
+    rationale: "Agree with the worker.",
+    label: "yes",
+    confidence: 0.9,
+    reason: "",
+  }));
   assert.equal(await escalate(unit, workerOutput), null, "agreement → no replacement");
 });
 
 test("escalate: second opinion carries maxTokens ≥1536; a failure escapes stage-named — 'Director second opinion:' prefix, code + details preserved", async () => {
   const project = await makeProject({ handler: "t-esc-budget" });
   const construct = binaryConstruct();
-  const unit = { id: "u_e2e2e2e2e2e2e2e2", text: "Pay was fine honestly — the hours were the problem.", meta: {} };
-  const workerOutput = { unitId: unit.id, juror: "vh_worker", label: "yes", confidence: 0.41, rationale: "mentions pay" };
+  const unit = {
+    id: "u_e2e2e2e2e2e2e2e2",
+    text: "Pay was fine honestly — the hours were the problem.",
+    meta: {},
+  };
+  const workerOutput = {
+    unitId: unit.id,
+    juror: "vh_worker",
+    label: "yes",
+    confidence: 0.41,
+    rationale: "mentions pay",
+  };
 
   // budget: reasoning Directors bill thinking tokens against max_tokens —
   // 512 (doubled once to 1024 by the truncation retry) starved them in the field
@@ -1077,12 +1480,20 @@ test("escalate: second opinion carries maxTokens ≥1536; a failure escapes stag
 
   // stage label: the researcher must know WHICH Director call failed
   mock.setHandler("t-esc-budget", (req) => {
-    throw new ConcordError("TRUNCATED", `structured output truncated at the token limit; raise maxTokens (currently ${req.maxTokens}) and retry`, { finishReason: "length" });
+    throw new ConcordError(
+      "TRUNCATED",
+      `structured output truncated at the token limit; raise maxTokens (currently ${req.maxTokens}) and retry`,
+      { finishReason: "length" },
+    );
   });
   await assert.rejects(escalate(unit, workerOutput), (err) => {
     assert.equal(err.code, "TRUNCATED", "code preserved through the stage label");
     assert.match(err.message, /^Director second opinion: /, "the failing Director stage is named");
-    assert.match(err.message, /truncated at the token limit/, "original message preserved after the prefix");
+    assert.match(
+      err.message,
+      /truncated at the token limit/,
+      "original message preserved after the prefix",
+    );
     assert.equal(err.details.finishReason, "length", "details preserved");
     return true;
   });
@@ -1095,18 +1506,30 @@ test("analyst: suggestions are dismissible artifacts whose specs satisfy objects
   const { corpusId, units } = await makeCorpus(project, { n: 30 });
   const construct = binaryConstruct();
   const instrument = await compileInstrument(project, construct, {
-    workerClass: "small", provider: "mock", model: "mock-1", snapshot: "mock-1",
+    workerClass: "small",
+    provider: "mock",
+    model: "mock-1",
+    snapshot: "mock-1",
     outputSchemaFor: () => ({ type: "binary", options: ["yes", "no"] }),
     promptTemplate: "T {{definition}} {{criteria}} {{examples}} {{unit}}",
   });
-  await updateProject(project.slug, (p) => { p.constructs.push(construct); p.instruments.push(instrument); });
+  await updateProject(project.slug, (p) => {
+    p.constructs.push(construct);
+    p.instruments.push(instrument);
+  });
   Object.assign(project, await loadProject(project.slug));
 
   const run = createRun({
-    instrumentId: instrument.id, versionHash: instrument.versionHash, corpusId,
-    provider: "mock", model: "mock-1", status: "complete",
+    instrumentId: instrument.id,
+    versionHash: instrument.versionHash,
+    corpusId,
+    provider: "mock",
+    model: "mock-1",
+    status: "complete",
   });
-  const outputsSample = units.slice(0, 20).map((u, i) => ({ unitId: u.id, juror: instrument.versionHash, label: i % 3 ? "no" : "yes" }));
+  const outputsSample = units
+    .slice(0, 20)
+    .map((u, i) => ({ unitId: u.id, juror: instrument.versionHash, label: i % 3 ? "no" : "yes" }));
 
   mock.setHandler("t-analyst", (req) => {
     const ids = sampleIdsIn(lastUser(req));
@@ -1137,7 +1560,8 @@ test("analyst: suggestions are dismissible artifacts whose specs satisfy objects
   }
   const sampleIds = new Set(outputsSample.map((o) => o.unitId));
   for (const s of suggestions) {
-    for (const ref of s.evidenceRefs) assert.ok(sampleIds.has(ref), `evidence ref ${ref} must come from the outputs sample`);
+    for (const ref of s.evidenceRefs)
+      assert.ok(sampleIds.has(ref), `evidence ref ${ref} must come from the outputs sample`);
   }
   assert.equal(suggestions[0].evidenceRefs.length, 1, "bogus evidence ref dropped");
 });
@@ -1150,19 +1574,37 @@ test("questionbar: compileQuestion produces a persisted plan; approvePlan materi
 
   mock.setHandler("t-qbar", (req) => {
     if (req.schema?.properties?.promptTemplate) {
-      return { promptTemplate: "Compiled judge. {{definition}} {{criteria}} {{examples}} <unit>{{unit}}</unit>", note: "compiled" };
+      return {
+        promptTemplate:
+          "Compiled judge. {{definition}} {{criteria}} {{examples}} <unit>{{unit}}</unit>",
+        note: "compiled",
+      };
     }
     const sampleText = units[0].text;
     return {
-      constructs: [{
-        name: "Pay complaint", type: "binary",
-        definition: "The unit complains about compensation.",
-        criteria: { include: ["names pay as a problem"], exclude: ["benefits-only"] },
-        edgeCases: [],
-        examples: [{ text: sampleText, label: "yes", kind: "positive" }],
-        categories: [{ value: "yes", label: "Yes" }, { value: "no", label: "No" }],
-      }],
-      instruments: [{ construct: "Pay complaint", workerClass: "small", provider: "mock", model: "mock-1", snapshot: "mock-1" }],
+      constructs: [
+        {
+          name: "Pay complaint",
+          type: "binary",
+          definition: "The unit complains about compensation.",
+          criteria: { include: ["names pay as a problem"], exclude: ["benefits-only"] },
+          edgeCases: [],
+          examples: [{ text: sampleText, label: "yes", kind: "positive" }],
+          categories: [
+            { value: "yes", label: "Yes" },
+            { value: "no", label: "No" },
+          ],
+        },
+      ],
+      instruments: [
+        {
+          construct: "Pay complaint",
+          workerClass: "small",
+          provider: "mock",
+          model: "mock-1",
+          snapshot: "mock-1",
+        },
+      ],
       analysis: {
         kind: "crosstab",
         spec: { rowKey: "label", colKey: "dept", corpusId },
@@ -1189,8 +1631,10 @@ test("questionbar: compileQuestion produces a persisted plan; approvePlan materi
   // estimateRun outputTokens = calls × maxTokens: the plan must budget the
   // canonical small-class floor (≥1024 — thinking tokens bill against
   // max_tokens), not the pre-June-2026 256 that understated cost ~4x.
-  assert.ok(plan.estimate.outputTokens >= 40 * 1024,
-    `plan estimate must use the canonical small-class budget (≥1024/call); got ${plan.estimate.outputTokens} output tokens for 40 calls`);
+  assert.ok(
+    plan.estimate.outputTokens >= 40 * 1024,
+    `plan estimate must use the canonical small-class budget (≥1024/call); got ${plan.estimate.outputTokens} output tokens for 40 calls`,
+  );
   assert.equal(plan.analysis.kind, "crosstab");
   createAnalysis({ kind: plan.analysis.kind, spec: plan.analysis.spec }); // spec is materializable
 
@@ -1216,19 +1660,28 @@ test("questionbar: compileQuestion produces a persisted plan; approvePlan materi
   assert.equal(inst.kind, "judge");
   assert.equal(inst.constructId, plan.constructs[0].id);
   assert.equal(inst.payload.workerClass, "small");
-  assert.match(inst.payload.promptTemplate, /Respond ONLY with a single JSON object/, "small-class scaffolding enforced at approval");
+  assert.match(
+    inst.payload.promptTemplate,
+    /Respond ONLY with a single JSON object/,
+    "small-class scaffolding enforced at approval",
+  );
   assert.equal((await ledger.query(pdir, { type: "construct.created" })).length, 1);
   assert.equal((await ledger.query(pdir, { type: "instrument.compiled" })).length, 1);
   assert.equal((await ledger.query(pdir, { type: "plan.approved" })).length, 1);
 
   await assert.rejects(approvePlan(project, "plan_nope", {}), { code: "NOT_FOUND" });
   // double-approval is refused
-  await assert.rejects(approvePlan(project, plan.planId, { outputSchemaFor: () => ({ type: "binary" }) }), { code: "VALIDATION" });
+  await assert.rejects(
+    approvePlan(project, plan.planId, { outputSchemaFor: () => ({ type: "binary" }) }),
+    { code: "VALIDATION" },
+  );
 });
 
 test("questionbar: unknown corpus → NOT_FOUND", async () => {
   const project = await makeProject({ handler: "t-qbar2" });
-  await assert.rejects(compileQuestion(project, "corp_missing", "anything?"), { code: "NOT_FOUND" });
+  await assert.rejects(compileQuestion(project, "corp_missing", "anything?"), {
+    code: "NOT_FOUND",
+  });
 });
 
 // ---------------------------------------------------------------- error type hygiene
@@ -1236,7 +1689,10 @@ test("questionbar: unknown corpus → NOT_FOUND", async () => {
 test("ConcordError is used for director-facing failures", async () => {
   const project = await makeProject({ director: null });
   try {
-    await callDirector(project, { messages: [], schema: { type: "object", properties: {}, additionalProperties: false } });
+    await callDirector(project, {
+      messages: [],
+      schema: { type: "object", properties: {}, additionalProperties: false },
+    });
     assert.fail("should have thrown");
   } catch (err) {
     assert.ok(err instanceof ConcordError);
@@ -1252,38 +1708,64 @@ test("withTruncationRetry: TRUNCATED retries once at doubled budget; cap honored
   const { withTruncationRetry } = await import("../../server/director/director.js");
 
   const calls = [];
-  const r = await withTruncationRetry(async (mt) => {
-    calls.push(mt);
-    if (calls.length === 1) throw new ConcordError("TRUNCATED", "structured output truncated");
-    return { ok: mt };
-  }, { maxTokens: 4096 });
+  const r = await withTruncationRetry(
+    async (mt) => {
+      calls.push(mt);
+      if (calls.length === 1) throw new ConcordError("TRUNCATED", "structured output truncated");
+      return { ok: mt };
+    },
+    { maxTokens: 4096 },
+  );
   assert.deepEqual(calls, [4096, 8192], "second attempt doubles the budget");
   assert.equal(r.ok, 8192);
 
   const calls2 = [];
-  await withTruncationRetry(async (mt) => {
-    calls2.push(mt);
-    if (calls2.length === 1) throw new ConcordError("TRUNCATED", "x");
-    return {};
-  }, { maxTokens: 20000 });
+  await withTruncationRetry(
+    async (mt) => {
+      calls2.push(mt);
+      if (calls2.length === 1) throw new ConcordError("TRUNCATED", "x");
+      return {};
+    },
+    { maxTokens: 20000 },
+  );
   assert.deepEqual(calls2, [20000, 32768], "doubled budget is capped at 32768");
 
   await assert.rejects(
-    () => withTruncationRetry(async () => { throw new ConcordError("TRUNCATED", "still truncated"); }, { maxTokens: 1024 }),
+    () =>
+      withTruncationRetry(
+        async () => {
+          throw new ConcordError("TRUNCATED", "still truncated");
+        },
+        { maxTokens: 1024 },
+      ),
     (e) => e.code === "TRUNCATED",
     "a second truncation propagates",
   );
 
   const calls3 = [];
   await assert.rejects(
-    () => withTruncationRetry(async (mt) => { calls3.push(mt); throw new ConcordError("PROVIDER_HTTP", "boom"); }, { maxTokens: 4096 }),
+    () =>
+      withTruncationRetry(
+        async (mt) => {
+          calls3.push(mt);
+          throw new ConcordError("PROVIDER_HTTP", "boom");
+        },
+        { maxTokens: 4096 },
+      ),
     (e) => e.code === "PROVIDER_HTTP",
   );
   assert.equal(calls3.length, 1, "non-truncation errors never retry");
 
   const calls4 = [];
   await assert.rejects(
-    () => withTruncationRetry(async (mt) => { calls4.push(mt); throw new ConcordError("TRUNCATED", "at cap already"); }, { maxTokens: 32768 }),
+    () =>
+      withTruncationRetry(
+        async (mt) => {
+          calls4.push(mt);
+          throw new ConcordError("TRUNCATED", "at cap already");
+        },
+        { maxTokens: 32768 },
+      ),
     (e) => e.code === "TRUNCATED",
   );
   assert.equal(calls4.length, 1, "already at the cap: nothing larger to try");
@@ -1297,10 +1779,15 @@ test("generateBrief asks for a realistic token budget (>= 16384)", async () => {
     seen.maxTokens = req.maxTokens;
     return {
       paragraphs: [{ md: "One paragraph.", refs: [] }],
-      themes: [], redFlags: [], suggestedQuestions: [], unitOfAnalysis: "response",
+      themes: [],
+      redFlags: [],
+      suggestedQuestions: [],
+      unitOfAnalysis: "response",
     };
   });
   await generateBrief(project, corpusId, {});
-  assert.ok(seen.maxTokens >= 16384,
-    `brief budget must survive real frontier verbosity (got ${seen.maxTokens}; 4096 truncated in the field)`);
+  assert.ok(
+    seen.maxTokens >= 16384,
+    `brief budget must survive real frontier verbosity (got ${seen.maxTokens}; 4096 truncated in the field)`,
+  );
 });

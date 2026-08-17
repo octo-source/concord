@@ -43,7 +43,10 @@ export function installProcessGuards() {
     console.error("[concord] uncaughtException (logged, process kept alive):", err?.stack ?? err);
   });
   process.on("unhandledRejection", (reason) => {
-    console.error("[concord] unhandledRejection (logged, process kept alive):", reason?.stack ?? reason);
+    console.error(
+      "[concord] unhandledRejection (logged, process kept alive):",
+      reason?.stack ?? reason,
+    );
   });
 }
 
@@ -54,7 +57,8 @@ export function parseServerMode(argv = process.argv.slice(2)) {
   if (i === -1) return { role: "full" };
   const spec = argv[i + 1] ?? "";
   const m = /^([^:]+):(.+)$/.exec(spec);
-  if (!m) throw new ConcordError("VALIDATION", "--coder requires <goldsetId>:<coderId>", { got: spec });
+  if (!m)
+    throw new ConcordError("VALIDATION", "--coder requires <goldsetId>:<coderId>", { got: spec });
   return { role: "coder", goldsetId: m[1], coderId: m[2] };
 }
 
@@ -81,9 +85,14 @@ async function mountRoutes(router, dir) {
   for (const name of entries.filter((f) => f.endsWith(".js")).sort()) {
     const mod = await import(pathToFileURL(path.join(dir, name)).href);
     if (!Array.isArray(mod.default)) {
-      throw new ConcordError("ROUTES", `Route module ${name} must default-export an array of {method, pattern, handler}`, { file: name });
+      throw new ConcordError(
+        "ROUTES",
+        `Route module ${name} must default-export an array of {method, pattern, handler}`,
+        { file: name },
+      );
     }
-    for (const { method, pattern, handler } of mod.default) router.addRoute(method, pattern, handler);
+    for (const { method, pattern, handler } of mod.default)
+      router.addRoute(method, pattern, handler);
   }
 }
 
@@ -101,12 +110,15 @@ async function healOrphanedRuns() {
             r.status = "paused";
             r.error = {
               code: "ORPHANED",
-              message: "the server stopped while this run was executing; resume continues from the checkpoint",
+              message:
+                "the server stopped while this run was executing; resume continues from the checkpoint",
             };
           }
         }
       });
-    } catch { /* one damaged bundle must not block the rest */ }
+    } catch {
+      /* one damaged bundle must not block the rest */
+    }
   }
 }
 
@@ -138,7 +150,12 @@ export async function startServer({
     router.handle(req, res).catch((err) => {
       console.error(err);
       if (!res.writableEnded) {
-        try { res.statusCode = 500; res.end(); } catch { /* socket gone */ }
+        try {
+          res.statusCode = 500;
+          res.end();
+        } catch {
+          /* socket gone */
+        }
       }
     });
   });
@@ -162,7 +179,12 @@ export async function startServer({
       router.handle(req, res).catch((err) => {
         console.error(err);
         if (!res.writableEnded) {
-          try { res.statusCode = 500; res.end(); } catch { /* socket gone */ }
+          try {
+            res.statusCode = 500;
+            res.end();
+          } catch {
+            /* socket gone */
+          }
         }
       });
     });
@@ -187,16 +209,19 @@ export async function startServer({
     server,
     router,
     port: boundPort,
-    close: () => new Promise((resolve) => {
-      let pending = server6 ? 2 : 1;
-      const one = () => { if (--pending === 0) resolve(); };
-      server.close(one);
-      server.closeAllConnections?.();
-      if (server6) {
-        server6.close(one);
-        server6.closeAllConnections?.();
-      }
-    }),
+    close: () =>
+      new Promise((resolve) => {
+        let pending = server6 ? 2 : 1;
+        const one = () => {
+          if (--pending === 0) resolve();
+        };
+        server.close(one);
+        server.closeAllConnections?.();
+        if (server6) {
+          server6.close(one);
+          server6.closeAllConnections?.();
+        }
+      }),
   };
 }
 
@@ -216,16 +241,25 @@ export async function startServer({
 // local network can read the sampled units and submit labels). A shared
 // listener also reports lanUrl, the page address on the machine's first
 // non-internal IPv4, when one exists.
-export async function startCoderListener(projectSlug, goldsetId, coderId, {
-  appDir = path.join(repoRoot, "app"),
-  host = "127.0.0.1",
-  onDead = null,
-} = {}) {
+export async function startCoderListener(
+  projectSlug,
+  goldsetId,
+  coderId,
+  { appDir = path.join(repoRoot, "app"), host = "127.0.0.1", onDead = null } = {},
+) {
   if (!projectSlug || !goldsetId || !coderId) {
-    throw new ConcordError("VALIDATION", "startCoderListener requires projectSlug, goldsetId and coderId", {});
+    throw new ConcordError(
+      "VALIDATION",
+      "startCoderListener requires projectSlug, goldsetId and coderId",
+      {},
+    );
   }
   if (host !== "127.0.0.1" && host !== "0.0.0.0") {
-    throw new ConcordError("VALIDATION", 'coder listeners bind "127.0.0.1" (default) or "0.0.0.0" (explicit network sharing)', { host });
+    throw new ConcordError(
+      "VALIDATION",
+      'coder listeners bind "127.0.0.1" (default) or "0.0.0.0" (explicit network sharing)',
+      { host },
+    );
   }
   const shared = host === "0.0.0.0";
   const { coderRoutes } = await import("./routes/goldsets.js");
@@ -243,7 +277,12 @@ export async function startCoderListener(projectSlug, goldsetId, coderId, {
     if (shared) req.headers.host = "127.0.0.1";
     router.handle(req, res).catch(() => {
       if (!res.writableEnded) {
-        try { res.statusCode = 500; res.end(); } catch { /* socket gone */ }
+        try {
+          res.statusCode = 500;
+          res.end();
+        } catch {
+          /* socket gone */
+        }
       }
     });
   });
@@ -263,7 +302,10 @@ export async function startCoderListener(projectSlug, goldsetId, coderId, {
   if (shared) {
     for (const nets of Object.values(os.networkInterfaces())) {
       const lan = (nets ?? []).find((n) => !n.internal && (n.family === "IPv4" || n.family === 4));
-      if (lan) { lanUrl = `http://${lan.address}:${port}${page}`; break; }
+      if (lan) {
+        lanUrl = `http://${lan.address}:${port}${page}`;
+        break;
+      }
     }
   }
   const session = {
@@ -275,10 +317,11 @@ export async function startCoderListener(projectSlug, goldsetId, coderId, {
     coderId,
     goldsetId,
     dead: false, // flips true if the listener's server dies under it
-    close: () => new Promise((resolve) => {
-      server.close(resolve);
-      server.closeAllConnections?.();
-    }),
+    close: () =>
+      new Promise((resolve) => {
+        server.close(resolve);
+        server.closeAllConnections?.();
+      }),
   };
 
   // Registry hygiene: if this listener's server dies (a runtime error, or the
@@ -291,7 +334,11 @@ export async function startCoderListener(projectSlug, goldsetId, coderId, {
   const reap = () => {
     if (session.dead) return;
     session.dead = true;
-    try { onDead?.(session); } catch { /* eviction must not throw back into the emitter */ }
+    try {
+      onDead?.(session);
+    } catch {
+      /* eviction must not throw back into the emitter */
+    }
   };
   server.on("error", reap);
   server.on("close", reap);
@@ -299,16 +346,21 @@ export async function startCoderListener(projectSlug, goldsetId, coderId, {
   return session;
 }
 
-const isMain = process.argv[1] && import.meta.url === pathToFileURL(path.resolve(process.argv[1])).href;
+const isMain =
+  process.argv[1] && import.meta.url === pathToFileURL(path.resolve(process.argv[1])).href;
 if (isMain) {
   const port = await readPort();
   try {
     const { port: actual } = await startServer({ port });
     console.log(`Concord listening on http://localhost:${actual}`);
-    console.log(`Blind coder sessions are started from the Calibration Studio, never from the command line.`);
+    console.log(
+      `Blind coder sessions are started from the Calibration Studio, never from the command line.`,
+    );
   } catch (err) {
     if (err?.code === "EADDRINUSE") {
-      console.error(`Port ${port} is already in use — is Concord already running? Close it or change the port in config/app.json.`);
+      console.error(
+        `Port ${port} is already in use — is Concord already running? Close it or change the port in config/app.json.`,
+      );
     } else {
       console.error(`Concord failed to start: ${err?.message ?? err}`);
     }

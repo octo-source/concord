@@ -39,17 +39,27 @@ export default [
     pattern: "/api/projects",
     handler: async (req) => {
       const body = req.body ?? {};
-      const project = createProject({ name: body.name, privacyMode: body.privacyMode, slug: body.slug });
+      const project = createProject({
+        name: body.name,
+        privacyMode: body.privacyMode,
+        slug: body.slug,
+      });
       // Atomic create: the existence check and the write share one per-slug
       // lock inside the store, so two concurrent POSTs with the same slug can
       // never both pass the check and clobber each other — the loser throws
       // CONFLICT (a present-but-corrupt bundle also refuses, never overwrites).
       await createProjectIfAbsent(project);
-      await ledger.append(pdirOf(project.slug), "human", "project.created", { projectId: project.id }, {
-        name: project.name,
-        slug: project.slug,
-        privacyMode: project.privacyMode,
-      });
+      await ledger.append(
+        pdirOf(project.slug),
+        "human",
+        "project.created",
+        { projectId: project.id },
+        {
+          name: project.name,
+          slug: project.slug,
+          privacyMode: project.privacyMode,
+        },
+      );
       return project;
     },
   },
@@ -105,7 +115,9 @@ export default [
         const current = p.report ?? { blocks: [], updatedAt: null };
         const blocks = Array.isArray(current.blocks) ? current.blocks : [];
         if (blocks.length >= 100) {
-          throw new ConcordError("VALIDATION", "a report holds at most 100 blocks", { count: blocks.length });
+          throw new ConcordError("VALIDATION", "a report holds at most 100 blocks", {
+            count: blocks.length,
+          });
         }
         blocks.push({ ...block, addedAt: new Date().toISOString() });
         p.report = { blocks, updatedAt: new Date().toISOString() };

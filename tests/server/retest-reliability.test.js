@@ -71,7 +71,11 @@ async function call(method, p, body) {
   const res = await fetch(base + p, init);
   const text = await res.text();
   let json = null;
-  try { json = JSON.parse(text); } catch { /* non-JSON */ }
+  try {
+    json = JSON.parse(text);
+  } catch {
+    /* non-JSON */
+  }
   return { status: res.status, json, text };
 }
 
@@ -87,7 +91,11 @@ async function upload(p, filename, content) {
   form.append("file", new Blob([content]), filename);
   const res = await fetch(base + p, { method: "POST", body: form });
   const json = JSON.parse(await res.text());
-  assert.equal(res.status, 200, `upload ${p} → ${res.status}: ${JSON.stringify(json).slice(0, 300)}`);
+  assert.equal(
+    res.status,
+    200,
+    `upload ${p} → ${res.status}: ${JSON.stringify(json).slice(0, 300)}`,
+  );
   assert.equal(json.ok, true);
   return json.data;
 }
@@ -117,9 +125,11 @@ async function readSse(p) {
 function makeCsv(rows, tag) {
   const lines = ["respondent_id,dept,response"];
   for (let i = 0; i < rows; i++) {
-    const text = (i % 2 === 0
-      ? `the salary is too low for this ${tag} work and it never improves (${i})`
-      : `the office is comfortable and the ${tag} team is genuinely kind (${i})`).padEnd(100, ".");
+    const text = (
+      i % 2 === 0
+        ? `the salary is too low for this ${tag} work and it never improves (${i})`
+        : `the office is comfortable and the ${tag} team is genuinely kind (${i})`
+    ).padEnd(100, ".");
     lines.push(`r${i},${i % 2 ? "sales" : "ops"},${text}`);
   }
   return lines.join("\n") + "\n";
@@ -172,7 +182,10 @@ test("stability: persists projects/<slug>/stability/<instrumentId>.json with k 1
     name: "Pay complaint",
     type: "binary",
     definition: "The unit complains about compensation.",
-    categories: [{ value: "yes", label: "Yes" }, { value: "no", label: "No" }],
+    categories: [
+      { value: "yes", label: "Yes" },
+      { value: "no", label: "No" },
+    ],
   });
   S.constructId = construct.id;
 
@@ -186,13 +199,16 @@ test("stability: persists projects/<slug>/stability/<instrumentId>.json with k 1
 
   // a complete run on corpus A → the inst: source the retest rows pair with
   const started = await ok("POST", `/api/projects/${S.slug}/runs`, {
-    instrumentId: S.instId, corpusId: S.corpusA,
+    instrumentId: S.instId,
+    corpusId: S.corpusA,
   });
   const { events } = await readSse(`/api/projects/${S.slug}/runs/${started.runId}/monitor`);
   assert.equal(events.find((e) => e.event === "done")?.data.status, "complete", "run completes");
 
   const r = await ok("POST", `/api/projects/${S.slug}/instruments/${S.instId}/stability`, {
-    k: K, n: N, corpusId: S.corpusA,
+    k: K,
+    n: N,
+    corpusId: S.corpusA,
   });
   assert.equal(r.alpha, 1, "accuracy-1.0 oracle is perfectly stable");
   assert.equal(r.pass, true);
@@ -208,10 +224,17 @@ test("stability: persists projects/<slug>/stability/<instrumentId>.json with k 1
   assert.ok(Array.isArray(art.unitIds), "unitIds is an array");
   assert.equal(art.unitIds.length, N, "the n sampled unit ids are recorded");
   assert.equal(art.reruns.length, K, "one entry per rerun");
-  assert.deepEqual(art.reruns.map((x) => x.index), [1, 2, 3], "rerun indexes are 1-based");
+  assert.deepEqual(
+    art.reruns.map((x) => x.index),
+    [1, 2, 3],
+    "rerun indexes are 1-based",
+  );
   for (const rerun of art.reruns) {
-    assert.deepEqual(Object.keys(rerun.labels).sort(), [...art.unitIds].sort(),
-      "each rerun labels exactly the sampled units");
+    assert.deepEqual(
+      Object.keys(rerun.labels).sort(),
+      [...art.unitIds].sort(),
+      "each rerun labels exactly the sampled units",
+    );
     for (const label of Object.values(rerun.labels)) {
       assert.ok(["yes", "no"].includes(label), `label "${label}" is a schema value`);
     }
@@ -224,7 +247,10 @@ test("stability: persists projects/<slug>/stability/<instrumentId>.json with k 1
 // =========================================================================
 
 test("reliability: retest:<id>:1..k sources with the pinned labels; retest×retest AND retest×inst pairs; retestAvailable true", async () => {
-  const rel = await ok("GET", `/api/projects/${S.slug}/reliability/${S.constructId}?corpusId=${S.corpusA}`);
+  const rel = await ok(
+    "GET",
+    `/api/projects/${S.slug}/reliability/${S.constructId}?corpusId=${S.corpusA}`,
+  );
   assert.equal(rel.retestAvailable, true);
 
   const keys = rel.sources.map((s) => s.key);
@@ -269,11 +295,19 @@ test("reliability: stability artifact for a different corpus → no retest sourc
   });
   S.corpusB = conf.corpusId;
 
-  const rel = await ok("GET", `/api/projects/${S.slug}/reliability/${S.constructId}?corpusId=${S.corpusB}`);
+  const rel = await ok(
+    "GET",
+    `/api/projects/${S.slug}/reliability/${S.constructId}?corpusId=${S.corpusB}`,
+  );
   assert.equal(rel.retestAvailable, false);
-  assert.ok(!rel.sources.some((s) => String(s.key).startsWith("retest:")), "no retest sources on the other corpus");
   assert.ok(
-    rel.notes.includes("A stability check exists for Pay judge on a different corpus. Run the stability check on this corpus to see rerun rows."),
+    !rel.sources.some((s) => String(s.key).startsWith("retest:")),
+    "no retest sources on the other corpus",
+  );
+  assert.ok(
+    rel.notes.includes(
+      "A stability check exists for Pay judge on a different corpus. Run the stability check on this corpus to see rerun rows.",
+    ),
     `the functional note names the instrument (got ${JSON.stringify(rel.notes)})`,
   );
 });
@@ -287,18 +321,28 @@ test("reliability: construct never stability-checked → retestAvailable false, 
     name: "Team praise",
     type: "binary",
     definition: "The unit praises the team.",
-    categories: [{ value: "yes", label: "Yes" }, { value: "no", label: "No" }],
+    categories: [
+      { value: "yes", label: "Yes" },
+      { value: "no", label: "No" },
+    ],
   });
   S.construct2Id = c2.id;
 
-  const rel = await ok("GET", `/api/projects/${S.slug}/reliability/${S.construct2Id}?corpusId=${S.corpusA}`);
-  assert.deepEqual(Object.keys(rel).sort(),
+  const rel = await ok(
+    "GET",
+    `/api/projects/${S.slug}/reliability/${S.construct2Id}?corpusId=${S.corpusA}`,
+  );
+  assert.deepEqual(
+    Object.keys(rel).sort(),
     ["constructId", "corpusId", "notes", "pairs", "retestAvailable", "sources"],
-    "response shape is unchanged");
+    "response shape is unchanged",
+  );
   assert.equal(rel.retestAvailable, false);
   assert.ok(!rel.sources.some((s) => String(s.key).startsWith("retest:")), "no retest sources");
-  assert.ok(!rel.notes.some((n) => /retest|stability/i.test(n)),
-    `no retest/stability note when none was run (got ${JSON.stringify(rel.notes)})`);
+  assert.ok(
+    !rel.notes.some((n) => /retest|stability/i.test(n)),
+    `no retest/stability note when none was run (got ${JSON.stringify(rel.notes)})`,
+  );
 });
 
 // =========================================================================

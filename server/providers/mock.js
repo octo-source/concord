@@ -46,7 +46,8 @@ function genValue(schema, unitText, rand) {
   if (schema.enum) return schema.enum[Math.floor(rand() * schema.enum.length)];
   const type = Array.isArray(schema.type) ? schema.type[0] : schema.type;
   switch (type) {
-    case "string": return snippetOf(unitText, rand);
+    case "string":
+      return snippetOf(unitText, rand);
     case "number": {
       const lo = schema.minimum ?? 0;
       const hi = schema.maximum ?? 1;
@@ -57,17 +58,22 @@ function genValue(schema, unitText, rand) {
       const hi = schema.maximum ?? 10;
       return lo + Math.floor(rand() * (hi - lo + 1));
     }
-    case "boolean": return rand() < 0.5;
+    case "boolean":
+      return rand() < 0.5;
     case "array": {
       const n = 1 + Math.floor(rand() * 2);
-      return Array.from({ length: n }, () => genValue(schema.items ?? { type: "string" }, unitText, rand));
+      return Array.from({ length: n }, () =>
+        genValue(schema.items ?? { type: "string" }, unitText, rand),
+      );
     }
     case "object": {
       const out = {};
-      for (const [k, sub] of Object.entries(schema.properties ?? {})) out[k] = genValue(sub, unitText, rand);
+      for (const [k, sub] of Object.entries(schema.properties ?? {}))
+        out[k] = genValue(sub, unitText, rand);
       return out;
     }
-    default: return snippetOf(unitText, rand);
+    default:
+      return snippetOf(unitText, rand);
   }
 }
 
@@ -79,19 +85,34 @@ export class MockAdapter extends Adapter {
     this.handlers = new Map();
   }
 
-  setOracle(fn) { this.oracle = fn; return this; }
-  setAccuracy(a) { this.accuracy = a; return this; }
-  setHandler(name, fn) { this.handlers.set(name, fn); return this; }
+  setOracle(fn) {
+    this.oracle = fn;
+    return this;
+  }
+  setAccuracy(a) {
+    this.accuracy = a;
+    return this;
+  }
+  setHandler(name, fn) {
+    this.handlers.set(name, fn);
+    return this;
+  }
 
   capabilities() {
     return { structuredOutput: true, pinning: true, batch: false, local: true, family: "mock" };
   }
 
   async catalog() {
-    return [{
-      id: "mock-1", name: "Mock Model (deterministic)", family: "mock", ctx: 128_000,
-      pricing: { inUSDper1M: 0, outUSDper1M: 0 }, snapshot: "mock-1",
-    }];
+    return [
+      {
+        id: "mock-1",
+        name: "Mock Model (deterministic)",
+        family: "mock",
+        ctx: 128_000,
+        pricing: { inUSDper1M: 0, outUSDper1M: 0 },
+        snapshot: "mock-1",
+      },
+    ];
   }
 
   async complete(req) {
@@ -102,7 +123,10 @@ export class MockAdapter extends Adapter {
     const rand = mulberry32(seed);
     await sleep(5 + Math.floor(rand() * 16)); // 5–20ms, seeded
 
-    const system = req.messages.filter((m) => m.role === "system").map((m) => m.content).join("\n");
+    const system = req.messages
+      .filter((m) => m.role === "system")
+      .map((m) => m.content)
+      .join("\n");
     const handlerName = system.match(/\[\[handler:([\w.-]+)\]\]/)?.[1];
 
     let json;

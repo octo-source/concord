@@ -17,15 +17,18 @@
 import { el } from "../../dom.js";
 import { niceDomain, extent } from "./scale.js";
 
-export function render(container, {
-  items = [],
-  renderFn,
-  opts = {},
-  columns = null,
-  sharedDomain = false,
-  domainOf = defaultDomainOf,
-  caption = null,
-} = {}) {
+export function render(
+  container,
+  {
+    items = [],
+    renderFn,
+    opts = {},
+    columns = null,
+    sharedDomain = false,
+    domainOf = defaultDomainOf,
+    caption = null,
+  } = {},
+) {
   const grid = el("div", {
     class: "smallmultiples",
     style: columns ? { "--sm-cols": String(columns) } : undefined,
@@ -41,7 +44,9 @@ export function render(container, {
 
   const charts = [];
   for (const item of items) {
-    const panel = el("section", { class: "smallmultiples__panel" },
+    const panel = el(
+      "section",
+      { class: "smallmultiples__panel" },
       el("h4", { class: "smallmultiples__title data" }, item.title),
     );
     grid.append(panel);
@@ -49,8 +54,12 @@ export function render(container, {
   }
 
   const figure = caption
-    ? el("figure", { class: "smallmultiples__figure" }, grid,
-        el("figcaption", { class: "chart__caption" }, caption))
+    ? el(
+        "figure",
+        { class: "smallmultiples__figure" },
+        grid,
+        el("figcaption", { class: "chart__caption" }, caption),
+      )
     : grid;
   container.append(figure);
 
@@ -70,7 +79,8 @@ export function defaultDomainOf(data) {
   return data.flatMap((d) => {
     if (typeof d?.value === "number") return [d.value, ...(d.ci ?? [])];
     const out = [];
-    if (typeof d?.corrected?.value === "number") out.push(d.corrected.value, ...(d.corrected.ci ?? []));
+    if (typeof d?.corrected?.value === "number")
+      out.push(d.corrected.value, ...(d.corrected.ci ?? []));
     if (typeof d?.naive?.value === "number") out.push(d.naive.value);
     if (Array.isArray(d?.points)) out.push(...d.points.map((p) => p.y));
     return out;

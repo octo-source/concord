@@ -37,11 +37,29 @@ import * as monitor from "../../server/runs/monitor.js";
 import runsRoutes from "../../server/routes/runs.js";
 import analysesRoutes from "../../server/routes/analyses.js";
 import evidenceRoutes from "../../server/routes/evidence.js";
-import { outputSchemaFor, jsonSchemaFor, assemble, DEFAULT_TEMPLATE } from "../../server/instruments/judge.js";
+import {
+  outputSchemaFor,
+  jsonSchemaFor,
+  assemble,
+  DEFAULT_TEMPLATE,
+} from "../../server/instruments/judge.js";
 import { callDirector, directorCosts } from "../../server/director/director.js";
 import { makeEscalator } from "../../server/director/escalate.js";
-import { createProject, createConstruct, createInstrument, createGoldSet, versionInstrument, instrumentVersionHash } from "../../server/core/objects.js";
-import { saveProject, loadProject, updateProject, readNdjson, projectDir } from "../../server/core/store.js";
+import {
+  createProject,
+  createConstruct,
+  createInstrument,
+  createGoldSet,
+  versionInstrument,
+  instrumentVersionHash,
+} from "../../server/core/objects.js";
+import {
+  saveProject,
+  loadProject,
+  updateProject,
+  readNdjson,
+  projectDir,
+} from "../../server/core/store.js";
 import * as ledger from "../../server/core/ledger.js";
 import { getAdapter } from "../../server/providers/registry.js";
 import { ConcordError } from "../../server/core/errors.js";
@@ -83,7 +101,14 @@ const judgePayload = (extra = {}) => ({
 });
 
 const judgeInstrument = (extra = {}, payloadExtra = {}) =>
-  createInstrument({ id: "inst_j", constructId: "c_bin", kind: "judge", name: "judge", payload: judgePayload(payloadExtra), ...extra });
+  createInstrument({
+    id: "inst_j",
+    constructId: "c_bin",
+    kind: "judge",
+    name: "judge",
+    payload: judgePayload(payloadExtra),
+    ...extra,
+  });
 
 // Equal-length unit texts: the p99-length escalation predicate stays quiet
 // unless a test plants a long unit on purpose.
@@ -100,7 +125,10 @@ function makeUnits(n, { isPay = (i) => i % 3 === 0, len = 60 } = {}) {
 }
 
 // Project bundle in the env projects dir (route handlers read the default).
-async function setup(slug, { units, instruments = [], constructs = [binaryConstruct()], director = null, id } = {}) {
+async function setup(
+  slug,
+  { units, instruments = [], constructs = [binaryConstruct()], director = null, id } = {},
+) {
   const project = createProject({ name: slug, slug, privacyMode: "open", ...(id ? { id } : {}) });
   project.director = director;
   project.corpora.push({ id: "c1", name: "corpus" });
@@ -109,7 +137,11 @@ async function setup(slug, { units, instruments = [], constructs = [binaryConstr
   await saveProject(project);
   const file = path.join(projectDir(slug), "corpora", "c1", "units.ndjson");
   await mkdir(path.dirname(file), { recursive: true });
-  await writeFile(file, units.length ? units.map((u) => JSON.stringify(u)).join("\n") + "\n" : "", "utf8");
+  await writeFile(
+    file,
+    units.length ? units.map((u) => JSON.stringify(u)).join("\n") + "\n" : "",
+    "utf8",
+  );
   return { project, pdir: projectDir(slug) };
 }
 
@@ -134,8 +166,13 @@ const fakeRes = () => ({
   code: null,
   headers: null,
   body: null,
-  writeHead(code, headers) { this.code = code; this.headers = headers; },
-  end(body) { this.body = body; },
+  writeHead(code, headers) {
+    this.code = code;
+    this.headers = headers;
+  },
+  end(body) {
+    this.body = body;
+  },
 });
 
 // Bump the unfrozen instrument's versionHash the same way the update route
@@ -146,7 +183,10 @@ async function editInstrument(slug, instrumentId) {
   await updateProject(slug, (p) => {
     const inst = p.instruments.find((i) => i.id === instrumentId);
     before = inst.versionHash;
-    versionInstrument(inst, { ...inst.payload, promptTemplate: `${inst.payload.promptTemplate}\nEDITED AFTER THE RUN` });
+    versionInstrument(inst, {
+      ...inst.payload,
+      promptTemplate: `${inst.payload.promptTemplate}\nEDITED AFTER THE RUN`,
+    });
     afterHash = inst.versionHash;
   });
   assert.notEqual(afterHash, before, "the edit really bumped the hash");
@@ -213,7 +253,10 @@ test("fix 1: instrument edit after a complete run — export.csv still carries l
 
   // export.csv: every unit row still carries its label
   const res = fakeRes();
-  await routeHandler(runsRoutes, "GET", "/api/projects/:p/runs/:r/export.csv")({}, res, { p: slug, r: run.id });
+  await routeHandler(runsRoutes, "GET", "/api/projects/:p/runs/:r/export.csv")({}, res, {
+    p: slug,
+    r: run.id,
+  });
   assert.equal(res.code, 200);
   const rows = String(res.body).trim().split("\n");
   assert.equal(rows.length, 1 + units.length);
@@ -223,7 +266,9 @@ test("fix 1: instrument edit after a complete run — export.csv still carries l
 
   // analyses: assembleRows still finds the labeled outputs
   const analysis = await routeHandler(analysesRoutes, "POST", "/api/projects/:p/analyses")(
-    { body: { kind: "descriptive", spec: { runId: run.id } } }, null, { p: slug },
+    { body: { kind: "descriptive", spec: { runId: run.id } } },
+    null,
+    { p: slug },
   );
   assert.equal(analysis.results.n, units.length, "every labeled unit assembles after the edit");
   assert.ok(Object.keys(analysis.results.distribution).length >= 1);
@@ -232,7 +277,10 @@ test("fix 1: instrument edit after a complete run — export.csv still carries l
 test("fix 1: resume after an edit sees done units (no re-billing) and writes every line under the run's original hash", async () => {
   const slug = "vh-resume";
   const N = 30;
-  const { project, pdir } = await setup(slug, { units: makeUnits(N), instruments: [judgeInstrument()] });
+  const { project, pdir } = await setup(slug, {
+    units: makeUnits(N),
+    instruments: [judgeInstrument()],
+  });
   mock.setAccuracy(1.0);
   mock.setOracle(ORACLE);
 
@@ -244,7 +292,10 @@ test("fix 1: resume after an edit sees done units (no re-billing) and writes eve
   let ticks = 0;
   const paused = await engineMod.executeRun(slug, run.id, {
     shouldStop: () => control,
-    onTick: () => { ticks += 1; if (ticks === 5) control = "pause"; },
+    onTick: () => {
+      ticks += 1;
+      if (ticks === 5) control = "pause";
+    },
   });
   assert.equal(paused.status, "paused");
   const partial = await readNdjson(outputsFile(slug, run.id));
@@ -255,15 +306,26 @@ test("fix 1: resume after an edit sees done units (no re-billing) and writes eve
   const done = await engineMod.executeRun(slug, run.id);
   assert.equal(done.status, "complete");
   const lines = await readNdjson(outputsFile(slug, run.id));
-  assert.equal(lines.length, N, "resume fills exactly the missing units — no re-judging of done units");
+  assert.equal(
+    lines.length,
+    N,
+    "resume fills exactly the missing units — no re-judging of done units",
+  );
   assertExactlyOnce(lines);
   for (const l of lines) {
-    assert.equal(l.juror, originalHash, `every line keys the hash the run started under (got ${l.juror})`);
+    assert.equal(
+      l.juror,
+      originalHash,
+      `every line keys the hash the run started under (got ${l.juror})`,
+    );
   }
   const started = await ledger.query(pdir, { type: "run.started" });
   assert.equal(started.length, 2);
-  assert.equal(started[1].payload.pendingUnits, N - partial.length,
-    "resume's done-set keys on run.versionHash — done units stay done after the edit");
+  assert.equal(
+    started[1].payload.pendingUnits,
+    N - partial.length,
+    "resume's done-set keys on run.versionHash — done units stay done after the edit",
+  );
 });
 
 // =============================================================================
@@ -273,7 +335,7 @@ test("fix 1: resume after an edit sees done units (no re-billing) and writes eve
 test("fix 2a: a Director infrastructure fault (unpooled 429) pauses the run — resumable, persisted, the pool never rejects", async () => {
   const slug = "esc-pause";
   const units = makeUnits(20);
-  units[7] = { ...units[7], text: ("the one enormous unit about pay salary ").repeat(12) }; // ≫ p99 → escalates
+  units[7] = { ...units[7], text: "the one enormous unit about pay salary ".repeat(12) }; // ≫ p99 → escalates
   const { project } = await setup(slug, { units, instruments: [judgeInstrument()] });
   mock.setAccuracy(1.0);
   mock.setOracle(ORACLE);
@@ -281,10 +343,17 @@ test("fix 2a: a Director infrastructure fault (unpooled 429) pauses the run — 
   const run = await engineMod.createRun(project, { instrumentId: "inst_j", corpusId: "c1" });
   const paused = await engineMod.executeRun(slug, run.id, {
     escalate: async () => {
-      throw new ConcordError("PROVIDER_HTTP", "POST /director → HTTP 429", { status: 429, retryAfterMs: 1000 });
+      throw new ConcordError("PROVIDER_HTTP", "POST /director → HTTP 429", {
+        status: 429,
+        retryAfterMs: 1000,
+      });
     },
   });
-  assert.equal(paused.status, "paused", "Director PROVIDER_* faults are pause-class, never a pool rejection");
+  assert.equal(
+    paused.status,
+    "paused",
+    "Director PROVIDER_* faults are pause-class, never a pool rejection",
+  );
   assert.equal(paused.error.code, "PROVIDER_HTTP");
 
   const onDisk = (await loadProject(slug)).runs[0];
@@ -292,8 +361,10 @@ test("fix 2a: a Director infrastructure fault (unpooled 429) pauses the run — 
   assert.equal(onDisk.error.code, "PROVIDER_HTTP");
 
   const partial = await readNdjson(outputsFile(slug, run.id));
-  assert.ok(!partial.some((l) => l.unitId === units[7].id),
-    "the escalating unit's final line is NOT appended — resume re-attempts the second opinion");
+  assert.ok(
+    !partial.some((l) => l.unitId === units[7].id),
+    "the escalating unit's final line is NOT appended — resume re-attempts the second opinion",
+  );
 
   // Director healthy again → resume completes off the cached worker verdicts
   const done = await engineMod.executeRun(slug, run.id, { escalate: async () => null });
@@ -307,7 +378,7 @@ test("fix 2a: a Director infrastructure fault (unpooled 429) pauses the run — 
 test("fix 2a: a deterministic Director fault (SCHEMA_INVALID) skips the second opinion — worker verdict stands, run completes, warning recorded", async () => {
   const slug = "esc-skip";
   const units = makeUnits(20);
-  units[7] = { ...units[7], text: ("the one enormous unit about pay salary ").repeat(12) };
+  units[7] = { ...units[7], text: "the one enormous unit about pay salary ".repeat(12) };
   const { project } = await setup(slug, { units, instruments: [judgeInstrument()] });
   mock.setAccuracy(1.0);
   mock.setOracle(ORACLE);
@@ -315,19 +386,35 @@ test("fix 2a: a deterministic Director fault (SCHEMA_INVALID) skips the second o
   const run = await engineMod.createRun(project, { instrumentId: "inst_j", corpusId: "c1" });
   let lastTick = null;
   const done = await engineMod.executeRun(slug, run.id, {
-    onTick: (s) => { lastTick = s; },
+    onTick: (s) => {
+      lastTick = s;
+    },
     escalate: async () => {
-      throw new ConcordError("SCHEMA_INVALID", "second opinion failed schema validation after repairs", {});
+      throw new ConcordError(
+        "SCHEMA_INVALID",
+        "second opinion failed schema validation after repairs",
+        {},
+      );
     },
   });
-  assert.equal(done.status, "complete", "a malformed second opinion never invalidates the worker's verdict");
-  assert.equal(done.escalation.count, 1, "the unit still counts as escalated (the predicate fired)");
+  assert.equal(
+    done.status,
+    "complete",
+    "a malformed second opinion never invalidates the worker's verdict",
+  );
+  assert.equal(
+    done.escalation.count,
+    1,
+    "the unit still counts as escalated (the predicate fired)",
+  );
   const line = (await readNdjson(outputsFile(slug, run.id))).find((l) => l.unitId === units[7].id);
   assert.equal(line.escalated, true);
   assert.equal(line.label, "yes", "the worker verdict stands");
   assert.equal(line.escalatedBy, undefined, "no second opinion landed — no provenance marker");
-  assert.ok(lastTick.warnings.some((w) => w.kind === "escalation-failed" && w.unitId === units[7].id),
-    "the failed second opinion is visible in live telemetry");
+  assert.ok(
+    lastTick.warnings.some((w) => w.kind === "escalation-failed" && w.unitId === units[7].id),
+    "the failed second opinion is visible in live telemetry",
+  );
 });
 
 test("fix 2b: a throw that escapes the engine before terminal persistence still settles the disk record at failed (never stuck running)", async () => {
@@ -343,8 +430,15 @@ test("fix 2b: a throw that escapes the engine before terminal persistence still 
     p.instruments.find((i) => i.id === "inst_j").kind = "rule";
   });
 
-  const out = await routeHandler(runsRoutes, "POST", "/api/projects/:p/runs/:r/resume")({}, null, { p: slug, r: run.id });
-  assert.equal(out.status, "running", "the route answers immediately; the failure lands in the background");
+  const out = await routeHandler(runsRoutes, "POST", "/api/projects/:p/runs/:r/resume")({}, null, {
+    p: slug,
+    r: run.id,
+  });
+  assert.equal(
+    out.status,
+    "running",
+    "the route answers immediately; the failure lands in the background",
+  );
 
   let settled = null;
   for (let i = 0; i < 60; i++) {
@@ -370,13 +464,19 @@ test("fix 3 (pin): a failed run persists run.error {code, message} in the projec
   const proto = Object.getPrototypeOf(mock);
   mock.complete = async function patched(req) {
     const all = req.messages.map((m) => m.content).join("\n");
-    if (all.includes("response 000")) throw new ConcordError("BOOM_TEST", "synthetic worker explosion", {});
+    if (all.includes("response 000"))
+      throw new ConcordError("BOOM_TEST", "synthetic worker explosion", {});
     return proto.complete.call(this, req);
   };
-  t.after(() => { delete mock.complete; });
+  t.after(() => {
+    delete mock.complete;
+  });
 
   const run = await engineMod.createRun(project, { instrumentId: "inst_j", corpusId: "c1" });
-  await assert.rejects(() => engineMod.executeRun(slug, run.id), (e) => e.code === "BOOM_TEST");
+  await assert.rejects(
+    () => engineMod.executeRun(slug, run.id),
+    (e) => e.code === "BOOM_TEST",
+  );
 
   const onDisk = (await loadProject(slug)).runs[0];
   assert.equal(onDisk.status, "failed");
@@ -406,14 +506,19 @@ test("fix 4: corrected descriptive analyses mark raw distribution entries correc
   });
 
   const analysis = await routeHandler(analysesRoutes, "POST", "/api/projects/:p/analyses")(
-    { body: { kind: "descriptive", spec: { runId: run.id } } }, null, { p: slug },
+    { body: { kind: "descriptive", spec: { runId: run.id } } },
+    null,
+    { p: slug },
   );
   assert.equal(analysis.level, "corrected");
   assert.ok(analysis.results.cells?.length >= 1, "DSL cells present");
   assert.equal(analysis.results.estimator, "dslProportion");
   for (const [label, entry] of Object.entries(analysis.results.distribution)) {
-    assert.equal(entry.corrected, false,
-      `distribution["${label}"] is a RAW machine-label share and says so — the ◉ belongs to results.cells only`);
+    assert.equal(
+      entry.corrected,
+      false,
+      `distribution["${label}"] is a RAW machine-label share and says so — the ◉ belongs to results.cells only`,
+    );
     assert.equal(typeof entry.share, "number");
     assert.equal(typeof entry.n, "number");
   }
@@ -428,7 +533,10 @@ test("fix 5: a quarantining unit still ticks the monitor — live done reaches t
   const N = 12;
   const units = makeUnits(N);
   const poison = units[5];
-  const inst = judgeInstrument({}, { promptTemplate: `[[handler:integ-poison]]\n${DEFAULT_TEMPLATE}` });
+  const inst = judgeInstrument(
+    {},
+    { promptTemplate: `[[handler:integ-poison]]\n${DEFAULT_TEMPLATE}` },
+  );
   const { project } = await setup(slug, { units, instruments: [inst] });
   mock.setAccuracy(1.0);
   mock.setOracle(ORACLE);
@@ -442,14 +550,24 @@ test("fix 5: a quarantining unit still ticks the monitor — live done reaches t
 
   const run = await engineMod.createRun(project, { instrumentId: "inst_j", corpusId: "c1" });
   let lastTick = null;
-  const done = await engineMod.executeRun(slug, run.id, { onTick: (s) => { lastTick = s; } });
+  const done = await engineMod.executeRun(slug, run.id, {
+    onTick: (s) => {
+      lastTick = s;
+    },
+  });
   assert.equal(done.status, "complete");
   assert.equal(done.quarantine.length, 1);
   assert.equal(done.checkpoint.done, N);
-  assert.equal(lastTick.done, N,
-    "the live progress bar reaches total — quarantined units count toward progress (they are excluded from results, not from done)");
+  assert.equal(
+    lastTick.done,
+    N,
+    "the live progress bar reaches total — quarantined units count toward progress (they are excluded from results, not from done)",
+  );
   assert.equal(lastTick.total, N);
-  assert.ok(!Object.keys(lastTick.labelDist).includes("undefined"), "no phantom label for the quarantined unit");
+  assert.ok(
+    !Object.keys(lastTick.labelDist).includes("undefined"),
+    "no phantom label for the quarantined unit",
+  );
 });
 
 test("fix 6: completed runs persist labelDist on the run record (shares sum to 1)", async () => {
@@ -477,11 +595,16 @@ test("fix 6: completed runs persist labelDist on the run record (shares sum to 1
 test("fix 7: the Director reviewed and concurred → the written line is stamped escalatedBy: director-concurred", async () => {
   const slug = "esc-concur";
   const units = makeUnits(20);
-  units[7] = { ...units[7], text: ("the one enormous unit about pay salary ").repeat(12) }; // escalates; oracle says yes
+  units[7] = { ...units[7], text: "the one enormous unit about pay salary ".repeat(12) }; // escalates; oracle says yes
   const { project } = await setup(slug, {
     units,
     instruments: [judgeInstrument()],
-    director: { provider: "mock", model: "mock-1", snapshot: "mock-1", systemSuffix: "[[handler:integ-agree]]" },
+    director: {
+      provider: "mock",
+      model: "mock-1",
+      snapshot: "mock-1",
+      systemSuffix: "[[handler:integ-agree]]",
+    },
   });
   mock.setAccuracy(1.0);
   mock.setOracle(ORACLE);
@@ -496,8 +619,18 @@ test("fix 7: the Director reviewed and concurred → the written line is stamped
   const escalate = makeEscalator(project, construct);
 
   // the escalator's own return contract is unchanged: null on agreement
-  const direct = await escalate(units[7], { unitId: units[7].id, juror: "vh", label: "yes", confidence: 0.4, rationale: "r" });
-  assert.equal(direct, null, "escalate.js still returns null on concurrence (the engine stamps the provenance)");
+  const direct = await escalate(units[7], {
+    unitId: units[7].id,
+    juror: "vh",
+    label: "yes",
+    confidence: 0.4,
+    rationale: "r",
+  });
+  assert.equal(
+    direct,
+    null,
+    "escalate.js still returns null on concurrence (the engine stamps the provenance)",
+  );
 
   const run = await engineMod.createRun(project, { instrumentId: "inst_j", corpusId: "c1" });
   const done = await engineMod.executeRun(slug, run.id, { escalate });
@@ -506,8 +639,11 @@ test("fix 7: the Director reviewed and concurred → the written line is stamped
   const line = (await readNdjson(outputsFile(slug, run.id))).find((l) => l.unitId === units[7].id);
   assert.equal(line.escalated, true);
   assert.equal(line.label, "yes", "the worker verdict stands");
-  assert.equal(line.escalatedBy, "director-concurred",
-    "a reviewed-and-confirmed verdict is structurally distinguishable from never-reviewed");
+  assert.equal(
+    line.escalatedBy,
+    "director-concurred",
+    "a reviewed-and-confirmed verdict is structurally distinguishable from never-reviewed",
+  );
   mock.handlers.delete("integ-agree");
 });
 
@@ -520,7 +656,10 @@ test("fix 8: evidence cells cap at 100 ids while results carry the TRUE n (distr
   const N = 150;
   const units = makeUnits(N, { isPay: () => true }); // every unit is "yes" for the judge
   const dictInst = createInstrument({
-    id: "inst_d", constructId: "c_bin", kind: "dictionary", name: "dict",
+    id: "inst_d",
+    constructId: "c_bin",
+    kind: "dictionary",
+    name: "dict",
     payload: {
       categories: [{ name: "never", terms: [{ term: "zzznevermatches" }] }],
       negation: { enabled: false, window: 3 },
@@ -537,14 +676,35 @@ test("fix 8: evidence cells cap at 100 ids while results carry the TRUE n (distr
   await engineMod.executeRun(slug, dRun.id);
 
   const post = routeHandler(analysesRoutes, "POST", "/api/projects/:p/analyses");
-  const descriptive = await post({ body: { kind: "descriptive", spec: { runId: jRun.id } } }, null, { p: slug });
+  const descriptive = await post(
+    { body: { kind: "descriptive", spec: { runId: jRun.id } } },
+    null,
+    { p: slug },
+  );
   assert.equal(descriptive.results.distribution.yes.n, N, "results carry the TRUE n");
-  assert.equal(descriptive.evidence.cells.yes.length, 100, "the evidence cell lists only the first 100 ids");
+  assert.equal(
+    descriptive.evidence.cells.yes.length,
+    100,
+    "the evidence cell lists only the first 100 ids",
+  );
 
   // judge says yes everywhere, the dictionary never matches → all divergent
-  const tri = await post({ body: { kind: "triangulation", spec: { instrumentIds: ["inst_j", "inst_d"], corpusId: "c1" } } }, null, { p: slug });
+  const tri = await post(
+    {
+      body: {
+        kind: "triangulation",
+        spec: { instrumentIds: ["inst_j", "inst_d"], corpusId: "c1" },
+      },
+    },
+    null,
+    { p: slug },
+  );
   assert.equal(tri.results.divergentN, N, "triangulation reports the TRUE divergent count");
-  assert.equal(tri.evidence.cells.divergent.length, 100, "the divergent evidence cell caps at 100 ids");
+  assert.equal(
+    tri.evidence.cells.divergent.length,
+    100,
+    "the divergent evidence cell caps at 100 ids",
+  );
   assert.ok(tri.results.divergent.length <= 200);
 });
 
@@ -571,10 +731,16 @@ test("fix 10: uncertainty-design gold never mints level corrected — π is nomi
   });
 
   const analysis = await routeHandler(analysesRoutes, "POST", "/api/projects/:p/analyses")(
-    { body: { kind: "descriptive", spec: { runId: run.id } } }, null, { p: slug },
+    { body: { kind: "descriptive", spec: { runId: run.id } } },
+    null,
+    { p: slug },
   );
   assert.notEqual(analysis.level, "corrected", "nominal π cannot license a Corrected claim");
-  assert.equal(analysis.level, "exploratory", "the instrument's level carries over (capped below corrected)");
+  assert.equal(
+    analysis.level,
+    "exploratory",
+    "the instrument's level carries over (capped below corrected)",
+  );
   assert.equal(analysis.results.estimator, undefined, "no DSL estimator ran on nominal π");
   assert.equal(analysis.results.cells, undefined);
   assert.equal(
@@ -589,7 +755,9 @@ test("fix 10: uncertainty-design gold never mints level corrected — π is nomi
 
 test("fix 11: a continuous construct with scale {1,7} renders 'from 1 to 7' and enforces 1..7 in the response schema", () => {
   const scaled = createConstruct({
-    id: "c_scale", name: "Enthusiasm", type: "continuous",
+    id: "c_scale",
+    name: "Enthusiasm",
+    type: "continuous",
     definition: "How enthusiastic the unit is.",
     scale: { min: 1, max: 7 },
   });
@@ -604,15 +772,26 @@ test("fix 11: a continuous construct with scale {1,7} renders 'from 1 to 7' and 
   const messages = assemble(scaled, judgePayload(), { id: "u1", text: "I love this." });
   const system = messages.find((m) => m.role === "system").content;
   assert.match(system, /from 1 to 7/, "the coder instructions state the construct's actual bounds");
-  assert.ok(!system.includes("from 0 to 100"), "no contradictory 0–100 instruction for a 1–7 scale");
+  assert.ok(
+    !system.includes("from 0 to 100"),
+    "no contradictory 0–100 instruction for a 1–7 scale",
+  );
 
   // a stored pre-fix schema (no bounds) + a scaled construct: assembly still
   // renders the construct's declared bounds rather than the 0–100 default
-  const legacy = assemble(scaled, judgePayload({ schema: { type: "score0to100" } }), { id: "u1", text: "I love this." });
+  const legacy = assemble(scaled, judgePayload({ schema: { type: "score0to100" } }), {
+    id: "u1",
+    text: "I love this.",
+  });
   assert.match(legacy.find((m) => m.role === "system").content, /from 1 to 7/);
 
   // no declared scale → the historical 0..100 contract is unchanged
-  const unscaled = createConstruct({ id: "c_plain", name: "Plain", type: "continuous", definition: "d" });
+  const unscaled = createConstruct({
+    id: "c_plain",
+    name: "Plain",
+    type: "continuous",
+    definition: "d",
+  });
   const plain = outputSchemaFor(unscaled);
   assert.equal(jsonSchemaFor(plain).properties.label.minimum, 0);
   assert.equal(jsonSchemaFor(plain).properties.label.maximum, 100);
@@ -631,18 +810,35 @@ test("fix 12: schema-repair attempts bill — the Director meter accumulates EVE
     const res = await proto.complete.call(this, req);
     return { ...res, usage: { inputTokens: 100, outputTokens: 10 } };
   };
-  t.after(() => { delete mock.complete; });
+  t.after(() => {
+    delete mock.complete;
+  });
 
   const schema = {
-    type: "object", additionalProperties: false, required: ["ok"],
+    type: "object",
+    additionalProperties: false,
+    required: ["ok"],
     properties: { ok: { type: "string" } },
   };
-  const director = (handler) => ({ provider: "mock", model: "mock-1", snapshot: "mock-1", systemSuffix: `[[handler:${handler}]]` });
+  const director = (handler) => ({
+    provider: "mock",
+    model: "mock-1",
+    snapshot: "mock-1",
+    systemSuffix: `[[handler:${handler}]]`,
+  });
 
   // clean single-attempt baseline
   mock.setHandler("integ-meter-clean", () => ({ ok: "yes" }));
-  const projectA = { id: "p_meterclean00001", slug: "meter-clean", privacyMode: "open", director: director("integ-meter-clean") };
-  const resA = await callDirector(projectA, { messages: [{ role: "user", content: "go" }], schema });
+  const projectA = {
+    id: "p_meterclean00001",
+    slug: "meter-clean",
+    privacyMode: "open",
+    director: director("integ-meter-clean"),
+  };
+  const resA = await callDirector(projectA, {
+    messages: [{ role: "user", content: "go" }],
+    schema,
+  });
   assert.equal(resA.repairs, 0);
   const costsA = directorCosts(projectA);
   assert.equal(costsA.calls, 1);
@@ -654,13 +850,24 @@ test("fix 12: schema-repair attempts bill — the Director meter accumulates EVE
     attempts += 1;
     return attempts === 1 ? { wrong: true } : { ok: "yes" };
   });
-  const projectB = { id: "p_meterrepair0001", slug: "meter-repair", privacyMode: "open", director: director("integ-meter-repair") };
-  const resB = await callDirector(projectB, { messages: [{ role: "user", content: "go" }], schema });
+  const projectB = {
+    id: "p_meterrepair0001",
+    slug: "meter-repair",
+    privacyMode: "open",
+    director: director("integ-meter-repair"),
+  };
+  const resB = await callDirector(projectB, {
+    messages: [{ role: "user", content: "go" }],
+    schema,
+  });
   assert.equal(resB.repairs, 1, "exactly one repair re-prompt");
   const costsB = directorCosts(projectB);
   assert.equal(costsB.calls, 1, "one logical Director call");
-  assert.equal(costsB.inputTokens, 200,
-    "BOTH attempts' tokens reach the meter — repair re-prompts bill real money");
+  assert.equal(
+    costsB.inputTokens,
+    200,
+    "BOTH attempts' tokens reach the meter — repair re-prompts bill real money",
+  );
   assert.equal(costsB.outputTokens, 20);
   mock.handlers.delete("integ-meter-clean");
   mock.handlers.delete("integ-meter-repair");

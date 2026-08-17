@@ -14,8 +14,11 @@ import { updateProject, projectDir, readNdjson } from "../core/store.js";
 import * as ledger from "../core/ledger.js";
 import { callDirector, readCorpusUnits, seededSample } from "./director.js";
 import {
-  constructDraftPrompt, codebookImportPrompt, inductivePrompt,
-  CONSTRUCTS_SCHEMA, TAXONOMY_SCHEMA,
+  constructDraftPrompt,
+  codebookImportPrompt,
+  inductivePrompt,
+  CONSTRUCTS_SCHEMA,
+  TAXONOMY_SCHEMA,
 } from "./prompts.js";
 
 // Director construct entry → validated Construct object (proposal).
@@ -62,7 +65,11 @@ async function inferDraftedFrom(project, sampleUnits) {
 // from a brief) or a plain-language question string.
 export async function draftConstructs(project, themesOrQuestion, sampleUnits) {
   if (!Array.isArray(sampleUnits) || sampleUnits.length === 0) {
-    throw new ConcordError("VALIDATION", "draftConstructs needs sample units to mine worked examples from", {});
+    throw new ConcordError(
+      "VALIDATION",
+      "draftConstructs needs sample units to mine worked examples from",
+      {},
+    );
   }
   const { system, user } = constructDraftPrompt({
     themesOrQuestion,
@@ -70,7 +77,10 @@ export async function draftConstructs(project, themesOrQuestion, sampleUnits) {
     existingConstructNames: (project.constructs ?? []).map((c) => c.name),
   });
   const res = await callDirector(project, {
-    messages: [{ role: "system", content: system }, { role: "user", content: user }],
+    messages: [
+      { role: "system", content: system },
+      { role: "user", content: user },
+    ],
     schema: CONSTRUCTS_SCHEMA,
     maxTokens: 4096,
   });
@@ -85,7 +95,11 @@ export async function draftConstructs(project, themesOrQuestion, sampleUnits) {
 // take file paths, so the buffer lands in an OS temp file for the duration).
 export async function importCodebook(project, fileBuffer, kind) {
   if (kind !== "docx" && kind !== "pdf") {
-    throw new ConcordError("VALIDATION", `codebook import supports "docx" or "pdf", got "${kind}"`, { kind });
+    throw new ConcordError(
+      "VALIDATION",
+      `codebook import supports "docx" or "pdf", got "${kind}"`,
+      { kind },
+    );
   }
   if (!fileBuffer || fileBuffer.length === 0) {
     throw new ConcordError("VALIDATION", "codebook import received an empty file", {});
@@ -95,18 +109,24 @@ export async function importCodebook(project, fileBuffer, kind) {
   let docText;
   try {
     await writeFile(file, fileBuffer);
-    const parser = kind === "docx" ? await import("../ingest/docx.js") : await import("../ingest/pdf.js");
+    const parser =
+      kind === "docx" ? await import("../ingest/docx.js") : await import("../ingest/pdf.js");
     const { docs } = await parser.parse(file);
     docText = (docs ?? []).flatMap((d) => d.paras).join("\n\n");
   } finally {
     await rm(dir, { recursive: true, force: true }).catch(() => {});
   }
   if (!docText.trim()) {
-    throw new ConcordError("VALIDATION", "the codebook document contains no extractable text", { kind });
+    throw new ConcordError("VALIDATION", "the codebook document contains no extractable text", {
+      kind,
+    });
   }
   const { system, user } = codebookImportPrompt({ docText, fileName: null });
   const res = await callDirector(project, {
-    messages: [{ role: "system", content: system }, { role: "user", content: user }],
+    messages: [
+      { role: "system", content: system },
+      { role: "user", content: user },
+    ],
     schema: CONSTRUCTS_SCHEMA,
     maxTokens: 4096,
   });
@@ -127,7 +147,10 @@ export async function inductiveTaxonomy(project, corpusId, { n = 300 } = {}) {
 
   const { system, user } = inductivePrompt({ sampleUnits: sample });
   const res = await callDirector(project, {
-    messages: [{ role: "system", content: system }, { role: "user", content: user }],
+    messages: [
+      { role: "system", content: system },
+      { role: "user", content: user },
+    ],
     schema: TAXONOMY_SCHEMA,
     maxTokens: 4096,
   });
@@ -167,18 +190,26 @@ export async function acceptConstructs(project, constructs) {
   await updateProject(project.slug, (p) => {
     for (const c of validated) {
       if (p.constructs.some((existing) => existing.id === c.id)) {
-        throw new ConcordError("VALIDATION", `construct ${c.id} already exists on the project`, { constructId: c.id });
+        throw new ConcordError("VALIDATION", `construct ${c.id} already exists on the project`, {
+          constructId: c.id,
+        });
       }
       p.constructs.push(c);
     }
   });
   const pdir = projectDir(project.slug);
   for (const c of validated) {
-    await ledger.append(pdir, "human", "construct.created", { constructId: c.id }, {
-      name: c.name,
-      type: c.type,
-      authoredBy: c.authoredBy,
-    });
+    await ledger.append(
+      pdir,
+      "human",
+      "construct.created",
+      { constructId: c.id },
+      {
+        name: c.name,
+        type: c.type,
+        authoredBy: c.authoredBy,
+      },
+    );
   }
   return validated.map((c) => c.id);
 }

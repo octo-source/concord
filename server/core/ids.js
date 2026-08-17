@@ -10,8 +10,11 @@ export function canonical(value) {
     return canonical(value.toJSON());
   }
   if (value === null || typeof value !== "object") return JSON.stringify(value);
-  if (Array.isArray(value)) return "[" + value.map((v) => canonical(v === undefined ? null : v)).join(",") + "]";
-  const keys = Object.keys(value).filter((k) => value[k] !== undefined).sort();
+  if (Array.isArray(value))
+    return "[" + value.map((v) => canonical(v === undefined ? null : v)).join(",") + "]";
+  const keys = Object.keys(value)
+    .filter((k) => value[k] !== undefined)
+    .sort();
   return "{" + keys.map((k) => JSON.stringify(k) + ":" + canonical(value[k])).join(",") + "}";
 }
 
@@ -22,7 +25,10 @@ export function sha256(str) {
 // Sortable-ish opaque id: timestamp base36 + random base36.
 export function newId(prefix) {
   const t = Date.now().toString(36);
-  const r = BigInt("0x" + randomBytes(6).toString("hex")).toString(36).padStart(10, "0").slice(0, 10);
+  const r = BigInt("0x" + randomBytes(6).toString("hex"))
+    .toString(36)
+    .padStart(10, "0")
+    .slice(0, 10);
   return `${prefix}_${t}${r}`;
 }
 

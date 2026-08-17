@@ -44,7 +44,7 @@ function solveLinear(A, rhs) {
       throw new ConcordError(
         "E_STAT_DEGENERATE",
         "design matrix is singular (collinear or constant covariates)",
-        { column: col }
+        { column: col },
       );
     }
     if (pivot !== col) {
@@ -203,7 +203,10 @@ export function ols(y, X) {
     sst += (y[i] - ybar) * (y[i] - ybar);
   }
   const XtXinv = matInverse(XtX);
-  const meat = xtwx(design, resid.map((e) => e * e));
+  const meat = xtwx(
+    design,
+    resid.map((e) => e * e),
+  );
   const seHC1 = sandwichSE(XtXinv, meat, n / (n - p));
   // M6: R² = 1 − SSE/SST is undefined when y is constant (SST = 0). Returning
   // 1 overstated fit; null says "not a meaningful quantity here".
@@ -278,7 +281,10 @@ export function logit(y, X, opts = {}) {
     scoreResid[i] = y[i] - pi;
   }
   const A = xtwx(design, weights);
-  const B = xtwx(design, scoreResid.map((e) => e * e));
+  const B = xtwx(
+    design,
+    scoreResid.map((e) => e * e),
+  );
   let seHC1;
   try {
     seHC1 = sandwichSE(matInverse(A), B, n / (n - p));

@@ -14,12 +14,22 @@ const CATALOG_TTL_MS = 60 * 60 * 1000; // 1h, matches openai.js/anthropic.js + r
 
 export class OpenRouterAdapter extends OpenAIAdapter {
   constructor(cfg = {}) {
-    super({ name: "openrouter", apiKey: cfg.apiKey, baseUrl: cfg.baseUrl ?? "https://openrouter.ai/api" });
+    super({
+      name: "openrouter",
+      apiKey: cfg.apiKey,
+      baseUrl: cfg.baseUrl ?? "https://openrouter.ai/api",
+    });
   }
 
   capabilities() {
     // pinning false: long-tail upstreams swap snapshots beneath the model id.
-    return { structuredOutput: true, pinning: false, batch: false, local: false, family: "openrouter" };
+    return {
+      structuredOutput: true,
+      pinning: false,
+      batch: false,
+      local: false,
+      family: "openrouter",
+    };
   }
 
   buildBody(req) {
@@ -61,7 +71,9 @@ export class OpenRouterAdapter extends OpenAIAdapter {
       // Serve the last-known catalog if we have one (no re-zeroing mid-run);
       // otherwise an empty list — a usable, $0-priced catalog beats a throw
       // that makes engine.pricingFor zero the entire run.
-      return this._catalogCache ? this._catalogCache.data.map((m) => ({ ...m, pricing: { ...m.pricing } })) : [];
+      return this._catalogCache
+        ? this._catalogCache.data.map((m) => ({ ...m, pricing: { ...m.pricing } }))
+        : [];
     }
     const data = (raw?.data ?? []).map((m) => {
       // Per-model capability flags from supported_parameters (present on every
@@ -75,9 +87,13 @@ export class OpenRouterAdapter extends OpenAIAdapter {
         name: m.name ?? m.id,
         family: familyOf(m.id),
         ctx: m.context_length ?? null,
-        pricing: { inUSDper1M: perMillion(m.pricing?.prompt), outUSDper1M: perMillion(m.pricing?.completion) },
+        pricing: {
+          inUSDper1M: perMillion(m.pricing?.prompt),
+          outUSDper1M: perMillion(m.pricing?.completion),
+        },
         snapshot: m.id,
-        structuredOutput: params.includes("structured_outputs") || params.includes("response_format"),
+        structuredOutput:
+          params.includes("structured_outputs") || params.includes("response_format"),
         noTemperature: !params.includes("temperature"),
         params,
       };

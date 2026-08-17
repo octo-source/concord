@@ -100,9 +100,8 @@ const RAW_CACHE = new WeakMap();
  */
 export function compile(payload) {
   if (payload && payload[COMPILED]) return payload;
-  const cached = typeof payload === "object" && payload !== null
-    ? RAW_CACHE.get(payload)
-    : undefined;
+  const cached =
+    typeof payload === "object" && payload !== null ? RAW_CACHE.get(payload) : undefined;
   if (cached) return cached;
   validatePayload(payload);
 
@@ -153,7 +152,7 @@ function validatePayload(payload) {
     throw new ConcordError(
       "DICTIONARY_INVALID",
       `scoring must be one of ${[...SCORING_MODES].join("|")}`,
-      { scoring: payload.scoring }
+      { scoring: payload.scoring },
     );
   }
   const win = payload.negation?.window;
@@ -171,7 +170,7 @@ function validatePayload(payload) {
       throw new ConcordError(
         "DICTIONARY_INVALID",
         `category name "${cat.name}" is reserved (result objects use "empty" and "NOT_<category>" keys)`,
-        { category: cat.name }
+        { category: cat.name },
       );
     }
     if (seen.has(cat.name)) {
@@ -200,7 +199,7 @@ function addTerm(matcher, cat, src, weight) {
     throw new ConcordError(
       "DICTIONARY_INVALID",
       `term "${src}": "*" is only allowed as the final character (trailing wildcard)`,
-      { term: src }
+      { term: src },
     );
   }
 
@@ -261,8 +260,7 @@ function addTerm(matcher, cat, src, weight) {
 const unitText = (unit) =>
   typeof unit === "string" ? unit : unit && typeof unit.text === "string" ? unit.text : "";
 
-const wordMatches = (spec, tok) =>
-  spec.prefix ? tok.startsWith(spec.value) : tok === spec.value;
+const wordMatches = (spec, tok) => (spec.prefix ? tok.startsWith(spec.value) : tok === spec.value);
 
 // All raw term matches in a token stream: {cat, weight, src, at, len, negated}.
 function matchTokens(tokens, m) {
@@ -353,7 +351,7 @@ export function score(units, payload) {
     throw new ConcordError(
       "DICTIONARY_INVALID",
       "score() units must be an array of strings or {text} objects",
-      { received: typeof units }
+      { received: typeof units },
     );
   }
   const m = compile(payload);
@@ -424,7 +422,12 @@ export function hits(unit, payload) {
     start: tokens[hit.at].start,
     end: tokens[hit.at + hit.len - 1].end,
   }));
-  out.sort((a, b) => a.start - b.start || a.end - b.end || (a.category < b.category ? -1 : a.category > b.category ? 1 : 0));
+  out.sort(
+    (a, b) =>
+      a.start - b.start ||
+      a.end - b.end ||
+      (a.category < b.category ? -1 : a.category > b.category ? 1 : 0),
+  );
   return out;
 }
 
@@ -564,7 +567,7 @@ export function toDic(payload) {
       throw new ConcordError(
         "DICTIONARY_UNSUPPORTED",
         ".dic format cannot express tabs or newlines in category names",
-        { category: cat.name }
+        { category: cat.name },
       );
     }
     lines.push(`${i + 1}\t${cat.name}`);
@@ -578,14 +581,14 @@ export function toDic(payload) {
         throw new ConcordError(
           "DICTIONARY_UNSUPPORTED",
           ".dic format cannot express tabs or newlines in terms",
-          { category: cat.name, term: t.term }
+          { category: cat.name, term: t.term },
         );
       }
       if (t.weight !== undefined && t.weight !== 1) {
         throw new ConcordError(
           "DICTIONARY_UNSUPPORTED",
           ".dic format cannot express term weights",
-          { category: cat.name, term: t.term, weight: t.weight }
+          { category: cat.name, term: t.term, weight: t.weight },
         );
       }
       let ids = termIds.get(t.term);
@@ -624,9 +627,13 @@ export function importTsvLexicon(text, { termCol, categoryCol, valueCol } = {}) 
     if (lines[i].trim() === "") continue;
     const cols = lines[i].split("\t").map((c) => c.trim());
     if (cols.length <= need) {
-      throw new ConcordError("DICTIONARY_PARSE", `row ${i + 1} has ${cols.length} columns, need > ${need}`, {
-        line: i + 1,
-      });
+      throw new ConcordError(
+        "DICTIONARY_PARSE",
+        `row ${i + 1} has ${cols.length} columns, need > ${need}`,
+        {
+          line: i + 1,
+        },
+      );
     }
     const term = cols[termCol];
     const catName = cols[categoryCol];
@@ -639,9 +646,13 @@ export function importTsvLexicon(text, { termCol, categoryCol, valueCol } = {}) 
     if (valueCol !== undefined) {
       const v = Number(cols[valueCol]);
       if (Number.isNaN(v)) {
-        throw new ConcordError("DICTIONARY_PARSE", `row ${i + 1} value "${cols[valueCol]}" is not a number`, {
-          line: i + 1,
-        });
+        throw new ConcordError(
+          "DICTIONARY_PARSE",
+          `row ${i + 1} value "${cols[valueCol]}" is not a number`,
+          {
+            line: i + 1,
+          },
+        );
       }
       if (v === 0) continue; // no association
       if (v !== 1) weight = v;

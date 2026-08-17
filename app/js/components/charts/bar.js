@@ -17,7 +17,14 @@
 
 import { svgEl } from "../../dom.js";
 import { linearScale, niceDomain, extent } from "./scale.js";
-import { chartFigure, hatchPattern, observeWidth, svgRoot, dataTable, fitLabel } from "./chartkit.js";
+import {
+  chartFigure,
+  hatchPattern,
+  observeWidth,
+  svgRoot,
+  dataTable,
+  fitLabel,
+} from "./chartkit.js";
 import { mark } from "../ladder.js";
 import { fmt } from "../../format.js";
 
@@ -29,27 +36,27 @@ import { fmt } from "../../format.js";
  *              bars: [{ kind, x, y, w, h, value, variant, ci? }],
  *              labels: [{ x, y, text, kind }], delta? }] }
  * ------------------------------------------------------------------------ */
-export function layoutBars(data, {
-  width = 600,
-  paired = false,
-  domain = null,
-  labelWidth = 132,
-  valueWidth = 76,
-  rowHeight = null,
-  barSize = 14,
-  pairGap = 4,
-  padTop = 6,
-  padBottom = 18,
-} = {}) {
+export function layoutBars(
+  data,
+  {
+    width = 600,
+    paired = false,
+    domain = null,
+    labelWidth = 132,
+    valueWidth = 76,
+    rowHeight = null,
+    barSize = 14,
+    pairGap = 4,
+    padTop = 6,
+    padBottom = 18,
+  } = {},
+) {
   const rh = rowHeight ?? (paired ? barSize * 2 + pairGap + 14 : barSize + 14);
   const x0 = labelWidth + 10;
   const x1 = Math.max(x0 + 60, width - valueWidth);
 
   const values = paired
-    ? data.flatMap((d) => [
-        d.corrected?.value, d.naive?.value,
-        ...(d.corrected?.ci ?? []),
-      ])
+    ? data.flatMap((d) => [d.corrected?.value, d.naive?.value, ...(d.corrected?.ci ?? [])])
     : data.flatMap((d) => [d.value, ...(d.ci ?? [])]);
   const [lo, hi] = domain ?? niceDomain(extent([0, ...values]), 4);
   const scale = linearScale([lo, hi], [x0, x1]);
@@ -84,7 +91,13 @@ export function layoutBars(data, {
       const delta = (Number(d.corrected?.value) || 0) - (Number(d.naive?.value) || 0);
       row.delta = { value: delta, x: x1 + valueWidth - 6, y: y + 2 + barSize + pairGap / 2 };
     } else {
-      makeBar("value", d.value, d.variant === "hatch" ? "hatch" : "solid", (rh - barSize) / 2 - 2, d.ci);
+      makeBar(
+        "value",
+        d.value,
+        d.variant === "hatch" ? "hatch" : "solid",
+        (rh - barSize) / 2 - 2,
+        d.ci,
+      );
     }
     return row;
   });
@@ -92,7 +105,8 @@ export function layoutBars(data, {
   return {
     width,
     height: padTop + rows.length * rh + padBottom,
-    x0, x1,
+    x0,
+    x1,
     domain: [lo, hi],
     zero,
     ticks: scale.ticks(4).map((t) => ({ value: t, x: scale(t) })),
@@ -101,18 +115,27 @@ export function layoutBars(data, {
 }
 
 /** Accessible twin. */
-export function toTable(data, { paired = false, caption = "Bar chart data", format = (v) => fmt(v, 2) } = {}) {
+export function toTable(
+  data,
+  { paired = false, caption = "Bar chart data", format = (v) => fmt(v, 2) } = {},
+) {
   if (paired) {
-    return dataTable(caption,
+    return dataTable(
+      caption,
       ["", "Corrected ◉", "Naive (uncorrected)", "Δ"],
       data.map((d) => [
         d.label,
         format(d.corrected?.value),
         format(d.naive?.value),
         format((Number(d.corrected?.value) || 0) - (Number(d.naive?.value) || 0)),
-      ]));
+      ]),
+    );
   }
-  return dataTable(caption, ["", "Value"], data.map((d) => [d.label, format(d.value)]));
+  return dataTable(
+    caption,
+    ["", "Value"],
+    data.map((d) => [d.label, format(d.value)]),
+  );
 }
 
 /** Mount the chart. */
@@ -146,11 +169,22 @@ export function render(container, data, opts = {}) {
 
     // baseline + ticks — hairline, lighter than data
     const axis = svgEl("g", { class: "chart__axis" });
-    axis.append(svgEl("line", { x1: g.zero, y1: 0, x2: g.zero, y2: g.height - 14, class: "chart__baseline" }));
+    axis.append(
+      svgEl("line", { x1: g.zero, y1: 0, x2: g.zero, y2: g.height - 14, class: "chart__baseline" }),
+    );
     for (const t of g.ticks) {
-      axis.append(svgEl("text", {
-        x: t.x, y: g.height - 4, class: "chart__tick", "text-anchor": "middle",
-      }, format(t.value)));
+      axis.append(
+        svgEl(
+          "text",
+          {
+            x: t.x,
+            y: g.height - 4,
+            class: "chart__tick",
+            "text-anchor": "middle",
+          },
+          format(t.value),
+        ),
+      );
     }
     svg.append(axis);
 
@@ -161,7 +195,9 @@ export function render(container, data, opts = {}) {
         style: `--i:${i}`,
         ...(datum.evidence
           ? {
-              "data-evidence": Array.isArray(datum.evidence) ? datum.evidence.join(",") : datum.evidence,
+              "data-evidence": Array.isArray(datum.evidence)
+                ? datum.evidence.join(",")
+                : datum.evidence,
               ...(datum.evidenceTotal !== undefined && datum.evidenceTotal !== null
                 ? { "data-evidence-total": String(datum.evidenceTotal) }
                 : {}),
@@ -173,24 +209,56 @@ export function render(container, data, opts = {}) {
           : {}),
       });
 
-      rowG.append(svgEl("text", {
-        x: g.x0 - 10, y: row.centerY, class: "chart__rowlabel",
-        "text-anchor": "end", "dominant-baseline": "middle",
-      }, fitLabel(row.label, g.x0 - 18)));
+      rowG.append(
+        svgEl(
+          "text",
+          {
+            x: g.x0 - 10,
+            y: row.centerY,
+            class: "chart__rowlabel",
+            "text-anchor": "end",
+            "dominant-baseline": "middle",
+          },
+          fitLabel(row.label, g.x0 - 18),
+        ),
+      );
 
       for (const bar of row.bars) {
         const isHatch = bar.variant === "hatch";
-        rowG.append(svgEl("rect", {
-          x: bar.x, y: bar.y, width: Math.max(0.5, bar.w), height: bar.h,
-          class: `chart__bar chart__bar--${isHatch ? "hatch" : "solid"}`,
-          fill: isHatch ? hatch : "currentColor",
-          ...(isHatch ? { stroke: "currentColor", "stroke-width": 1 } : {}),
-        }));
+        rowG.append(
+          svgEl("rect", {
+            x: bar.x,
+            y: bar.y,
+            width: Math.max(0.5, bar.w),
+            height: bar.h,
+            class: `chart__bar chart__bar--${isHatch ? "hatch" : "solid"}`,
+            fill: isHatch ? hatch : "currentColor",
+            ...(isHatch ? { stroke: "currentColor", "stroke-width": 1 } : {}),
+          }),
+        );
         if (bar.ci) {
           rowG.append(
-            svgEl("line", { x1: bar.ci.x1, y1: bar.ci.y, x2: bar.ci.x2, y2: bar.ci.y, class: "chart__ci" }),
-            svgEl("line", { x1: bar.ci.x1, y1: bar.ci.y - 3.5, x2: bar.ci.x1, y2: bar.ci.y + 3.5, class: "chart__ci" }),
-            svgEl("line", { x1: bar.ci.x2, y1: bar.ci.y - 3.5, x2: bar.ci.x2, y2: bar.ci.y + 3.5, class: "chart__ci" }),
+            svgEl("line", {
+              x1: bar.ci.x1,
+              y1: bar.ci.y,
+              x2: bar.ci.x2,
+              y2: bar.ci.y,
+              class: "chart__ci",
+            }),
+            svgEl("line", {
+              x1: bar.ci.x1,
+              y1: bar.ci.y - 3.5,
+              x2: bar.ci.x1,
+              y2: bar.ci.y + 3.5,
+              class: "chart__ci",
+            }),
+            svgEl("line", {
+              x1: bar.ci.x2,
+              y1: bar.ci.y - 3.5,
+              x2: bar.ci.x2,
+              y2: bar.ci.y + 3.5,
+              class: "chart__ci",
+            }),
           );
         }
       }
@@ -198,17 +266,34 @@ export function render(container, data, opts = {}) {
       for (const lbl of row.labels) {
         const lv = lbl.kind === "corrected" ? "corrected" : (datum.level ?? level);
         const markGlyph = lbl.kind === "naive" ? null : lv ? ` ${mark(lv)}` : "";
-        rowG.append(svgEl("text", {
-          x: lbl.x, y: lbl.y, class: `chart__value${lbl.kind === "naive" ? " chart__value--naive" : ""}`,
-          "dominant-baseline": "middle",
-        }, `${format(lbl.value)}${markGlyph ?? ""}${lbl.kind === "naive" ? " naive" : ""}`));
+        rowG.append(
+          svgEl(
+            "text",
+            {
+              x: lbl.x,
+              y: lbl.y,
+              class: `chart__value${lbl.kind === "naive" ? " chart__value--naive" : ""}`,
+              "dominant-baseline": "middle",
+            },
+            `${format(lbl.value)}${markGlyph ?? ""}${lbl.kind === "naive" ? " naive" : ""}`,
+          ),
+        );
       }
 
       if (row.delta) {
-        rowG.append(svgEl("text", {
-          x: row.delta.x, y: row.delta.y, class: "chart__delta",
-          "text-anchor": "end", "dominant-baseline": "middle",
-        }, `Δ ${row.delta.value >= 0 ? "+" : "−"}${format(Math.abs(row.delta.value))}`));
+        rowG.append(
+          svgEl(
+            "text",
+            {
+              x: row.delta.x,
+              y: row.delta.y,
+              class: "chart__delta",
+              "text-anchor": "end",
+              "dominant-baseline": "middle",
+            },
+            `Δ ${row.delta.value >= 0 ? "+" : "−"}${format(Math.abs(row.delta.value))}`,
+          ),
+        );
       }
 
       svg.append(rowG);

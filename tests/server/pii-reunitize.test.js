@@ -66,7 +66,11 @@ async function call(method, p, body) {
   const res = await fetch(base + p, init);
   const text = await res.text();
   let json = null;
-  try { json = JSON.parse(text); } catch { /* non-JSON body */ }
+  try {
+    json = JSON.parse(text);
+  } catch {
+    /* non-JSON body */
+  }
   return { status: res.status, json, text };
 }
 
@@ -79,9 +83,14 @@ async function ok(method, p, body) {
 
 async function fail(method, p, body, status, code) {
   const r = await call(method, p, body);
-  assert.equal(r.status, status, `${method} ${p} expected ${status}, got ${r.status}: ${r.text?.slice(0, 300)}`);
+  assert.equal(
+    r.status,
+    status,
+    `${method} ${p} expected ${status}, got ${r.status}: ${r.text?.slice(0, 300)}`,
+  );
   assert.equal(r.json?.ok, false);
-  if (code) assert.equal(r.json.error.code, code, `expected error code ${code}, got ${r.json.error.code}`);
+  if (code)
+    assert.equal(r.json.error.code, code, `expected error code ${code}, got ${r.json.error.code}`);
   return r.json.error;
 }
 
@@ -90,7 +99,11 @@ async function upload(p, filename, content) {
   form.append("file", new Blob([content]), filename);
   const res = await fetch(base + p, { method: "POST", body: form });
   const json = JSON.parse(await res.text());
-  assert.equal(res.status, 200, `upload ${p} → ${res.status}: ${JSON.stringify(json).slice(0, 300)}`);
+  assert.equal(
+    res.status,
+    200,
+    `upload ${p} → ${res.status}: ${JSON.stringify(json).slice(0, 300)}`,
+  );
   assert.equal(json.ok, true);
   return json.data;
 }
@@ -105,15 +118,18 @@ const META_PHONE = "(212) 555-0143";
 const LEGACY_EMAIL = "legacy.leak@example.org";
 
 function makeMetaPiiCsv() {
-  return [
-    "respondent_id,contact,response",
-    `m0,${META_EMAIL},the survey portal stayed broken for the whole team this quarter`,
-    `m1,${META_PHONE},my onboarding paperwork never arrived and nobody answered upstairs`,
-    "m2,,the office is comfortable and the team is genuinely kind to newcomers",
-  ].join("\n") + "\n";
+  return (
+    [
+      "respondent_id,contact,response",
+      `m0,${META_EMAIL},the survey portal stayed broken for the whole team this quarter`,
+      `m1,${META_PHONE},my onboarding paperwork never arrived and nobody answered upstairs`,
+      "m2,,the office is comfortable and the team is genuinely kind to newcomers",
+    ].join("\n") + "\n"
+  );
 }
 
-const unitsFile = (slug, corpusId) => path.join(projectDir(slug), "corpora", corpusId, "units.ndjson");
+const unitsFile = (slug, corpusId) =>
+  path.join(projectDir(slug), "corpora", corpusId, "units.ndjson");
 const vaultFile = (slug, corpusId) => path.join(projectDir(slug), "vault", `${corpusId}.json`);
 const ZERO_COUNTS = { email: 0, phone: 0, ssn: 0, url_user: 0, name: 0 };
 
@@ -158,7 +174,10 @@ test("scan parent: reunitize re-scans the derived corpus — counts in response,
   // ledger: the derived corpus.unitized payload carries the pii summary
   const ev = await ledger.query(projectDir(slug), { type: "corpus.unitized" });
   assert.equal(ev.at(-1).refs.corpusId, re.corpusId);
-  assert.deepEqual(ev.at(-1).payload.pii, { mode: "scan", counts: { ...ZERO_COUNTS, email: 1, phone: 1 } });
+  assert.deepEqual(ev.at(-1).payload.pii, {
+    mode: "scan",
+    counts: { ...ZERO_COUNTS, email: 1, phone: 1 },
+  });
 
   // scan never writes a vault
   await assert.rejects(access(vaultFile(slug, re.corpusId)));
@@ -182,12 +201,19 @@ test("pseudonymize parent: derived corpus keeps tokens, gets its own seeded vaul
   assert.ok(!raw.includes(META_PHONE), "raw phone never reaches the derived corpus");
   const units = await readNdjson(unitsFile(slug, re.corpusId));
   const tokenUnit = units.find((u) => /^\[EMAIL_\d+\]$/.test(u.text));
-  assert.ok(tokenUnit, `derived text carries the parent's token (got ${JSON.stringify(units.map((u) => u.text))})`);
+  assert.ok(
+    tokenUnit,
+    `derived text carries the parent's token (got ${JSON.stringify(units.map((u) => u.text))})`,
+  );
 
   // the derived corpus has its OWN vault, seeded from the parent's map, so
   // its tokens re-identify without reaching back to the parent corpus
   const derivedVault = JSON.parse(await readFile(vaultFile(slug, re.corpusId), "utf8"));
-  assert.equal(derivedVault.tokens[tokenUnit.text], META_EMAIL, "seeded vault resolves the promoted token");
+  assert.equal(
+    derivedVault.tokens[tokenUnit.text],
+    META_EMAIL,
+    "seeded vault resolves the promoted token",
+  );
   assert.ok(Object.values(derivedVault.tokens).includes(META_PHONE));
 
   // the parent vault was read, never written
@@ -213,26 +239,48 @@ test("pseudonymize parent with raw legacy metadata: the bypass is closed — mas
   // raw identifier in a metadata column the import-time pass never saw.
   const units = await readNdjson(unitsFile(slug, confirmed.corpusId));
   units[0].meta.legacy_contact = LEGACY_EMAIL;
-  await writeFile(unitsFile(slug, confirmed.corpusId), units.map((u) => JSON.stringify(u)).join("\n") + "\n", "utf8");
+  await writeFile(
+    unitsFile(slug, confirmed.corpusId),
+    units.map((u) => JSON.stringify(u)).join("\n") + "\n",
+    "utf8",
+  );
 
   const re = await reunitize(slug, confirmed.corpusId, "legacy_contact");
   assert.equal(re.unitCount, 1, "only the planted row has the column");
   assert.equal(re.skipped, 2);
   assert.equal(re.pii?.mode, "pseudonymize");
-  assert.deepEqual(re.pii.counts, { ...ZERO_COUNTS, email: 1 }, "the legacy identifier was newly masked by THIS pass");
+  assert.deepEqual(
+    re.pii.counts,
+    { ...ZERO_COUNTS, email: 1 },
+    "the legacy identifier was newly masked by THIS pass",
+  );
 
   // the derived text is a fresh token continuing the parent's numbering
   const derived = await readNdjson(unitsFile(slug, re.corpusId));
-  assert.match(derived[0].text, /^\[EMAIL_\d+\]$/, `derived text masked (got ${JSON.stringify(derived[0].text)})`);
-  assert.ok(!JSON.stringify(derived).includes(LEGACY_EMAIL), "raw legacy email never persists in the derived corpus");
-  assert.equal(derived[0].meta.contact, "[EMAIL_1]", "parent-vault token in remaining metadata stays a protected no-op");
+  assert.match(
+    derived[0].text,
+    /^\[EMAIL_\d+\]$/,
+    `derived text masked (got ${JSON.stringify(derived[0].text)})`,
+  );
+  assert.ok(
+    !JSON.stringify(derived).includes(LEGACY_EMAIL),
+    "raw legacy email never persists in the derived corpus",
+  );
+  assert.equal(
+    derived[0].meta.contact,
+    "[EMAIL_1]",
+    "parent-vault token in remaining metadata stays a protected no-op",
+  );
 
   // new mapping accumulated into the DERIVED vault only
   const derivedVault = JSON.parse(await readFile(vaultFile(slug, re.corpusId), "utf8"));
   assert.equal(derivedVault.tokens[derived[0].text], LEGACY_EMAIL);
   const parentVaultAfter = await readFile(vaultFile(slug, confirmed.corpusId), "utf8");
   assert.equal(parentVaultAfter, parentVaultBefore, "parent vault still untouched");
-  assert.ok(!parentVaultAfter.includes(LEGACY_EMAIL), "legacy mapping lives only in the derived vault");
+  assert.ok(
+    !parentVaultAfter.includes(LEGACY_EMAIL),
+    "legacy mapping lives only in the derived vault",
+  );
 });
 
 test("off parent: reunitize inherits off — raw text honored, no flags, no vault", async () => {
@@ -242,8 +290,14 @@ test("off parent: reunitize inherits off — raw text honored, no flags, no vaul
 
   assert.deepEqual(re.pii, { mode: "off" });
   const units = await readNdjson(unitsFile(slug, re.corpusId));
-  assert.ok(units.some((u) => u.text === META_EMAIL), "off leaves the promoted text untouched");
-  assert.ok(units.every((u) => u.flags?.pii === undefined), "no pii flags in off mode");
+  assert.ok(
+    units.some((u) => u.text === META_EMAIL),
+    "off leaves the promoted text untouched",
+  );
+  assert.ok(
+    units.every((u) => u.flags?.pii === undefined),
+    "no pii flags in off mode",
+  );
   await assert.rejects(access(path.join(projectDir(slug), "vault")), "off creates no vault dir");
 
   const p = await ok("GET", `/api/projects/${slug}`);
@@ -272,6 +326,11 @@ test("pseudonymize parent whose vault is missing: VAULT_CONFLICT, never remint o
 
   // the derived text would carry [EMAIL_1]/[PHONE_1] that a fresh vault
   // cannot resolve — reminting would alias them to different originals
-  await fail("POST", `/api/projects/${slug}/corpora/${confirmed.corpusId}/reunitize`,
-    { textColumn: "contact" }, 400, "VAULT_CONFLICT");
+  await fail(
+    "POST",
+    `/api/projects/${slug}/corpora/${confirmed.corpusId}/reunitize`,
+    { textColumn: "contact" },
+    400,
+    "VAULT_CONFLICT",
+  );
 });

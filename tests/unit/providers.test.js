@@ -9,7 +9,13 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 
 import {
-  Adapter, Pool, completeWithRepair, parseRetryAfter, validateSchema, httpJSON, withTruncationRetry,
+  Adapter,
+  Pool,
+  completeWithRepair,
+  parseRetryAfter,
+  validateSchema,
+  httpJSON,
+  withTruncationRetry,
 } from "../../server/providers/base.js";
 import { ConcordError } from "../../server/core/errors.js";
 import { AnthropicAdapter } from "../../server/providers/anthropic.js";
@@ -33,12 +39,19 @@ function startServer(handler) {
     req.on("end", () => {
       const raw = Buffer.concat(chunks).toString("utf8");
       let body = null;
-      try { body = raw ? JSON.parse(raw) : null; } catch { body = raw; }
+      try {
+        body = raw ? JSON.parse(raw) : null;
+      } catch {
+        body = raw;
+      }
       const call = { method: req.method, url: req.url, headers: req.headers, body, at: Date.now() };
       calls.push(call);
       const out = handler(call, calls.length);
       if (out === null) return; // hang forever (for timeout tests)
-      res.writeHead(out.status ?? 200, { "content-type": "application/json", ...(out.headers ?? {}) });
+      res.writeHead(out.status ?? 200, {
+        "content-type": "application/json",
+        ...(out.headers ?? {}),
+      });
       res.end(typeof out.body === "string" ? out.body : JSON.stringify(out.body ?? {}));
     });
   });
@@ -48,7 +61,10 @@ function startServer(handler) {
       resolve({
         url: `http://127.0.0.1:${port}`,
         calls,
-        close: () => { server.closeAllConnections(); return new Promise((r) => server.close(r)); },
+        close: () => {
+          server.closeAllConnections();
+          return new Promise((r) => server.close(r));
+        },
       });
     });
   });
@@ -56,7 +72,11 @@ function startServer(handler) {
 
 async function withServer(handler, fn) {
   const srv = await startServer(handler);
-  try { return await fn(srv); } finally { await srv.close(); }
+  try {
+    return await fn(srv);
+  } finally {
+    await srv.close();
+  }
 }
 
 // Raw server for body-phase fault injection: onRequest gets (req, res)
@@ -67,7 +87,10 @@ function rawServer(onRequest) {
     server.listen(0, "127.0.0.1", () => {
       resolve({
         url: `http://127.0.0.1:${server.address().port}`,
-        close: () => { server.closeAllConnections(); return new Promise((r) => server.close(r)); },
+        close: () => {
+          server.closeAllConnections();
+          return new Promise((r) => server.close(r));
+        },
       });
     });
   });
@@ -100,8 +123,12 @@ const extractionJudgeSchema = {
 
 const anthropicToolResponse = (json) => ({
   body: {
-    id: "msg_01", type: "message", role: "assistant", model: "claude-sonnet-4-6",
-    stop_reason: "tool_use", stop_sequence: null,
+    id: "msg_01",
+    type: "message",
+    role: "assistant",
+    model: "claude-sonnet-4-6",
+    stop_reason: "tool_use",
+    stop_sequence: null,
     usage: { input_tokens: 120, output_tokens: 45 },
     content: [{ type: "tool_use", id: "toolu_01", name: "emit", input: json }],
   },
@@ -109,7 +136,9 @@ const anthropicToolResponse = (json) => ({
 
 const openaiResponse = (content, extra = {}) => ({
   body: {
-    id: "chatcmpl-1", object: "chat.completion", model: "gpt-5.2",
+    id: "chatcmpl-1",
+    object: "chat.completion",
+    model: "gpt-5.2",
     choices: [{ index: 0, message: { role: "assistant", content }, finish_reason: "stop" }],
     usage: { prompt_tokens: 80, completion_tokens: 20 },
     ...extra,
@@ -134,7 +163,10 @@ function scriptedAdapter(texts) {
 describe("Pool", () => {
   it("retries 429s and succeeds on the 3rd attempt with growing delays", async () => {
     await withServer(
-      (call, n) => (n < 3 ? { status: 429, body: { error: { type: "rate_limit_error" } } } : anthropicToolResponse({ label: "pay" })),
+      (call, n) =>
+        n < 3
+          ? { status: 429, body: { error: { type: "rate_limit_error" } } }
+          : anthropicToolResponse({ label: "pay" }),
       async (srv) => {
         const adapter = new AnthropicAdapter({ apiKey: "k", baseUrl: srv.url });
         // base 400ms: algebraic max for d1 is 1.25x base = 500ms, min for d2
@@ -142,11 +174,15 @@ describe("Pool", () => {
         // event-loop scheduling noise of 13 suites running in parallel
         // (observed +110ms inflation under full-suite load at base 60).
         const pool = new Pool({ concurrency: 1, baseDelayMs: 400 });
-        const res = await pool.run(() => adapter.complete({
-          model: "claude-sonnet-4-6",
-          messages: [{ role: "user", content: "judge" }],
-          schema: judgeSchema, temperature: 0, maxTokens: 64,
-        }));
+        const res = await pool.run(() =>
+          adapter.complete({
+            model: "claude-sonnet-4-6",
+            messages: [{ role: "user", content: "judge" }],
+            schema: judgeSchema,
+            temperature: 0,
+            maxTokens: 64,
+          }),
+        );
         assert.equal(res.json.label, "pay");
         assert.equal(srv.calls.length, 3);
         const d1 = srv.calls[1].at - srv.calls[0].at;
@@ -165,7 +201,14 @@ describe("Pool", () => {
         const adapter = new AnthropicAdapter({ apiKey: "k", baseUrl: srv.url });
         const pool = new Pool({ concurrency: 1, baseDelayMs: 4 });
         await assert.rejects(
-          pool.run(() => adapter.complete({ model: "m", messages: [{ role: "user", content: "x" }], temperature: 0, maxTokens: 16 })),
+          pool.run(() =>
+            adapter.complete({
+              model: "m",
+              messages: [{ role: "user", content: "x" }],
+              temperature: 0,
+              maxTokens: 16,
+            }),
+          ),
           (err) => err.code === "RATE_LIMITED_EXHAUSTED" && err.details.attempts === 6,
         );
         assert.equal(srv.calls.length, 6);
@@ -175,15 +218,22 @@ describe("Pool", () => {
 
   it("honors Retry-After header", async () => {
     await withServer(
-      (call, n) => (n === 1
-        ? { status: 429, headers: { "retry-after": "1" }, body: {} }
-        : anthropicToolResponse({ label: "pay" })),
+      (call, n) =>
+        n === 1
+          ? { status: 429, headers: { "retry-after": "1" }, body: {} }
+          : anthropicToolResponse({ label: "pay" }),
       async (srv) => {
         const adapter = new AnthropicAdapter({ apiKey: "k", baseUrl: srv.url });
         const pool = new Pool({ concurrency: 1, baseDelayMs: 5 });
-        await pool.run(() => adapter.complete({
-          model: "m", messages: [{ role: "user", content: "x" }], schema: judgeSchema, temperature: 0, maxTokens: 16,
-        }));
+        await pool.run(() =>
+          adapter.complete({
+            model: "m",
+            messages: [{ role: "user", content: "x" }],
+            schema: judgeSchema,
+            temperature: 0,
+            maxTokens: 16,
+          }),
+        );
         assert.equal(srv.calls.length, 2);
         assert.ok(srv.calls[1].at - srv.calls[0].at >= 950, "Retry-After: 1 not honored");
       },
@@ -197,7 +247,14 @@ describe("Pool", () => {
         const adapter = new AnthropicAdapter({ apiKey: "k", baseUrl: srv.url });
         const pool = new Pool({ concurrency: 1, baseDelayMs: 5 });
         await assert.rejects(
-          pool.run(() => adapter.complete({ model: "m", messages: [{ role: "user", content: "x" }], temperature: 0, maxTokens: 16 })),
+          pool.run(() =>
+            adapter.complete({
+              model: "m",
+              messages: [{ role: "user", content: "x" }],
+              temperature: 0,
+              maxTokens: 16,
+            }),
+          ),
           (err) => err.code === "PROVIDER_HTTP" && err.details.status === 400,
         );
         assert.equal(srv.calls.length, 1);
@@ -207,12 +264,18 @@ describe("Pool", () => {
 
   it("caps concurrent executions", async () => {
     const pool = new Pool({ concurrency: 2 });
-    let active = 0, peak = 0;
-    await Promise.all(Array.from({ length: 6 }, () => pool.run(async () => {
-      active++; peak = Math.max(peak, active);
-      await new Promise((r) => setTimeout(r, 15));
-      active--;
-    })));
+    let active = 0,
+      peak = 0;
+    await Promise.all(
+      Array.from({ length: 6 }, () =>
+        pool.run(async () => {
+          active++;
+          peak = Math.max(peak, active);
+          await new Promise((r) => setTimeout(r, 15));
+          active--;
+        }),
+      ),
+    );
     assert.equal(peak, 2);
   });
 
@@ -253,11 +316,17 @@ describe("httpJSON body-phase failures", () => {
       const p = httpJSON("POST", `${srv.url}/v1/x`, { body: {}, timeoutMs: 150 });
       p.catch(() => {}); // any post-race rejection stays handled
       const raced = await Promise.race([
-        p.then(() => "resolved", (err) => err),
+        p.then(
+          () => "resolved",
+          (err) => err,
+        ),
         new Promise((r) => setTimeout(() => r("pending"), 1500)),
       ]);
-      assert.notEqual(raced, "pending",
-        "httpJSON still pending 1.5s after a 150ms timeout: body read is not covered by the abort timer");
+      assert.notEqual(
+        raced,
+        "pending",
+        "httpJSON still pending 1.5s after a 150ms timeout: body read is not covered by the abort timer",
+      );
       assert.notEqual(raced, "resolved");
       assert.equal(raced.code, "PROVIDER_UNREACHABLE");
       assert.equal(typeof raced.details.kind, "string");
@@ -276,16 +345,17 @@ describe("httpJSON body-phase failures", () => {
       setTimeout(() => res.destroy(), 30); // sever after headers+partial body are out
     });
     try {
-      await assert.rejects(
-        httpJSON("POST", `${srv.url}/v1/x`, { body: {} }),
-        (err) => {
-          assert.equal(err.name, "ConcordError", `escaped the taxonomy as ${err.name}: ${err.message}`);
-          assert.equal(err.code, "PROVIDER_UNREACHABLE");
-          assert.equal(typeof err.details.kind, "string");
-          assert.ok(err.cause instanceof Error, "original error preserved as cause");
-          return true;
-        },
-      );
+      await assert.rejects(httpJSON("POST", `${srv.url}/v1/x`, { body: {} }), (err) => {
+        assert.equal(
+          err.name,
+          "ConcordError",
+          `escaped the taxonomy as ${err.name}: ${err.message}`,
+        );
+        assert.equal(err.code, "PROVIDER_UNREACHABLE");
+        assert.equal(typeof err.details.kind, "string");
+        assert.ok(err.cause instanceof Error, "original error preserved as cause");
+        return true;
+      });
     } finally {
       await srv.close();
     }
@@ -300,14 +370,24 @@ describe("Pool retry policy and slot hygiene", () => {
     // and destroy the socket immediately → every attempt is unreachable.
     let accepts = 0;
     const server = http.createServer(() => {});
-    server.on("connection", (sock) => { accepts++; sock.destroy(); });
+    server.on("connection", (sock) => {
+      accepts++;
+      sock.destroy();
+    });
     await new Promise((r) => server.listen(0, "127.0.0.1", r));
     const url = `http://127.0.0.1:${server.address().port}`;
     try {
       const adapter = new OllamaAdapter({ baseUrl: url });
       const pool = new Pool({ concurrency: 1, baseDelayMs: 5 });
       await assert.rejects(
-        pool.run(() => adapter.complete({ model: "m", messages: [{ role: "user", content: "x" }], temperature: 0, maxTokens: 8 })),
+        pool.run(() =>
+          adapter.complete({
+            model: "m",
+            messages: [{ role: "user", content: "x" }],
+            temperature: 0,
+            maxTokens: 8,
+          }),
+        ),
         (err) => err.code === "PROVIDER_UNREACHABLE",
       );
       assert.equal(accepts, 3, `expected exactly 3 connection attempts, saw ${accepts}`);
@@ -336,10 +416,21 @@ describe("Pool retry policy and slot hygiene", () => {
       (err) => {
         assert.equal(err.code, "RATE_LIMITED_EXHAUSTED");
         assert.equal(err.details.attempts, 3, "exhaustion shape preserved");
-        assert.ok(err.details.attemptsUsage, "attemptsUsage must survive the exhaustion replacement");
+        assert.ok(
+          err.details.attemptsUsage,
+          "attemptsUsage must survive the exhaustion replacement",
+        );
         // last inner attempt was n=3 → {300, 60, 3}
-        assert.deepEqual(err.details.attemptsUsage, { inputTokens: 300, outputTokens: 60, attempts: 3 });
-        assert.equal(err.details.retryAfterMs, 12_000, "retryAfterMs from the last attempt is carried too");
+        assert.deepEqual(err.details.attemptsUsage, {
+          inputTokens: 300,
+          outputTokens: 60,
+          attempts: 3,
+        });
+        assert.equal(
+          err.details.retryAfterMs,
+          12_000,
+          "retryAfterMs from the last attempt is carried too",
+        );
         return true;
       },
     );
@@ -349,10 +440,16 @@ describe("Pool retry policy and slot hygiene", () => {
   it("RATE_LIMITED_EXHAUSTED without an inner attemptsUsage leaves the field absent (no fabricated spend)", async () => {
     const pool = new Pool({ concurrency: 1, baseDelayMs: 1, maxAttempts: 2 });
     await assert.rejects(
-      pool.run(async () => { throw new ConcordError("PROVIDER_HTTP", "rate limited", { status: 429 }); }),
+      pool.run(async () => {
+        throw new ConcordError("PROVIDER_HTTP", "rate limited", { status: 429 });
+      }),
       (err) => {
         assert.equal(err.code, "RATE_LIMITED_EXHAUSTED");
-        assert.equal("attemptsUsage" in err.details, false, "no inner usage → no fabricated attemptsUsage");
+        assert.equal(
+          "attemptsUsage" in err.details,
+          false,
+          "no inner usage → no fabricated attemptsUsage",
+        );
         return true;
       },
     );
@@ -361,15 +458,25 @@ describe("Pool retry policy and slot hygiene", () => {
   it("slot-leak regression: full capacity remains after N>concurrency throwing fns", async () => {
     const pool = new Pool({ concurrency: 2, baseDelayMs: 1 });
     const burst = await Promise.allSettled(
-      Array.from({ length: 6 }, () => pool.run(async () => { throw new Error("boom"); })),
+      Array.from({ length: 6 }, () =>
+        pool.run(async () => {
+          throw new Error("boom");
+        }),
+      ),
     );
     assert.ok(burst.every((r) => r.status === "rejected"));
-    let active = 0, peak = 0;
-    await Promise.all(Array.from({ length: 5 }, () => pool.run(async () => {
-      active++; peak = Math.max(peak, active);
-      await new Promise((r) => setTimeout(r, 15));
-      active--;
-    })));
+    let active = 0,
+      peak = 0;
+    await Promise.all(
+      Array.from({ length: 5 }, () =>
+        pool.run(async () => {
+          active++;
+          peak = Math.max(peak, active);
+          await new Promise((r) => setTimeout(r, 15));
+          active--;
+        }),
+      ),
+    );
     assert.equal(peak, 2, `peak concurrency ${peak}; pool capacity damaged or exceeded`);
   });
 });
@@ -389,7 +496,9 @@ describe("AnthropicAdapter", () => {
             { role: "system", content: "You are a careful judge." },
             { role: "user", content: "Label this. <unit>The pay is terrible.</unit>" },
           ],
-          schema: judgeSchema, temperature: 0, maxTokens: 200,
+          schema: judgeSchema,
+          temperature: 0,
+          maxTokens: 200,
         });
         const call = srv.calls[0];
         assert.equal(call.method, "POST");
@@ -398,7 +507,9 @@ describe("AnthropicAdapter", () => {
         assert.equal(call.headers["anthropic-version"], "2023-06-01");
         assert.equal(call.body.model, "claude-sonnet-4-6");
         assert.equal(call.body.system, "You are a careful judge.");
-        assert.deepEqual(call.body.messages, [{ role: "user", content: "Label this. <unit>The pay is terrible.</unit>" }]);
+        assert.deepEqual(call.body.messages, [
+          { role: "user", content: "Label this. <unit>The pay is terrible.</unit>" },
+        ]);
         assert.equal(call.body.temperature, 0);
         assert.equal(call.body.max_tokens, 200);
         assert.equal(call.body.tools.length, 1);
@@ -418,13 +529,20 @@ describe("AnthropicAdapter", () => {
     await withServer(
       () => ({
         body: {
-          id: "msg_02", content: [{ type: "text", text: "hello there" }],
-          stop_reason: "end_turn", usage: { input_tokens: 5, output_tokens: 3 },
+          id: "msg_02",
+          content: [{ type: "text", text: "hello there" }],
+          stop_reason: "end_turn",
+          usage: { input_tokens: 5, output_tokens: 3 },
         },
       }),
       async (srv) => {
         const adapter = new AnthropicAdapter({ apiKey: "k", baseUrl: srv.url });
-        const res = await adapter.complete({ model: "m", messages: [{ role: "user", content: "hi" }], temperature: 0, maxTokens: 50 });
+        const res = await adapter.complete({
+          model: "m",
+          messages: [{ role: "user", content: "hi" }],
+          temperature: 0,
+          maxTokens: 50,
+        });
         assert.equal(srv.calls[0].body.tools, undefined);
         assert.equal(srv.calls[0].body.tool_choice, undefined);
         assert.equal(res.text, "hello there");
@@ -442,8 +560,12 @@ describe("AnthropicAdapter", () => {
     await withServer(
       () => ({
         body: {
-          id: "msg_t", type: "message", role: "assistant", model: "claude-sonnet-4-6",
-          stop_reason: "max_tokens", stop_sequence: null,
+          id: "msg_t",
+          type: "message",
+          role: "assistant",
+          model: "claude-sonnet-4-6",
+          stop_reason: "max_tokens",
+          stop_sequence: null,
           usage: { input_tokens: 120, output_tokens: 64 },
           content: [{ type: "text", text: "Let me think about this" }], // thinking/preamble, no tool_use
         },
@@ -451,7 +573,13 @@ describe("AnthropicAdapter", () => {
       async (srv) => {
         const adapter = new AnthropicAdapter({ apiKey: "k", baseUrl: srv.url });
         await assert.rejects(
-          completeWithRepair(adapter, { model: "m", messages: [{ role: "user", content: "x" }], schema: judgeSchema, temperature: 0, maxTokens: 64 }),
+          completeWithRepair(adapter, {
+            model: "m",
+            messages: [{ role: "user", content: "x" }],
+            schema: judgeSchema,
+            temperature: 0,
+            maxTokens: 64,
+          }),
           (err) => err.code === "TRUNCATED" && /maxTokens/.test(err.message),
         );
         assert.equal(srv.calls.length, 1, "truncation must not trigger repair re-prompts");
@@ -466,16 +594,28 @@ describe("AnthropicAdapter", () => {
     await withServer(
       () => ({
         body: {
-          id: "msg_tp", type: "message", role: "assistant", model: "claude-sonnet-4-6",
-          stop_reason: "max_tokens", stop_sequence: null,
+          id: "msg_tp",
+          type: "message",
+          role: "assistant",
+          model: "claude-sonnet-4-6",
+          stop_reason: "max_tokens",
+          stop_sequence: null,
           usage: { input_tokens: 120, output_tokens: 64 },
-          content: [{ type: "tool_use", id: "toolu_p", name: "emit", input: { rationale: "the pay is" } }], // missing label+confidence
+          content: [
+            { type: "tool_use", id: "toolu_p", name: "emit", input: { rationale: "the pay is" } },
+          ], // missing label+confidence
         },
       }),
       async (srv) => {
         const adapter = new AnthropicAdapter({ apiKey: "k", baseUrl: srv.url });
         await assert.rejects(
-          completeWithRepair(adapter, { model: "m", messages: [{ role: "user", content: "x" }], schema: judgeSchema, temperature: 0, maxTokens: 64 }),
+          completeWithRepair(adapter, {
+            model: "m",
+            messages: [{ role: "user", content: "x" }],
+            schema: judgeSchema,
+            temperature: 0,
+            maxTokens: 64,
+          }),
           (err) => err.code === "TRUNCATED",
         );
         assert.equal(srv.calls.length, 1, "truncation must not trigger repair re-prompts");
@@ -489,15 +629,32 @@ describe("AnthropicAdapter", () => {
     await withServer(
       () => ({
         body: {
-          id: "msg_ok", type: "message", role: "assistant", model: "claude-sonnet-4-6",
-          stop_reason: "max_tokens", stop_sequence: null,
+          id: "msg_ok",
+          type: "message",
+          role: "assistant",
+          model: "claude-sonnet-4-6",
+          stop_reason: "max_tokens",
+          stop_sequence: null,
           usage: { input_tokens: 120, output_tokens: 64 },
-          content: [{ type: "tool_use", id: "toolu_ok", name: "emit", input: { rationale: "r", label: "pay", confidence: 0.8 } }],
+          content: [
+            {
+              type: "tool_use",
+              id: "toolu_ok",
+              name: "emit",
+              input: { rationale: "r", label: "pay", confidence: 0.8 },
+            },
+          ],
         },
       }),
       async (srv) => {
         const adapter = new AnthropicAdapter({ apiKey: "k", baseUrl: srv.url });
-        const res = await adapter.complete({ model: "m", messages: [{ role: "user", content: "x" }], schema: judgeSchema, temperature: 0, maxTokens: 64 });
+        const res = await adapter.complete({
+          model: "m",
+          messages: [{ role: "user", content: "x" }],
+          schema: judgeSchema,
+          temperature: 0,
+          maxTokens: 64,
+        });
         assert.deepEqual(res.json, { rationale: "r", label: "pay", confidence: 0.8 });
       },
     );
@@ -506,11 +663,19 @@ describe("AnthropicAdapter", () => {
   it("keyless: complete throws CONFIG_MISSING without any fetch; catalog still works", async () => {
     const realFetch = globalThis.fetch;
     let fetches = 0;
-    globalThis.fetch = () => { fetches++; throw new Error("network blocked by test"); };
+    globalThis.fetch = () => {
+      fetches++;
+      throw new Error("network blocked by test");
+    };
     try {
       const adapter = new AnthropicAdapter({});
       await assert.rejects(
-        adapter.complete({ model: "m", messages: [{ role: "user", content: "x" }], temperature: 0, maxTokens: 16 }),
+        adapter.complete({
+          model: "m",
+          messages: [{ role: "user", content: "x" }],
+          temperature: 0,
+          maxTokens: 16,
+        }),
         { code: "CONFIG_MISSING" },
       );
       assert.equal(fetches, 0);
@@ -530,8 +695,13 @@ describe("AnthropicAdapter", () => {
   });
 
   it("capabilities", () => {
-    assert.deepEqual(new AnthropicAdapter({}).capabilities(),
-      { structuredOutput: true, pinning: true, batch: false, local: false, family: "anthropic" });
+    assert.deepEqual(new AnthropicAdapter({}).capabilities(), {
+      structuredOutput: true,
+      pinning: true,
+      batch: false,
+      local: false,
+      family: "anthropic",
+    });
   });
 });
 
@@ -569,18 +739,28 @@ describe("AnthropicAdapter.catalog (live)", () => {
 
         const byId = Object.fromEntries(cat.map((m) => [m.id, m]));
         // live ids appear (the field complaint: new snapshots never showed up)
-        assert.deepEqual(cat.map((m) => m.id), [
-          "claude-opus-4-8-20260515", "claude-sonnet-4-6-20260219", "claude-flux-9-0-20260601",
-        ]);
+        assert.deepEqual(
+          cat.map((m) => m.id),
+          ["claude-opus-4-8-20260515", "claude-sonnet-4-6-20260219", "claude-flux-9-0-20260601"],
+        );
         // opus snapshot inherited the static opus pricing + ctx by prefix
-        assert.deepEqual(byId["claude-opus-4-8-20260515"].pricing, { inUSDper1M: 15, outUSDper1M: 75 });
+        assert.deepEqual(byId["claude-opus-4-8-20260515"].pricing, {
+          inUSDper1M: 15,
+          outUSDper1M: 75,
+        });
         assert.equal(byId["claude-opus-4-8-20260515"].ctx, 200_000);
         assert.equal(byId["claude-opus-4-8-20260515"].name, "Claude Opus 4.8");
         assert.equal(byId["claude-opus-4-8-20260515"].family, "anthropic");
         assert.equal(byId["claude-opus-4-8-20260515"].snapshot, "claude-opus-4-8-20260515");
-        assert.deepEqual(byId["claude-sonnet-4-6-20260219"].pricing, { inUSDper1M: 3, outUSDper1M: 15 });
+        assert.deepEqual(byId["claude-sonnet-4-6-20260219"].pricing, {
+          inUSDper1M: 3,
+          outUSDper1M: 15,
+        });
         // unmatched model → {0,0} pricing, ctx null, estimate flag set (honest)
-        assert.deepEqual(byId["claude-flux-9-0-20260601"].pricing, { inUSDper1M: 0, outUSDper1M: 0 });
+        assert.deepEqual(byId["claude-flux-9-0-20260601"].pricing, {
+          inUSDper1M: 0,
+          outUSDper1M: 0,
+        });
         assert.equal(byId["claude-flux-9-0-20260601"].ctx, null);
         assert.equal(byId["claude-flux-9-0-20260601"].estimate, true);
         // capability fields carried so the catalog route stays consistent
@@ -594,16 +774,29 @@ describe("AnthropicAdapter.catalog (live)", () => {
       (call, n) => {
         if (n === 1) {
           assert.ok(!/after_id/.test(call.url), "first page must not send after_id");
-          return modelsPage([{ id: "claude-opus-4-8-20260515", display_name: "Opus", type: "model" }], true);
+          return modelsPage(
+            [{ id: "claude-opus-4-8-20260515", display_name: "Opus", type: "model" }],
+            true,
+          );
         }
-        assert.match(call.url, /after_id=claude-opus-4-8-20260515/, "second page cursors on last_id");
-        return modelsPage([{ id: "claude-haiku-4-5-20260101", display_name: "Haiku", type: "model" }], false);
+        assert.match(
+          call.url,
+          /after_id=claude-opus-4-8-20260515/,
+          "second page cursors on last_id",
+        );
+        return modelsPage(
+          [{ id: "claude-haiku-4-5-20260101", display_name: "Haiku", type: "model" }],
+          false,
+        );
       },
       async (srv) => {
         const adapter = new AnthropicAdapter({ apiKey: "k", baseUrl: srv.url });
         const cat = await adapter.catalog();
         assert.equal(srv.calls.length, 2, "exactly two pages fetched");
-        assert.deepEqual(cat.map((m) => m.id), ["claude-opus-4-8-20260515", "claude-haiku-4-5-20260101"]);
+        assert.deepEqual(
+          cat.map((m) => m.id),
+          ["claude-opus-4-8-20260515", "claude-haiku-4-5-20260101"],
+        );
       },
     );
   });
@@ -614,7 +807,10 @@ describe("AnthropicAdapter.catalog (live)", () => {
       async (srv) => {
         const adapter = new AnthropicAdapter({ apiKey: "k", baseUrl: srv.url });
         const cat = await adapter.catalog();
-        assert.deepEqual(cat.map((m) => m.id), ["claude-opus-4-8", "claude-sonnet-4-6", "claude-haiku-4-5"]);
+        assert.deepEqual(
+          cat.map((m) => m.id),
+          ["claude-opus-4-8", "claude-sonnet-4-6", "claude-haiku-4-5"],
+        );
         for (const m of cat) assert.equal(m.estimate, true);
       },
     );
@@ -647,7 +843,14 @@ describe("OpenAIAdapter", () => {
           { role: "system", content: "Judge." },
           { role: "user", content: "Label: <unit>pay is bad</unit>" },
         ];
-        const res = await adapter.complete({ model: "gpt-5.2", messages, schema: judgeSchema, temperature: 0, maxTokens: 150, seed: 11 });
+        const res = await adapter.complete({
+          model: "gpt-5.2",
+          messages,
+          schema: judgeSchema,
+          temperature: 0,
+          maxTokens: 150,
+          seed: 11,
+        });
         const call = srv.calls[0];
         assert.equal(call.url, "/v1/chat/completions");
         assert.equal(call.headers.authorization, "Bearer sk-oai-test");
@@ -670,15 +873,29 @@ describe("OpenAIAdapter", () => {
     await withServer(
       () => ({
         body: {
-          id: "chatcmpl-r", object: "chat.completion", model: "gpt-5.2",
-          choices: [{ index: 0, message: { role: "assistant", content: null, refusal: "I can't help with that." }, finish_reason: "stop" }],
+          id: "chatcmpl-r",
+          object: "chat.completion",
+          model: "gpt-5.2",
+          choices: [
+            {
+              index: 0,
+              message: { role: "assistant", content: null, refusal: "I can't help with that." },
+              finish_reason: "stop",
+            },
+          ],
           usage: { prompt_tokens: 5, completion_tokens: 1 },
         },
       }),
       async (srv) => {
         const adapter = new OpenAIAdapter({ apiKey: "k", baseUrl: srv.url });
         await assert.rejects(
-          completeWithRepair(adapter, { model: "m", messages: [{ role: "user", content: "x" }], schema: judgeSchema, temperature: 0, maxTokens: 64 }),
+          completeWithRepair(adapter, {
+            model: "m",
+            messages: [{ role: "user", content: "x" }],
+            schema: judgeSchema,
+            temperature: 0,
+            maxTokens: 64,
+          }),
           (err) => err.code === "PROVIDER_REFUSAL" && /refus/i.test(err.message),
         );
         assert.equal(srv.calls.length, 1, "refusal must not trigger repair re-prompts");
@@ -690,15 +907,29 @@ describe("OpenAIAdapter", () => {
     await withServer(
       () => ({
         body: {
-          id: "chatcmpl-t", object: "chat.completion", model: "gpt-5.2",
-          choices: [{ index: 0, message: { role: "assistant", content: '{"rationale":"r","label":"pa' }, finish_reason: "length" }],
+          id: "chatcmpl-t",
+          object: "chat.completion",
+          model: "gpt-5.2",
+          choices: [
+            {
+              index: 0,
+              message: { role: "assistant", content: '{"rationale":"r","label":"pa' },
+              finish_reason: "length",
+            },
+          ],
           usage: { prompt_tokens: 5, completion_tokens: 64 },
         },
       }),
       async (srv) => {
         const adapter = new OpenAIAdapter({ apiKey: "k", baseUrl: srv.url });
         await assert.rejects(
-          completeWithRepair(adapter, { model: "m", messages: [{ role: "user", content: "x" }], schema: judgeSchema, temperature: 0, maxTokens: 64 }),
+          completeWithRepair(adapter, {
+            model: "m",
+            messages: [{ role: "user", content: "x" }],
+            schema: judgeSchema,
+            temperature: 0,
+            maxTokens: 64,
+          }),
           (err) => err.code === "TRUNCATED" && /maxTokens/.test(err.message),
         );
         assert.equal(srv.calls.length, 1, "truncation must not trigger repair re-prompts");
@@ -710,13 +941,25 @@ describe("OpenAIAdapter", () => {
     await withServer(
       () => ({
         body: {
-          id: "chatcmpl-l", choices: [{ index: 0, message: { role: "assistant", content: "partial tex" }, finish_reason: "length" }],
+          id: "chatcmpl-l",
+          choices: [
+            {
+              index: 0,
+              message: { role: "assistant", content: "partial tex" },
+              finish_reason: "length",
+            },
+          ],
           usage: { prompt_tokens: 5, completion_tokens: 16 },
         },
       }),
       async (srv) => {
         const adapter = new OpenAIAdapter({ apiKey: "k", baseUrl: srv.url });
-        const res = await adapter.complete({ model: "m", messages: [{ role: "user", content: "x" }], temperature: 0, maxTokens: 16 });
+        const res = await adapter.complete({
+          model: "m",
+          messages: [{ role: "user", content: "x" }],
+          temperature: 0,
+          maxTokens: 16,
+        });
         assert.equal(res.text, "partial tex");
         assert.equal(res.finishReason, "length");
       },
@@ -726,7 +969,12 @@ describe("OpenAIAdapter", () => {
   it("keyless throws CONFIG_MISSING; static catalog marked estimate", async () => {
     const adapter = new OpenAIAdapter({});
     await assert.rejects(
-      adapter.complete({ model: "m", messages: [{ role: "user", content: "x" }], temperature: 0, maxTokens: 16 }),
+      adapter.complete({
+        model: "m",
+        messages: [{ role: "user", content: "x" }],
+        temperature: 0,
+        maxTokens: 16,
+      }),
       { code: "CONFIG_MISSING" },
     );
     const cat = await adapter.catalog();
@@ -736,8 +984,13 @@ describe("OpenAIAdapter", () => {
       assert.equal(m.family, "openai");
       assert.ok(m.pricing.inUSDper1M > 0);
     }
-    assert.deepEqual(adapter.capabilities(),
-      { structuredOutput: true, pinning: true, batch: false, local: false, family: "openai" });
+    assert.deepEqual(adapter.capabilities(), {
+      structuredOutput: true,
+      pinning: true,
+      batch: false,
+      local: false,
+      family: "openai",
+    });
   });
 });
 
@@ -750,7 +1003,10 @@ describe("OpenAIAdapter", () => {
 describe("OpenAIAdapter.catalog (live)", () => {
   // Real /v1/models shape: {object:"list", data:[{id, object:"model", created, owned_by}]}.
   const modelsList = (ids) => ({
-    body: { object: "list", data: ids.map((id) => ({ id, object: "model", created: 1, owned_by: "openai" })) },
+    body: {
+      object: "list",
+      data: ids.map((id) => ({ id, object: "model", created: 1, owned_by: "openai" })),
+    },
   });
 
   it("filters non-chat families, keeps chat models, merges pricing by prefix", async () => {
@@ -760,11 +1016,11 @@ describe("OpenAIAdapter.catalog (live)", () => {
         assert.equal(call.url, "/v1/models");
         assert.equal(call.headers.authorization, "Bearer sk-oai-live");
         return modelsList([
-          "gpt-5.2",                  // exact static match
-          "gpt-5.2-mini-2026-05-01",  // dated → prefix-match gpt-5.2-mini
-          "gpt-6-preview",            // chat, but no static entry → honest unknown
-          "o4-mini",                  // o-series reasoning → chat-capable
-          "chatgpt-4o-latest",        // chatgpt prefix → chat
+          "gpt-5.2", // exact static match
+          "gpt-5.2-mini-2026-05-01", // dated → prefix-match gpt-5.2-mini
+          "gpt-6-preview", // chat, but no static entry → honest unknown
+          "o4-mini", // o-series reasoning → chat-capable
+          "chatgpt-4o-latest", // chatgpt prefix → chat
           // everything below must be filtered out:
           "text-embedding-3-large",
           "gpt-4o-mini-tts",
@@ -781,21 +1037,31 @@ describe("OpenAIAdapter.catalog (live)", () => {
         const adapter = new OpenAIAdapter({ apiKey: "sk-oai-live", baseUrl: srv.url });
         const cat = await adapter.catalog();
         const ids = cat.map((m) => m.id);
-        assert.deepEqual(ids, ["gpt-5.2", "gpt-5.2-mini-2026-05-01", "gpt-6-preview", "o4-mini", "chatgpt-4o-latest"],
-          "only chat-capable families survive, in list order");
+        assert.deepEqual(
+          ids,
+          ["gpt-5.2", "gpt-5.2-mini-2026-05-01", "gpt-6-preview", "o4-mini", "chatgpt-4o-latest"],
+          "only chat-capable families survive, in list order",
+        );
 
         const byId = Object.fromEntries(cat.map((m) => [m.id, m]));
         assert.deepEqual(byId["gpt-5.2"].pricing, { inUSDper1M: 1.25, outUSDper1M: 10 });
         assert.equal(byId["gpt-5.2"].ctx, 400_000);
         assert.equal(byId["gpt-5.2"].family, "openai");
         // dated mini snapshot inherits mini pricing by prefix
-        assert.deepEqual(byId["gpt-5.2-mini-2026-05-01"].pricing, { inUSDper1M: 0.25, outUSDper1M: 2 });
+        assert.deepEqual(byId["gpt-5.2-mini-2026-05-01"].pricing, {
+          inUSDper1M: 0.25,
+          outUSDper1M: 2,
+        });
         assert.equal(byId["gpt-5.2-mini-2026-05-01"].snapshot, "gpt-5.2-mini-2026-05-01");
         // unknown chat model → honest unknown
         assert.deepEqual(byId["gpt-6-preview"].pricing, { inUSDper1M: 0, outUSDper1M: 0 });
         assert.equal(byId["gpt-6-preview"].ctx, null);
         assert.equal(byId["gpt-6-preview"].estimate, true);
-        assert.equal(byId["o4-mini"].estimate, true, "o-series with no static row is an honest unknown");
+        assert.equal(
+          byId["o4-mini"].estimate,
+          true,
+          "o-series with no static row is an honest unknown",
+        );
         // capability fields present for catalog-route consistency
         assert.equal(byId["gpt-5.2"].structuredOutput, true);
       },
@@ -820,7 +1086,10 @@ describe("OpenAIAdapter.catalog (live)", () => {
       async (srv) => {
         const adapter = new OpenAIAdapter({ apiKey: "k", baseUrl: srv.url });
         const cat = await adapter.catalog();
-        assert.deepEqual(cat.map((m) => m.id), ["gpt-5.2", "gpt-5.2-mini"]);
+        assert.deepEqual(
+          cat.map((m) => m.id),
+          ["gpt-5.2", "gpt-5.2-mini"],
+        );
         for (const m of cat) assert.equal(m.estimate, true);
       },
     );
@@ -829,11 +1098,17 @@ describe("OpenAIAdapter.catalog (live)", () => {
   it("keyless: no fetch, static fallback", async () => {
     const realFetch = globalThis.fetch;
     let fetches = 0;
-    globalThis.fetch = () => { fetches++; throw new Error("network blocked by test"); };
+    globalThis.fetch = () => {
+      fetches++;
+      throw new Error("network blocked by test");
+    };
     try {
       const cat = await new OpenAIAdapter({}).catalog();
       assert.equal(fetches, 0, "keyless catalog must not hit the network");
-      assert.deepEqual(cat.map((m) => m.id), ["gpt-5.2", "gpt-5.2-mini"]);
+      assert.deepEqual(
+        cat.map((m) => m.id),
+        ["gpt-5.2", "gpt-5.2-mini"],
+      );
     } finally {
       globalThis.fetch = realFetch;
     }
@@ -968,7 +1243,11 @@ describe("toOpenAIStrict", () => {
       properties: {
         v: {
           anyOf: [
-            { type: "object", required: ["a"], properties: { a: { type: "string" }, b: { type: "string" } } },
+            {
+              type: "object",
+              required: ["a"],
+              properties: { a: { type: "string" }, b: { type: "string" } },
+            },
             { type: "string" },
           ],
         },
@@ -980,7 +1259,11 @@ describe("toOpenAIStrict", () => {
     assert.deepEqual(obj.properties.b.type, ["string", "null"]);
     assert.equal(obj.additionalProperties, false);
     assert.equal(out.properties.v.anyOf.length, 2, "required anyOf must not gain a null member");
-    assert.deepEqual(out.properties.w.anyOf.at(-1), { type: "null" }, "optional anyOf gains a null member");
+    assert.deepEqual(
+      out.properties.w.anyOf.at(-1),
+      { type: "null" },
+      "optional anyOf gains a null member",
+    );
   });
 });
 
@@ -991,8 +1274,11 @@ describe("OpenAI strict dialect on the wire", () => {
       async (srv) => {
         const adapter = new OpenAIAdapter({ apiKey: "k", baseUrl: srv.url });
         const req = {
-          model: "gpt-5.2", messages: [{ role: "user", content: "<unit>The pay is awful.</unit>" }],
-          schema: extractionJudgeSchema, temperature: 0, maxTokens: 128,
+          model: "gpt-5.2",
+          messages: [{ role: "user", content: "<unit>The pay is awful.</unit>" }],
+          schema: extractionJudgeSchema,
+          temperature: 0,
+          maxTokens: 128,
         };
         await adapter.complete(req);
         const sent = srv.calls[0].body.response_format;
@@ -1001,7 +1287,11 @@ describe("OpenAI strict dialect on the wire", () => {
         assert.equal(sent.json_schema.strict, true);
         assert.deepEqual(sent.json_schema.schema, toOpenAIStrict(extractionJudgeSchema));
         assert.deepEqual(sent.json_schema.schema.required, ["rationale", "spans", "confidence"]);
-        assert.deepEqual(req.schema, extractionJudgeSchema, "request schema must stay untransformed");
+        assert.deepEqual(
+          req.schema,
+          extractionJudgeSchema,
+          "request schema must stay untransformed",
+        );
       },
     );
   });
@@ -1012,13 +1302,19 @@ describe("OpenAI strict dialect on the wire", () => {
       async (srv) => {
         const adapter = new OpenAIAdapter({ apiKey: "k", baseUrl: srv.url });
         const res = await adapter.complete({
-          model: "m", messages: [{ role: "user", content: "x" }],
-          schema: extractionJudgeSchema, temperature: 0, maxTokens: 64,
+          model: "m",
+          messages: [{ role: "user", content: "x" }],
+          schema: extractionJudgeSchema,
+          temperature: 0,
+          maxTokens: 64,
         });
         assert.deepEqual(res.json, { rationale: "r", spans: ["x"] });
         assert.equal("confidence" in res.json, false);
-        assert.deepEqual(validateSchema(res.json, extractionJudgeSchema), [],
-          "null-normalized response must pass the ORIGINAL schema");
+        assert.deepEqual(
+          validateSchema(res.json, extractionJudgeSchema),
+          [],
+          "null-normalized response must pass the ORIGINAL schema",
+        );
       },
     );
   });
@@ -1030,7 +1326,11 @@ describe("OpenAI strict dialect on the wire", () => {
       properties: {
         rows: {
           type: "array",
-          items: { type: "object", required: ["id"], properties: { id: { type: "string" }, note: { type: "string" } } },
+          items: {
+            type: "object",
+            required: ["id"],
+            properties: { id: { type: "string" }, note: { type: "string" } },
+          },
         },
         meta: { type: "object", properties: { source: { type: "string" } } },
       },
@@ -1040,7 +1340,11 @@ describe("OpenAI strict dialect on the wire", () => {
       async (srv) => {
         const adapter = new OpenAIAdapter({ apiKey: "k", baseUrl: srv.url });
         const res = await adapter.complete({
-          model: "m", messages: [{ role: "user", content: "x" }], schema, temperature: 0, maxTokens: 64,
+          model: "m",
+          messages: [{ role: "user", content: "x" }],
+          schema,
+          temperature: 0,
+          maxTokens: 64,
         });
         assert.deepEqual(res.json, { rows: [{ id: "1" }] });
         assert.deepEqual(validateSchema(res.json, schema), []);
@@ -1059,7 +1363,11 @@ describe("OpenAI strict dialect on the wire", () => {
       async (srv) => {
         const adapter = new OpenAIAdapter({ apiKey: "k", baseUrl: srv.url });
         const res = await adapter.complete({
-          model: "m", messages: [{ role: "user", content: "x" }], schema, temperature: 0, maxTokens: 64,
+          model: "m",
+          messages: [{ role: "user", content: "x" }],
+          schema,
+          temperature: 0,
+          maxTokens: 64,
         });
         assert.deepEqual(res.json, { a: null, b: "x" });
         assert.deepEqual(validateSchema(res.json, schema), []);
@@ -1069,12 +1377,16 @@ describe("OpenAI strict dialect on the wire", () => {
 
   it("openrouter inherits the transform and the null-strip from openai", async () => {
     await withServer(
-      () => openaiResponse('{"rationale":"r","spans":["x"],"confidence":null}', { provider: "Azure" }),
+      () =>
+        openaiResponse('{"rationale":"r","spans":["x"],"confidence":null}', { provider: "Azure" }),
       async (srv) => {
         const adapter = new OpenRouterAdapter({ apiKey: "k", baseUrl: srv.url });
         const res = await adapter.complete({
-          model: "openai/gpt-4o-mini", messages: [{ role: "user", content: "x" }],
-          schema: extractionJudgeSchema, temperature: 0, maxTokens: 64,
+          model: "openai/gpt-4o-mini",
+          messages: [{ role: "user", content: "x" }],
+          schema: extractionJudgeSchema,
+          temperature: 0,
+          maxTokens: 64,
         });
         assert.deepEqual(
           srv.calls[0].body.response_format.json_schema.schema,
@@ -1093,8 +1405,11 @@ describe("OpenAI strict dialect on the wire", () => {
       async (srv) => {
         const adapter = new AnthropicAdapter({ apiKey: "k", baseUrl: srv.url });
         await adapter.complete({
-          model: "claude-sonnet-4-6", messages: [{ role: "user", content: "x" }],
-          schema: extractionJudgeSchema, temperature: 0, maxTokens: 64,
+          model: "claude-sonnet-4-6",
+          messages: [{ role: "user", content: "x" }],
+          schema: extractionJudgeSchema,
+          temperature: 0,
+          maxTokens: 64,
         });
         assert.deepEqual(srv.calls[0].body.tools[0].input_schema, extractionJudgeSchema);
       },
@@ -1107,13 +1422,18 @@ describe("OpenAI strict dialect on the wire", () => {
 describe("OpenRouterAdapter", () => {
   it("sends attribution headers and records servedBy", async () => {
     await withServer(
-      () => openaiResponse('{"rationale":"r","label":"pay","confidence":0.7}', { provider: "Fireworks" }),
+      () =>
+        openaiResponse('{"rationale":"r","label":"pay","confidence":0.7}', {
+          provider: "Fireworks",
+        }),
       async (srv) => {
         const adapter = new OpenRouterAdapter({ apiKey: "sk-or-test", baseUrl: srv.url });
         const res = await adapter.complete({
           model: "meta-llama/llama-3.3-70b-instruct",
           messages: [{ role: "user", content: "x" }],
-          schema: judgeSchema, temperature: 0, maxTokens: 100,
+          schema: judgeSchema,
+          temperature: 0,
+          maxTokens: 100,
         });
         const call = srv.calls[0];
         assert.equal(call.url, "/v1/chat/completions");
@@ -1134,10 +1454,38 @@ describe("OpenRouterAdapter", () => {
         return {
           body: {
             data: [
-              { id: "meta-llama/llama-3.3-70b-instruct", name: "Llama 3.3 70B", context_length: 131072, pricing: { prompt: "0.00000012", completion: "0.0000003" }, supported_parameters: ["temperature", "top_p", "structured_outputs", "response_format"] },
-              { id: "openai/gpt-5.2", name: "GPT-5.2", context_length: 400000, pricing: { prompt: "0.00000125", completion: "0.00001" }, supported_parameters: ["response_format", "temperature", "seed"] },
-              { id: "acme/no-frills-1", name: "No Frills", context_length: 8192, pricing: { prompt: "0.0000001", completion: "0.0000002" }, supported_parameters: ["max_tokens"] },
-              { id: "acme/legacy-0", name: "Legacy", context_length: 4096, pricing: { prompt: "0", completion: "0" } },
+              {
+                id: "meta-llama/llama-3.3-70b-instruct",
+                name: "Llama 3.3 70B",
+                context_length: 131072,
+                pricing: { prompt: "0.00000012", completion: "0.0000003" },
+                supported_parameters: [
+                  "temperature",
+                  "top_p",
+                  "structured_outputs",
+                  "response_format",
+                ],
+              },
+              {
+                id: "openai/gpt-5.2",
+                name: "GPT-5.2",
+                context_length: 400000,
+                pricing: { prompt: "0.00000125", completion: "0.00001" },
+                supported_parameters: ["response_format", "temperature", "seed"],
+              },
+              {
+                id: "acme/no-frills-1",
+                name: "No Frills",
+                context_length: 8192,
+                pricing: { prompt: "0.0000001", completion: "0.0000002" },
+                supported_parameters: ["max_tokens"],
+              },
+              {
+                id: "acme/legacy-0",
+                name: "Legacy",
+                context_length: 4096,
+                pricing: { prompt: "0", completion: "0" },
+              },
             ],
           },
         };
@@ -1146,15 +1494,23 @@ describe("OpenRouterAdapter", () => {
         const adapter = new OpenRouterAdapter({ apiKey: "k", baseUrl: srv.url });
         const cat = await adapter.catalog();
         assert.deepEqual(cat[0], {
-          id: "meta-llama/llama-3.3-70b-instruct", name: "Llama 3.3 70B", family: "meta",
-          ctx: 131072, pricing: { inUSDper1M: 0.12, outUSDper1M: 0.3 },
+          id: "meta-llama/llama-3.3-70b-instruct",
+          name: "Llama 3.3 70B",
+          family: "meta",
+          ctx: 131072,
+          pricing: { inUSDper1M: 0.12, outUSDper1M: 0.3 },
           snapshot: "meta-llama/llama-3.3-70b-instruct",
-          structuredOutput: true, noTemperature: false,
+          structuredOutput: true,
+          noTemperature: false,
           params: ["temperature", "top_p", "structured_outputs", "response_format"],
         });
         assert.equal(cat[1].family, "openai");
         assert.equal(cat[1].pricing.inUSDper1M, 1.25);
-        assert.equal(cat[1].structuredOutput, true, "response_format alone counts as structured output");
+        assert.equal(
+          cat[1].structuredOutput,
+          true,
+          "response_format alone counts as structured output",
+        );
         assert.equal(cat[1].noTemperature, false);
         // no structured_outputs/response_format and no temperature
         assert.equal(cat[2].structuredOutput, false);
@@ -1176,7 +1532,19 @@ describe("OpenRouterAdapter", () => {
   // for 1h and degrades a fetch failure to a usable catalog instead of throwing.
   it("caches the live fetch for 1h; force re-fetches", async () => {
     await withServer(
-      () => ({ body: { data: [{ id: "openai/gpt-5.2", name: "GPT-5.2", context_length: 400000, pricing: { prompt: "0.00000125", completion: "0.00001" }, supported_parameters: ["response_format"] }] } }),
+      () => ({
+        body: {
+          data: [
+            {
+              id: "openai/gpt-5.2",
+              name: "GPT-5.2",
+              context_length: 400000,
+              pricing: { prompt: "0.00000125", completion: "0.00001" },
+              supported_parameters: ["response_format"],
+            },
+          ],
+        },
+      }),
       async (srv) => {
         const adapter = new OpenRouterAdapter({ apiKey: "k", baseUrl: srv.url });
         const a = await adapter.catalog();
@@ -1206,9 +1574,22 @@ describe("OpenRouterAdapter", () => {
   it("a fetch failure after a successful fetch serves the last-known catalog (no re-zeroing mid-run)", async () => {
     let fail = false;
     await withServer(
-      () => (fail
-        ? { status: 503, body: "<html>down</html>" }
-        : { body: { data: [{ id: "openai/gpt-5.2", name: "GPT-5.2", context_length: 400000, pricing: { prompt: "0.00000125", completion: "0.00001" }, supported_parameters: ["response_format"] }] } }),
+      () =>
+        fail
+          ? { status: 503, body: "<html>down</html>" }
+          : {
+              body: {
+                data: [
+                  {
+                    id: "openai/gpt-5.2",
+                    name: "GPT-5.2",
+                    context_length: 400000,
+                    pricing: { prompt: "0.00000125", completion: "0.00001" },
+                    supported_parameters: ["response_format"],
+                  },
+                ],
+              },
+            },
       async (srv) => {
         const adapter = new OpenRouterAdapter({ apiKey: "k", baseUrl: srv.url });
         const warm = await adapter.catalog();
@@ -1217,7 +1598,11 @@ describe("OpenRouterAdapter", () => {
         // force past the TTL cache so the fetch is actually attempted and fails
         const cat = await adapter.catalog({ force: true });
         assert.ok(Array.isArray(cat));
-        assert.equal(cat[0]?.pricing.inUSDper1M, 1.25, "last-known pricing survives a later fetch failure");
+        assert.equal(
+          cat[0]?.pricing.inUSDper1M,
+          1.25,
+          "last-known pricing survives a later fetch failure",
+        );
       },
     );
   });
@@ -1236,7 +1621,8 @@ describe("PROVIDER_HTTP error detail reaches the message", () => {
       metadata: {
         raw: JSON.stringify({
           error: {
-            message: "Invalid schema for response_format 'emit': In context=(), 'required' is required to be supplied and to be an array including every key in properties. Missing 'confidence'.",
+            message:
+              "Invalid schema for response_format 'emit': In context=(), 'required' is required to be supplied and to be an array including every key in properties. Missing 'confidence'.",
             type: "invalid_request_error",
             param: "response_format",
             code: null,
@@ -1258,7 +1644,11 @@ describe("PROVIDER_HTTP error detail reaches the message", () => {
             assert.match(err.message, /→ HTTP 400 — Invalid schema for response_format 'emit'/);
             assert.match(err.message, /Missing 'confidence'/);
             assert.equal(err.details.status, 400);
-            assert.deepEqual(err.details.body, openrouterNested, "full body must remain in details");
+            assert.deepEqual(
+              err.details.body,
+              openrouterNested,
+              "full body must remain in details",
+            );
             return true;
           },
         );
@@ -1268,30 +1658,40 @@ describe("PROVIDER_HTTP error detail reaches the message", () => {
 
   it("plain error.message bodies (OpenAI/Anthropic shape) are appended", async () => {
     await withServer(
-      () => ({ status: 400, body: { error: { message: "Unsupported parameter: max_completion_tokens", type: "invalid_request_error" } } }),
-      async (srv) => {
-        await assert.rejects(
-          httpJSON("POST", `${srv.url}/v1/x`, { body: {} }),
-          (err) => {
-            assert.match(err.message, /→ HTTP 400 — Unsupported parameter: max_completion_tokens$/);
-            return true;
+      () => ({
+        status: 400,
+        body: {
+          error: {
+            message: "Unsupported parameter: max_completion_tokens",
+            type: "invalid_request_error",
           },
-        );
+        },
+      }),
+      async (srv) => {
+        await assert.rejects(httpJSON("POST", `${srv.url}/v1/x`, { body: {} }), (err) => {
+          assert.match(err.message, /→ HTTP 400 — Unsupported parameter: max_completion_tokens$/);
+          return true;
+        });
       },
     );
   });
 
   it("a non-JSON metadata.raw string is used verbatim", async () => {
     await withServer(
-      () => ({ status: 502, body: { error: { message: "Provider returned error", metadata: { raw: "upstream timed out after 90s" } } } }),
-      async (srv) => {
-        await assert.rejects(
-          httpJSON("POST", `${srv.url}/v1/x`, { body: {} }),
-          (err) => {
-            assert.match(err.message, /→ HTTP 502 — upstream timed out after 90s$/);
-            return true;
+      () => ({
+        status: 502,
+        body: {
+          error: {
+            message: "Provider returned error",
+            metadata: { raw: "upstream timed out after 90s" },
           },
-        );
+        },
+      }),
+      async (srv) => {
+        await assert.rejects(httpJSON("POST", `${srv.url}/v1/x`, { body: {} }), (err) => {
+          assert.match(err.message, /→ HTTP 502 — upstream timed out after 90s$/);
+          return true;
+        });
       },
     );
   });
@@ -1301,16 +1701,13 @@ describe("PROVIDER_HTTP error detail reaches the message", () => {
     await withServer(
       () => ({ status: 400, body: { error: { message: long } } }),
       async (srv) => {
-        await assert.rejects(
-          httpJSON("POST", `${srv.url}/v1/x`, { body: {} }),
-          (err) => {
-            const extract = err.message.split(" — ")[1];
-            assert.ok(extract.length <= 200, `extract is ${extract.length} chars`);
-            assert.ok(extract.startsWith("line one line two"), "newlines collapsed to spaces");
-            assert.deepEqual(err.details.body.error.message, long, "details keep the untrimmed body");
-            return true;
-          },
-        );
+        await assert.rejects(httpJSON("POST", `${srv.url}/v1/x`, { body: {} }), (err) => {
+          const extract = err.message.split(" — ")[1];
+          assert.ok(extract.length <= 200, `extract is ${extract.length} chars`);
+          assert.ok(extract.startsWith("line one line two"), "newlines collapsed to spaces");
+          assert.deepEqual(err.details.body.error.message, long, "details keep the untrimmed body");
+          return true;
+        });
       },
     );
   });
@@ -1319,25 +1716,19 @@ describe("PROVIDER_HTTP error detail reaches the message", () => {
     await withServer(
       () => ({ status: 503, body: "<html>gateway</html>" }),
       async (srv) => {
-        await assert.rejects(
-          httpJSON("GET", `${srv.url}/v1/x`, {}),
-          (err) => {
-            assert.ok(err.message.endsWith("→ HTTP 503"), err.message);
-            return true;
-          },
-        );
+        await assert.rejects(httpJSON("GET", `${srv.url}/v1/x`, {}), (err) => {
+          assert.ok(err.message.endsWith("→ HTTP 503"), err.message);
+          return true;
+        });
       },
     );
     await withServer(
       () => ({ status: 400, body: { error: { type: "invalid_request_error" } } }),
       async (srv) => {
-        await assert.rejects(
-          httpJSON("GET", `${srv.url}/v1/x`, {}),
-          (err) => {
-            assert.ok(err.message.endsWith("→ HTTP 400"), err.message);
-            return true;
-          },
-        );
+        await assert.rejects(httpJSON("GET", `${srv.url}/v1/x`, {}), (err) => {
+          assert.ok(err.message.endsWith("→ HTTP 400"), err.message);
+          return true;
+        });
       },
     );
   });
@@ -1350,15 +1741,26 @@ describe("OllamaAdapter", () => {
     await withServer(
       () => ({
         body: {
-          model: "llama3.2:3b", message: { role: "assistant", content: '{"rationale":"r","label":"pay","confidence":0.6}' },
-          done: true, done_reason: "stop", prompt_eval_count: 50, eval_count: 10,
+          model: "llama3.2:3b",
+          message: {
+            role: "assistant",
+            content: '{"rationale":"r","label":"pay","confidence":0.6}',
+          },
+          done: true,
+          done_reason: "stop",
+          prompt_eval_count: 50,
+          eval_count: 10,
         },
       }),
       async (srv) => {
         const adapter = new OllamaAdapter({ baseUrl: srv.url });
         const res = await adapter.complete({
-          model: "llama3.2:3b", messages: [{ role: "user", content: "x" }],
-          schema: judgeSchema, temperature: 0, maxTokens: 128, seed: 7,
+          model: "llama3.2:3b",
+          messages: [{ role: "user", content: "x" }],
+          schema: judgeSchema,
+          temperature: 0,
+          maxTokens: 128,
+          seed: 7,
         });
         const call = srv.calls[0];
         assert.equal(call.url, "/api/chat");
@@ -1385,14 +1787,24 @@ describe("OllamaAdapter", () => {
     await withServer(
       () => ({
         body: {
-          model: "llama3.2:3b", message: { role: "assistant", content: '{"rationale":"the pay is ' },
-          done: true, done_reason: "length", prompt_eval_count: 50, eval_count: 128,
+          model: "llama3.2:3b",
+          message: { role: "assistant", content: '{"rationale":"the pay is ' },
+          done: true,
+          done_reason: "length",
+          prompt_eval_count: 50,
+          eval_count: 128,
         },
       }),
       async (srv) => {
         const adapter = new OllamaAdapter({ baseUrl: srv.url });
         await assert.rejects(
-          completeWithRepair(adapter, { model: "m", messages: [{ role: "user", content: "x" }], schema: judgeSchema, temperature: 0, maxTokens: 128 }),
+          completeWithRepair(adapter, {
+            model: "m",
+            messages: [{ role: "user", content: "x" }],
+            schema: judgeSchema,
+            temperature: 0,
+            maxTokens: 128,
+          }),
           (err) => err.code === "TRUNCATED" && /maxTokens/.test(err.message),
         );
         assert.equal(srv.calls.length, 1, "truncation must not trigger repair re-prompts");
@@ -1404,13 +1816,26 @@ describe("OllamaAdapter", () => {
     await withServer(
       () => ({
         body: {
-          model: "llama3.2:3b", message: { role: "assistant", content: '{"rationale":"r","label":"pay","confidence":0.6}' },
-          done: true, done_reason: "length", prompt_eval_count: 50, eval_count: 30,
+          model: "llama3.2:3b",
+          message: {
+            role: "assistant",
+            content: '{"rationale":"r","label":"pay","confidence":0.6}',
+          },
+          done: true,
+          done_reason: "length",
+          prompt_eval_count: 50,
+          eval_count: 30,
         },
       }),
       async (srv) => {
         const adapter = new OllamaAdapter({ baseUrl: srv.url });
-        const res = await adapter.complete({ model: "m", messages: [{ role: "user", content: "x" }], schema: judgeSchema, temperature: 0, maxTokens: 128 });
+        const res = await adapter.complete({
+          model: "m",
+          messages: [{ role: "user", content: "x" }],
+          schema: judgeSchema,
+          temperature: 0,
+          maxTokens: 128,
+        });
         assert.deepEqual(res.json, { rationale: "r", label: "pay", confidence: 0.6 });
         assert.equal(res.finishReason, "length");
       },
@@ -1419,10 +1844,17 @@ describe("OllamaAdapter", () => {
 
   it("done_reason=length WITHOUT a schema is not an error (plain text may be capped on purpose)", async () => {
     await withServer(
-      () => ({ body: { message: { role: "assistant", content: "partial tex" }, done_reason: "length" } }),
+      () => ({
+        body: { message: { role: "assistant", content: "partial tex" }, done_reason: "length" },
+      }),
       async (srv) => {
         const adapter = new OllamaAdapter({ baseUrl: srv.url });
-        const res = await adapter.complete({ model: "m", messages: [{ role: "user", content: "x" }], temperature: 0, maxTokens: 16 });
+        const res = await adapter.complete({
+          model: "m",
+          messages: [{ role: "user", content: "x" }],
+          temperature: 0,
+          maxTokens: 16,
+        });
         assert.equal(res.text, "partial tex");
         assert.equal(res.finishReason, "length");
       },
@@ -1434,7 +1866,12 @@ describe("OllamaAdapter", () => {
       () => ({ body: { message: { role: "assistant", content: "plain" }, done_reason: "stop" } }),
       async (srv) => {
         const adapter = new OllamaAdapter({ baseUrl: srv.url });
-        const res = await adapter.complete({ model: "m", messages: [{ role: "user", content: "x" }], temperature: 0.2, maxTokens: 32 });
+        const res = await adapter.complete({
+          model: "m",
+          messages: [{ role: "user", content: "x" }],
+          temperature: 0.2,
+          maxTokens: 32,
+        });
         assert.equal(srv.calls[0].body.format, undefined);
         assert.equal(res.text, "plain");
       },
@@ -1443,15 +1880,23 @@ describe("OllamaAdapter", () => {
 
   it("builds catalog from /api/tags with zero pricing", async () => {
     await withServer(
-      () => ({ body: { models: [{ name: "llama3.2:3b", digest: "abc123", details: { family: "llama" } }] } }),
+      () => ({
+        body: { models: [{ name: "llama3.2:3b", digest: "abc123", details: { family: "llama" } }] },
+      }),
       async (srv) => {
         const adapter = new OllamaAdapter({ baseUrl: srv.url });
         const cat = await adapter.catalog();
         assert.equal(srv.calls[0].url, "/api/tags");
-        assert.deepEqual(cat, [{
-          id: "llama3.2:3b", name: "llama3.2:3b", family: "llama", ctx: null,
-          pricing: { inUSDper1M: 0, outUSDper1M: 0 }, snapshot: "abc123",
-        }]);
+        assert.deepEqual(cat, [
+          {
+            id: "llama3.2:3b",
+            name: "llama3.2:3b",
+            family: "llama",
+            ctx: null,
+            pricing: { inUSDper1M: 0, outUSDper1M: 0 },
+            snapshot: "abc123",
+          },
+        ]);
       },
     );
   });
@@ -1474,7 +1919,12 @@ describe("OllamaAdapter", () => {
 // ---------------------------------------------------------------- malformed 200s
 
 describe("malformed 200 responses", () => {
-  const req = { model: "m", messages: [{ role: "user", content: "x" }], temperature: 0, maxTokens: 16 };
+  const req = {
+    model: "m",
+    messages: [{ role: "user", content: "x" }],
+    temperature: 0,
+    maxTokens: 16,
+  };
 
   it("anthropic: 200 with empty body → PROVIDER_HTTP malformed, not TypeError", async () => {
     await withServer(
@@ -1574,29 +2024,42 @@ describe("malformed 200 responses", () => {
 describe("withTruncationRetry (provider layer)", () => {
   it("retries TRUNCATED once at a doubled budget (default cap 32768)", async () => {
     const calls = [];
-    const r = await withTruncationRetry(async (mt) => {
-      calls.push(mt);
-      if (calls.length === 1) throw new ConcordError("TRUNCATED", "structured output truncated");
-      return { ok: mt };
-    }, { maxTokens: 4096 });
+    const r = await withTruncationRetry(
+      async (mt) => {
+        calls.push(mt);
+        if (calls.length === 1) throw new ConcordError("TRUNCATED", "structured output truncated");
+        return { ok: mt };
+      },
+      { maxTokens: 4096 },
+    );
     assert.deepEqual(calls, [4096, 8192], "second attempt doubles the budget");
     assert.equal(r.ok, 8192);
   });
 
   it("honors a caller-supplied cap (judges pass 8192)", async () => {
     const calls = [];
-    await withTruncationRetry(async (mt) => {
-      calls.push(mt);
-      if (calls.length === 1) throw new ConcordError("TRUNCATED", "x");
-      return {};
-    }, { maxTokens: 6000, cap: 8192 });
+    await withTruncationRetry(
+      async (mt) => {
+        calls.push(mt);
+        if (calls.length === 1) throw new ConcordError("TRUNCATED", "x");
+        return {};
+      },
+      { maxTokens: 6000, cap: 8192 },
+    );
     assert.deepEqual(calls, [6000, 8192], "doubling clamps to the cap");
   });
 
   it("at the cap there is nothing larger to try: TRUNCATED propagates after ONE call", async () => {
     const calls = [];
     await assert.rejects(
-      () => withTruncationRetry(async (mt) => { calls.push(mt); throw new ConcordError("TRUNCATED", "at cap"); }, { maxTokens: 8192, cap: 8192 }),
+      () =>
+        withTruncationRetry(
+          async (mt) => {
+            calls.push(mt);
+            throw new ConcordError("TRUNCATED", "at cap");
+          },
+          { maxTokens: 8192, cap: 8192 },
+        ),
       (e) => e.code === "TRUNCATED",
     );
     assert.equal(calls.length, 1);
@@ -1605,7 +2068,14 @@ describe("withTruncationRetry (provider layer)", () => {
   it("non-truncation errors never retry", async () => {
     const calls = [];
     await assert.rejects(
-      () => withTruncationRetry(async (mt) => { calls.push(mt); throw new ConcordError("PROVIDER_HTTP", "boom"); }, { maxTokens: 4096 }),
+      () =>
+        withTruncationRetry(
+          async (mt) => {
+            calls.push(mt);
+            throw new ConcordError("PROVIDER_HTTP", "boom");
+          },
+          { maxTokens: 4096 },
+        ),
       (e) => e.code === "PROVIDER_HTTP",
     );
     assert.equal(calls.length, 1);
@@ -1620,7 +2090,13 @@ describe("completeWithRepair", () => {
       "this is not json at all",
       '{"rationale":"fixed","label":"pay","confidence":0.9}',
     ]);
-    const req = { model: "m", messages: [{ role: "user", content: "judge it" }], schema: judgeSchema, temperature: 0, maxTokens: 64 };
+    const req = {
+      model: "m",
+      messages: [{ role: "user", content: "judge it" }],
+      schema: judgeSchema,
+      temperature: 0,
+      maxTokens: 64,
+    };
     const res = await completeWithRepair(adapter, req, { maxRepairs: 1 });
     assert.equal(res.json.label, "pay");
     assert.equal(res.repairs, 1);
@@ -1629,7 +2105,9 @@ describe("completeWithRepair", () => {
     assert.equal(second.length, 3);
     assert.deepEqual(second[1], { role: "assistant", content: "this is not json at all" });
     assert.equal(second[2].role, "user");
-    assert.ok(second[2].content.includes("previous response was not valid JSON for the required schema"));
+    assert.ok(
+      second[2].content.includes("previous response was not valid JSON for the required schema"),
+    );
     assert.ok(second[2].content.includes('"label"'), "repair prompt restates the schema");
     // original request object untouched
     assert.equal(req.messages.length, 1);
@@ -1638,14 +2116,30 @@ describe("completeWithRepair", () => {
   it("throws SCHEMA_INVALID when repairs are exhausted", async () => {
     const adapter = scriptedAdapter(["nope", "still nope"]);
     await assert.rejects(
-      completeWithRepair(adapter, { model: "m", messages: [{ role: "user", content: "x" }], schema: judgeSchema, temperature: 0, maxTokens: 64 }, { maxRepairs: 1 }),
+      completeWithRepair(
+        adapter,
+        {
+          model: "m",
+          messages: [{ role: "user", content: "x" }],
+          schema: judgeSchema,
+          temperature: 0,
+          maxTokens: 64,
+        },
+        { maxRepairs: 1 },
+      ),
       (err) => err.code === "SCHEMA_INVALID" && err.details.problems.length > 0,
     );
     assert.equal(adapter.calls.length, 2);
 
     const adapter3 = scriptedAdapter(["nope"]);
     await assert.rejects(
-      completeWithRepair(adapter3, { model: "m", messages: [{ role: "user", content: "x" }], schema: judgeSchema, temperature: 0, maxTokens: 64 }),
+      completeWithRepair(adapter3, {
+        model: "m",
+        messages: [{ role: "user", content: "x" }],
+        schema: judgeSchema,
+        temperature: 0,
+        maxTokens: 64,
+      }),
       { code: "SCHEMA_INVALID" },
     );
     assert.equal(adapter3.calls.length, 3); // default maxRepairs = 2
@@ -1656,7 +2150,13 @@ describe("completeWithRepair", () => {
       '{"rationale":"r","label":"NOT_A_LABEL","confidence":0.5}',
       '```json\n{"rationale":"r","label":"workload","confidence":0.5}\n```',
     ]);
-    const res = await completeWithRepair(adapter, { model: "m", messages: [{ role: "user", content: "x" }], schema: judgeSchema, temperature: 0, maxTokens: 64 });
+    const res = await completeWithRepair(adapter, {
+      model: "m",
+      messages: [{ role: "user", content: "x" }],
+      schema: judgeSchema,
+      temperature: 0,
+      maxTokens: 64,
+    });
     assert.equal(res.json.label, "workload");
     assert.equal(res.repairs, 1);
   });
@@ -1666,7 +2166,9 @@ describe("completeWithRepair", () => {
     const res = await completeWithRepair(mock, {
       model: "mock-1",
       messages: [{ role: "user", content: "Label.\n<unit>The pay is awful here.</unit>" }],
-      schema: judgeSchema, temperature: 0, maxTokens: 64,
+      schema: judgeSchema,
+      temperature: 0,
+      maxTokens: 64,
     });
     assert.equal(res.repairs, 0);
     assert.deepEqual(validateSchema(res.json, judgeSchema), []);
@@ -1683,17 +2185,32 @@ describe("completeWithRepair", () => {
     };
     assert.deepEqual(validateSchema({ label: "a", n: 2 }, noType), []);
     assert.ok(validateSchema({}, noType).length > 0, "missing required key must be flagged");
-    assert.ok(validateSchema({ label: "a", extra: 1 }, noType).length > 0, "extra key must be flagged");
+    assert.ok(
+      validateSchema({ label: "a", extra: 1 }, noType).length > 0,
+      "extra key must be flagged",
+    );
     assert.ok(validateSchema("not an object", noType).length > 0, "non-object must be flagged");
   });
 
   it("validateSchema catches type, enum, required, range, extra keys", () => {
-    assert.deepEqual(validateSchema({ rationale: "r", label: "pay", confidence: 0.5 }, judgeSchema), []);
-    assert.ok(validateSchema({ rationale: "r", label: "zzz", confidence: 0.5 }, judgeSchema).length > 0);
+    assert.deepEqual(
+      validateSchema({ rationale: "r", label: "pay", confidence: 0.5 }, judgeSchema),
+      [],
+    );
+    assert.ok(
+      validateSchema({ rationale: "r", label: "zzz", confidence: 0.5 }, judgeSchema).length > 0,
+    );
     assert.ok(validateSchema({ rationale: "r", label: "pay" }, judgeSchema).length > 0);
-    assert.ok(validateSchema({ rationale: "r", label: "pay", confidence: "high" }, judgeSchema).length > 0);
-    assert.ok(validateSchema({ rationale: "r", label: "pay", confidence: 1.5 }, judgeSchema).length > 0);
-    assert.ok(validateSchema({ rationale: "r", label: "pay", confidence: 0.5, extra: 1 }, judgeSchema).length > 0);
+    assert.ok(
+      validateSchema({ rationale: "r", label: "pay", confidence: "high" }, judgeSchema).length > 0,
+    );
+    assert.ok(
+      validateSchema({ rationale: "r", label: "pay", confidence: 1.5 }, judgeSchema).length > 0,
+    );
+    assert.ok(
+      validateSchema({ rationale: "r", label: "pay", confidence: 0.5, extra: 1 }, judgeSchema)
+        .length > 0,
+    );
     assert.ok(validateSchema("not an object", judgeSchema).length > 0);
   });
 });
@@ -1706,11 +2223,16 @@ describe("registry privacy gates", () => {
   it("strict blocks network adapters with zero fetches; locals pass", () => {
     const realFetch = globalThis.fetch;
     let fetches = 0;
-    globalThis.fetch = () => { fetches++; throw new Error("network blocked by test"); };
+    globalThis.fetch = () => {
+      fetches++;
+      throw new Error("network blocked by test");
+    };
     try {
       const strict = { privacyMode: "strict" };
       for (const name of ["anthropic", "openai", "openrouter"]) {
-        assert.throws(() => getAdapter(strict, name, { keysPath: noKeys }), { code: "PRIVACY_BLOCKED" });
+        assert.throws(() => getAdapter(strict, name, { keysPath: noKeys }), {
+          code: "PRIVACY_BLOCKED",
+        });
       }
       assert.equal(fetches, 0);
       const m = getAdapter(strict, "mock", { keysPath: noKeys });
@@ -1732,10 +2254,18 @@ describe("registry privacy gates", () => {
     assert.equal(a.ledgerEvent, null);
     assert.equal(getAdapter(proj, "openai", { keysPath: noKeys }).ledgerEvent, null);
 
-    assert.throws(() => getAdapter(proj, "openrouter", { keysPath: noKeys }), { code: "PRIVACY_BLOCKED" });
-    assert.throws(() => getAdapter(proj, "openrouter", { keysPath: noKeys, justification: "   " }), { code: "PRIVACY_BLOCKED" });
+    assert.throws(() => getAdapter(proj, "openrouter", { keysPath: noKeys }), {
+      code: "PRIVACY_BLOCKED",
+    });
+    assert.throws(
+      () => getAdapter(proj, "openrouter", { keysPath: noKeys, justification: "   " }),
+      { code: "PRIVACY_BLOCKED" },
+    );
 
-    const ok = getAdapter(proj, "openrouter", { keysPath: noKeys, justification: "EU data-residency requirement" });
+    const ok = getAdapter(proj, "openrouter", {
+      keysPath: noKeys,
+      justification: "EU data-residency requirement",
+    });
     assert.ok(ok.adapter instanceof OpenRouterAdapter);
     assert.deepEqual(ok.ledgerEvent, {
       actor: "human",
@@ -1755,8 +2285,13 @@ describe("registry privacy gates", () => {
   });
 
   it("unknown provider → CONFIG_MISSING; unknown privacy mode fails closed", () => {
-    assert.throws(() => getAdapter({ privacyMode: "open" }, "geminiz", { keysPath: noKeys }), { code: "CONFIG_MISSING" });
-    assert.throws(() => getAdapter({ privacyMode: "paranoid" }, "anthropic", { keysPath: noKeys }), { code: "PRIVACY_BLOCKED" });
+    assert.throws(() => getAdapter({ privacyMode: "open" }, "geminiz", { keysPath: noKeys }), {
+      code: "CONFIG_MISSING",
+    });
+    assert.throws(
+      () => getAdapter({ privacyMode: "paranoid" }, "anthropic", { keysPath: noKeys }),
+      { code: "PRIVACY_BLOCKED" },
+    );
   });
 
   it("missing or null privacyMode fails closed, even for local adapters", () => {
@@ -1771,33 +2306,49 @@ describe("registry privacy gates", () => {
   });
 
   it("does not export the raw PROVIDERS constructor map", () => {
-    assert.equal("PROVIDERS" in registry, false, "PROVIDERS must be module-private; getAdapter is the only sanctioned path");
+    assert.equal(
+      "PROVIDERS" in registry,
+      false,
+      "PROVIDERS must be module-private; getAdapter is the only sanctioned path",
+    );
   });
 
   it("reads keys.json (object or string entries); absent file → keyless adapter that still catalogs", async () => {
     const dir = mkdtempSync(join(tmpdir(), "concord-keys-"));
     try {
       const keysPath = join(dir, "keys.json");
-      writeFileSync(keysPath, JSON.stringify({
-        anthropic: { apiKey: "sk-ant-aaa", baseUrl: "http://127.0.0.1:1" },
-        openai: "sk-oai-flat",
-      }));
+      writeFileSync(
+        keysPath,
+        JSON.stringify({
+          anthropic: { apiKey: "sk-ant-aaa", baseUrl: "http://127.0.0.1:1" },
+          openai: "sk-oai-flat",
+        }),
+      );
       const a = getAdapter({ privacyMode: "open" }, "anthropic", { keysPath }).adapter;
       assert.equal(a.apiKey, "sk-ant-aaa");
       assert.equal(a.baseUrl, "http://127.0.0.1:1");
       const o = getAdapter({ privacyMode: "open" }, "openai", { keysPath }).adapter;
       assert.equal(o.apiKey, "sk-oai-flat");
 
-      const keyless = getAdapter({ privacyMode: "open" }, "anthropic", { keysPath: noKeys }).adapter;
+      const keyless = getAdapter({ privacyMode: "open" }, "anthropic", {
+        keysPath: noKeys,
+      }).adapter;
       assert.equal(keyless.apiKey, null);
       await assert.rejects(
-        keyless.complete({ model: "m", messages: [{ role: "user", content: "x" }], temperature: 0, maxTokens: 8 }),
+        keyless.complete({
+          model: "m",
+          messages: [{ role: "user", content: "x" }],
+          temperature: 0,
+          maxTokens: 8,
+        }),
         { code: "CONFIG_MISSING" },
       );
       assert.equal((await keyless.catalog()).length, 3);
 
       writeFileSync(keysPath, "{ not json");
-      assert.throws(() => getAdapter({ privacyMode: "open" }, "anthropic", { keysPath }), { code: "CONFIG_MISSING" });
+      assert.throws(() => getAdapter({ privacyMode: "open" }, "anthropic", { keysPath }), {
+        code: "CONFIG_MISSING",
+      });
     } finally {
       rmSync(dir, { recursive: true, force: true });
     }
@@ -1826,7 +2377,10 @@ describe("registry adapter cache", () => {
   it("privacy gates run on EVERY call: strict blocked even when the adapter is already cached", () => {
     registry.clearAdapterCache();
     const cached = getAdapter(open, "anthropic", { keysPath: noKeys }).adapter;
-    assert.ok(cached instanceof AnthropicAdapter, "open project constructs (and caches) the adapter");
+    assert.ok(
+      cached instanceof AnthropicAdapter,
+      "open project constructs (and caches) the adapter",
+    );
     assert.throws(
       () => getAdapter({ privacyMode: "strict" }, "anthropic", { keysPath: noKeys }),
       { code: "PRIVACY_BLOCKED" },
@@ -1876,13 +2430,18 @@ const themeSchema = {
 function plantedUnits(n) {
   return Array.from({ length: n }, (_, i) => {
     const theme = THEMES[i % THEMES.length];
-    return { theme, text: `Unit ${i}: my main issue is ${theme}; it shapes how I feel about this job every single day.` };
+    return {
+      theme,
+      text: `Unit ${i}: my main issue is ${theme}; it shapes how I feel about this job every single day.`,
+    };
   });
 }
 const judgeReq = (text) => ({
   model: "mock-1",
   messages: [{ role: "user", content: `Apply the codebook.\n<unit>${text}</unit>\nReturn JSON.` }],
-  schema: themeSchema, temperature: 0, maxTokens: 120,
+  schema: themeSchema,
+  temperature: 0,
+  maxTokens: 120,
 });
 const oracle = (unitText) => THEMES.find((t) => unitText.includes(`issue is ${t}`)) ?? "pay";
 
@@ -1894,7 +2453,9 @@ describe("MockAdapter", () => {
     const r3 = await new MockAdapter().complete(req); // fresh adapter, same request
     assert.equal(JSON.stringify(r1), JSON.stringify(r2));
     assert.equal(JSON.stringify(r1), JSON.stringify(r3));
-    const other = await new MockAdapter().complete(judgeReq("Completely different unit about workload."));
+    const other = await new MockAdapter().complete(
+      judgeReq("Completely different unit about workload."),
+    );
     assert.notEqual(JSON.stringify(r1), JSON.stringify(other));
   });
 
@@ -1903,8 +2464,16 @@ describe("MockAdapter", () => {
     const a1 = await new MockAdapter().complete({ ...req, seed: 1 });
     const a2 = await new MockAdapter().complete({ ...req, seed: 1 });
     const b = await new MockAdapter().complete({ ...req, seed: 2 });
-    assert.equal(JSON.stringify(a1), JSON.stringify(a2), "same seed must reproduce byte-identically");
-    assert.notEqual(JSON.stringify(a1.json), JSON.stringify(b.json), "different seeds must decorrelate outputs");
+    assert.equal(
+      JSON.stringify(a1),
+      JSON.stringify(a2),
+      "same seed must reproduce byte-identically",
+    );
+    assert.notEqual(
+      JSON.stringify(a1.json),
+      JSON.stringify(b.json),
+      "different seeds must decorrelate outputs",
+    );
     // both seeds still emit schema-valid judgments
     assert.deepEqual(validateSchema(a1.json, themeSchema), []);
     assert.deepEqual(validateSchema(b.json, themeSchema), []);
@@ -1914,7 +2483,10 @@ describe("MockAdapter", () => {
     const units = plantedUnits(60);
     const outs = await Promise.all(units.map((u) => new MockAdapter().complete(judgeReq(u.text))));
     for (const r of outs) {
-      assert.ok(r.usage.outputTokens <= 120, `outputTokens ${r.usage.outputTokens} > maxTokens 120`);
+      assert.ok(
+        r.usage.outputTokens <= 120,
+        `outputTokens ${r.usage.outputTokens} > maxTokens 120`,
+      );
       assert.ok(r.usage.outputTokens >= 1);
     }
   });
@@ -1924,13 +2496,22 @@ describe("MockAdapter", () => {
     const unit = "The pay is terrible and management ignores us completely.";
     const res = await mock.complete(judgeReq(unit));
     assert.deepEqual(validateSchema(res.json, themeSchema), []);
-    assert.ok(res.json.confidence >= 0.55 && res.json.confidence <= 0.99, `confidence ${res.json.confidence}`);
+    assert.ok(
+      res.json.confidence >= 0.55 && res.json.confidence <= 0.99,
+      `confidence ${res.json.confidence}`,
+    );
     const quoted = res.json.rationale.match(/"([^"]+)"/);
     assert.ok(quoted, "rationale contains a quoted snippet");
     assert.ok(unit.includes(quoted[1]), `snippet "${quoted[1]}" comes from the unit text`);
     assert.equal(res.text, JSON.stringify(res.json));
     assert.equal(res.servedBy, "mock");
-    assert.deepEqual(mock.capabilities(), { structuredOutput: true, pinning: true, batch: false, local: true, family: "mock" });
+    assert.deepEqual(mock.capabilities(), {
+      structuredOutput: true,
+      pinning: true,
+      batch: false,
+      local: true,
+      family: "mock",
+    });
     const cat = await mock.catalog();
     assert.deepEqual(cat[0].pricing, { inUSDper1M: 0, outUSDper1M: 0 });
     assert.equal(cat[0].family, "mock");
@@ -1953,11 +2534,17 @@ describe("MockAdapter", () => {
     };
     const mock = new MockAdapter(); // no oracle set
     const units = plantedUnits(50);
-    const out = await Promise.all(units.map((u) => mock.complete({
-      model: "mock-1",
-      messages: [{ role: "user", content: `Score it.\n<unit>${u.text}</unit>` }],
-      schema: continuousSchema, temperature: 0, maxTokens: 120,
-    })));
+    const out = await Promise.all(
+      units.map((u) =>
+        mock.complete({
+          model: "mock-1",
+          messages: [{ role: "user", content: `Score it.\n<unit>${u.text}</unit>` }],
+          schema: continuousSchema,
+          temperature: 0,
+          maxTokens: 120,
+        }),
+      ),
+    );
     const invalid = out.filter((r) => validateSchema(r.json, continuousSchema).length > 0).length;
     assert.equal(invalid, 0, `${invalid}/50 continuous-label emissions failed schema validation`);
     for (const r of out) {
@@ -1975,8 +2562,11 @@ describe("MockAdapter", () => {
     };
     const mock = new MockAdapter();
     const res = await mock.complete({
-      model: "mock-1", messages: [{ role: "user", content: "<unit>some text</unit>" }],
-      schema: intSchema, temperature: 0, maxTokens: 64,
+      model: "mock-1",
+      messages: [{ role: "user", content: "<unit>some text</unit>" }],
+      schema: intSchema,
+      temperature: 0,
+      maxTokens: 64,
     });
     assert.deepEqual(validateSchema(res.json, intSchema), []);
     assert.ok(Number.isInteger(res.json.label));
@@ -1984,13 +2574,18 @@ describe("MockAdapter", () => {
 
   it("an oracle supplying a numeric label is still honored (agreement path)", async () => {
     const continuousSchema = {
-      type: "object", additionalProperties: false, required: ["label"],
+      type: "object",
+      additionalProperties: false,
+      required: ["label"],
       properties: { label: { type: "number", minimum: 0, maximum: 100 } },
     };
     const mock = new MockAdapter().setOracle(() => 42).setAccuracy(1.0);
     const res = await mock.complete({
-      model: "mock-1", messages: [{ role: "user", content: "<unit>x</unit>" }],
-      schema: continuousSchema, temperature: 0, maxTokens: 64,
+      model: "mock-1",
+      messages: [{ role: "user", content: "<unit>x</unit>" }],
+      schema: continuousSchema,
+      temperature: 0,
+      maxTokens: 64,
     });
     assert.equal(res.json.label, 42, "a numeric oracle value must pass through on agreement");
     assert.deepEqual(validateSchema(res.json, continuousSchema), []);
@@ -2007,8 +2602,11 @@ describe("MockAdapter", () => {
       },
     };
     const res = await new MockAdapter().complete({
-      model: "mock-1", messages: [{ role: "user", content: "<unit>some text here</unit>" }],
-      schema: wide, temperature: 0, maxTokens: 64,
+      model: "mock-1",
+      messages: [{ role: "user", content: "<unit>some text here</unit>" }],
+      schema: wide,
+      temperature: 0,
+      maxTokens: 64,
     });
     assert.deepEqual(validateSchema(res.json, wide), []);
   });
@@ -2044,11 +2642,19 @@ describe("MockAdapter", () => {
     };
     const mock = new MockAdapter().setOracle(() => "pay").setAccuracy(0.5);
     const units = plantedUnits(200);
-    const out = await Promise.all(units.map((u) => mock.complete({
-      model: "mock-1",
-      messages: [{ role: "user", content: `Apply the codebook.\n<unit>${u.text}</unit>\nReturn JSON.` }],
-      schema: singleEnumSchema, temperature: 0, maxTokens: 120,
-    })));
+    const out = await Promise.all(
+      units.map((u) =>
+        mock.complete({
+          model: "mock-1",
+          messages: [
+            { role: "user", content: `Apply the codebook.\n<unit>${u.text}</unit>\nReturn JSON.` },
+          ],
+          schema: singleEnumSchema,
+          temperature: 0,
+          maxTokens: 120,
+        }),
+      ),
+    );
     const invalid = out.filter((r) => validateSchema(r.json, singleEnumSchema).length > 0).length;
     assert.equal(invalid, 0, `${invalid}/200 emissions violate the single-value enum`);
     for (const r of out) assert.equal(r.json.label, "pay");
@@ -2058,24 +2664,34 @@ describe("MockAdapter", () => {
     const mock = new MockAdapter().setOracle(oracle).setAccuracy(0.5);
     const units = plantedUnits(400);
     const out = await Promise.all(units.map((u) => mock.complete(judgeReq(u.text))));
-    const agreeConf = [], disConf = [];
-    out.forEach((r, i) => (r.json.label === units[i].theme ? agreeConf : disConf).push(r.json.confidence));
+    const agreeConf = [],
+      disConf = [];
+    out.forEach((r, i) =>
+      (r.json.label === units[i].theme ? agreeConf : disConf).push(r.json.confidence),
+    );
     const mean = (xs) => xs.reduce((a, b) => a + b, 0) / xs.length;
     assert.ok(agreeConf.length > 50 && disConf.length > 50, "both outcomes well represented");
-    assert.ok(mean(agreeConf) > mean(disConf) + 0.05, `agree ${mean(agreeConf).toFixed(3)} vs disagree ${mean(disConf).toFixed(3)}`);
+    assert.ok(
+      mean(agreeConf) > mean(disConf) + 0.05,
+      `agree ${mean(agreeConf).toFixed(3)} vs disagree ${mean(disConf).toFixed(3)}`,
+    );
   });
 
   it("handler hook scripts Director-style responses", async () => {
     const mock = new MockAdapter();
     let seen = null;
-    mock.setHandler("brief", (req) => { seen = req; return { sections: [{ md: "# Brief", refs: ["u_1"] }] }; });
+    mock.setHandler("brief", (req) => {
+      seen = req;
+      return { sections: [{ md: "# Brief", refs: ["u_1"] }] };
+    });
     const res = await mock.complete({
       model: "mock-1",
       messages: [
         { role: "system", content: "You are the Director. [[handler:brief]]" },
         { role: "user", content: "Write the brief." },
       ],
-      temperature: 0, maxTokens: 500,
+      temperature: 0,
+      maxTokens: 500,
     });
     assert.deepEqual(res.json, { sections: [{ md: "# Brief", refs: ["u_1"] }] });
     assert.equal(res.text, JSON.stringify(res.json));
@@ -2090,8 +2706,14 @@ describe("MockAdapter", () => {
     const res = await mock.complete(req);
     const dt = performance.now() - t0;
     assert.ok(dt >= 4 && dt < 250, `latency ${dt}ms`);
-    assert.ok(Math.abs(res.usage.inputTokens - chars / 3.6) <= chars / 3.6 * 0.1 + 1, `inputTokens ${res.usage.inputTokens} vs chars/3.6 ${chars / 3.6}`);
-    assert.ok(res.usage.outputTokens >= 120 * 0.84 && res.usage.outputTokens <= 120 * 1.16, `outputTokens ${res.usage.outputTokens}`);
+    assert.ok(
+      Math.abs(res.usage.inputTokens - chars / 3.6) <= (chars / 3.6) * 0.1 + 1,
+      `inputTokens ${res.usage.inputTokens} vs chars/3.6 ${chars / 3.6}`,
+    );
+    assert.ok(
+      res.usage.outputTokens >= 120 * 0.84 && res.usage.outputTokens <= 120 * 1.16,
+      `outputTokens ${res.usage.outputTokens}`,
+    );
   });
 });
 
@@ -2132,28 +2754,51 @@ describe("costs", () => {
 
   it("estimateRun lands within ±15% of mock actuals on a 1000-unit corpus", async () => {
     const rng = mulberry32(42);
-    const words = ["pay", "shift", "manager", "team", "hours", "respect", "training", "growth", "tired", "schedule", "benefits", "praise"];
+    const words = [
+      "pay",
+      "shift",
+      "manager",
+      "team",
+      "hours",
+      "respect",
+      "training",
+      "growth",
+      "tired",
+      "schedule",
+      "benefits",
+      "praise",
+    ];
     const units = Array.from({ length: 1000 }, () => {
       const n = 8 + Math.floor(rng() * 30);
       return Array.from({ length: n }, () => words[Math.floor(rng() * words.length)]).join(" ");
     });
-    const template = "You are a careful judge. Apply the codebook to the unit.\n<unit>{{unit}}</unit>\nReturn JSON with rationale, label, confidence.";
+    const template =
+      "You are a careful judge. Apply the codebook to the unit.\n<unit>{{unit}}</unit>\nReturn JSON with rationale, label, confidence.";
     const maxTokens = 120;
 
-    const est = estimateRun({ units, template, maxTokens, pricing: { inUSDper1M: 0, outUSDper1M: 0 } });
+    const est = estimateRun({
+      units,
+      template,
+      maxTokens,
+      pricing: { inUSDper1M: 0, outUSDper1M: 0 },
+    });
     assert.equal(est.calls, 1000);
     assert.equal(est.estUSD, 0);
 
     const mock = new MockAdapter().setOracle(() => "pay");
     const m = meter();
-    await Promise.all(units.map(async (text) => {
-      const res = await mock.complete({
-        model: "mock-1",
-        messages: [{ role: "user", content: template.replace("{{unit}}", text) }],
-        schema: themeSchema, temperature: 0, maxTokens,
-      });
-      m.add(res.usage, { inUSDper1M: 0, outUSDper1M: 0 });
-    }));
+    await Promise.all(
+      units.map(async (text) => {
+        const res = await mock.complete({
+          model: "mock-1",
+          messages: [{ role: "user", content: template.replace("{{unit}}", text) }],
+          schema: themeSchema,
+          temperature: 0,
+          maxTokens,
+        });
+        m.add(res.usage, { inUSDper1M: 0, outUSDper1M: 0 });
+      }),
+    );
     const actual = m.totals();
     assert.equal(actual.usd, 0);
     const inRatio = est.inputTokens / actual.inputTokens;

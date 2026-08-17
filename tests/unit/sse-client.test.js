@@ -22,28 +22,41 @@ function sseResponse(frames) {
 function withFetch(impl, fn) {
   const orig = globalThis.fetch;
   globalThis.fetch = impl;
-  return fn().finally(() => { globalThis.fetch = orig; });
+  return fn().finally(() => {
+    globalThis.fetch = orig;
+  });
 }
 
 const errorFrame = (code, message) =>
   `event: error\ndata: ${JSON.stringify({ code, message })}\n\n`;
 
 test("sse client: a server `error` event reaches onError (not the floor) — brief", async () => {
-  await withFetch(async () => sseResponse([errorFrame("TRUNCATED", "raise maxTokens")]), async () => {
-    const got = { error: null, done: false, paras: 0, closed: false };
-    api.brief.generate("p", "c", {
-      onParagraph: () => { got.paras++; },
-      onDone: () => { got.done = true; },
-      onClose: () => { got.closed = true; },
-      onError: (err) => { got.error = err; },
-    });
-    await new Promise((r) => setTimeout(r, 50));
-    assert.ok(got.error, "onError must fire for a streamed error event");
-    assert.equal(got.error.code, "TRUNCATED");
-    assert.match(got.error.message, /maxTokens/);
-    assert.equal(got.done, false, "a failed stream must not look like success");
-    assert.equal(got.paras, 0);
-  });
+  await withFetch(
+    async () => sseResponse([errorFrame("TRUNCATED", "raise maxTokens")]),
+    async () => {
+      const got = { error: null, done: false, paras: 0, closed: false };
+      api.brief.generate("p", "c", {
+        onParagraph: () => {
+          got.paras++;
+        },
+        onDone: () => {
+          got.done = true;
+        },
+        onClose: () => {
+          got.closed = true;
+        },
+        onError: (err) => {
+          got.error = err;
+        },
+      });
+      await new Promise((r) => setTimeout(r, 50));
+      assert.ok(got.error, "onError must fire for a streamed error event");
+      assert.equal(got.error.code, "TRUNCATED");
+      assert.match(got.error.message, /maxTokens/);
+      assert.equal(got.done, false, "a failed stream must not look like success");
+      assert.equal(got.paras, 0);
+    },
+  );
 });
 
 test("sse client: silver-tune and monitor error events also reach onError", async () => {
@@ -51,13 +64,24 @@ test("sse client: silver-tune and monitor error events also reach onError", asyn
     (h) => api.instruments.silverTune("p", "i", {}, h),
     (h) => api.runs.monitor("p", "r", h),
   ]) {
-    await withFetch(async () => sseResponse([errorFrame("PRIVACY_BLOCKED", "openrouter requires a justification")]), async () => {
-      const got = { error: null, done: false };
-      start({ onDone: () => { got.done = true; }, onError: (e) => { got.error = e; } });
-      await new Promise((r) => setTimeout(r, 50));
-      assert.equal(got.error?.code, "PRIVACY_BLOCKED");
-      assert.equal(got.done, false);
-    });
+    await withFetch(
+      async () =>
+        sseResponse([errorFrame("PRIVACY_BLOCKED", "openrouter requires a justification")]),
+      async () => {
+        const got = { error: null, done: false };
+        start({
+          onDone: () => {
+            got.done = true;
+          },
+          onError: (e) => {
+            got.error = e;
+          },
+        });
+        await new Promise((r) => setTimeout(r, 50));
+        assert.equal(got.error?.code, "PRIVACY_BLOCKED");
+        assert.equal(got.done, false);
+      },
+    );
   }
 });
 
@@ -67,16 +91,23 @@ test("sse client: healthy streams still deliver events then done", async () => {
     `event: para\ndata: ${JSON.stringify({ md: "Second.", refs: [] })}\n\n`,
     `event: done\ndata: ${JSON.stringify({ briefId: "brief_x" })}\n\n`,
   ];
-  await withFetch(async () => sseResponse(frames), async () => {
-    const got = { paras: [], done: null, error: null };
-    api.brief.generate("p", "c", {
-      onParagraph: (p) => got.paras.push(p.md),
-      onDone: (d) => { got.done = d; },
-      onError: (e) => { got.error = e; },
-    });
-    await new Promise((r) => setTimeout(r, 50));
-    assert.deepEqual(got.paras, ["First.", "Second."]);
-    assert.equal(got.done?.briefId, "brief_x");
-    assert.equal(got.error, null);
-  });
+  await withFetch(
+    async () => sseResponse(frames),
+    async () => {
+      const got = { paras: [], done: null, error: null };
+      api.brief.generate("p", "c", {
+        onParagraph: (p) => got.paras.push(p.md),
+        onDone: (d) => {
+          got.done = d;
+        },
+        onError: (e) => {
+          got.error = e;
+        },
+      });
+      await new Promise((r) => setTimeout(r, 50));
+      assert.deepEqual(got.paras, ["First.", "Second."]);
+      assert.equal(got.done?.briefId, "brief_x");
+      assert.equal(got.error, null);
+    },
+  );
 });

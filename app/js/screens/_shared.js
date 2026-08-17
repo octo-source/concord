@@ -20,11 +20,24 @@ import { fmtCost, fmtCount, fmtDuration } from "../format.js";
  * The quiet top of every screen: section voice, Fraunces title, optional
  * Director glyph, lede, action cluster on the right.
  */
-export function screenHead({ overline, title, lede, actions = [], glyphState = null, titleSuffix = null } = {}) {
-  return el("header", { class: "screen__head" },
-    el("div", { class: "screen__head-text" },
+export function screenHead({
+  overline,
+  title,
+  lede,
+  actions = [],
+  glyphState = null,
+  titleSuffix = null,
+} = {}) {
+  return el(
+    "header",
+    { class: "screen__head" },
+    el(
+      "div",
+      { class: "screen__head-text" },
       overline ? el("p", { class: "overline" }, overline) : null,
-      el("h2", { class: "screen__title" },
+      el(
+        "h2",
+        { class: "screen__title" },
         title,
         glyphState ? glyph.render(glyphState) : null,
         titleSuffix,
@@ -36,14 +49,18 @@ export function screenHead({ overline, title, lede, actions = [], glyphState = n
 }
 
 export function section(title, ...children) {
-  return el("section", { class: "screen__section" },
+  return el(
+    "section",
+    { class: "screen__section" },
     title ? el("h3", { class: "overline screen__section-label" }, title) : null,
     ...children,
   );
 }
 
 export function emptyState({ mark = "◌", title, body, hint, actions = [] } = {}) {
-  return el("div", { class: "empty-state" },
+  return el(
+    "div",
+    { class: "empty-state" },
     el("p", { class: "empty-state__mark", aria: { hidden: "true" } }, mark),
     el("h2", { class: "empty-state__title" }, title),
     body ? el("p", { class: "empty-state__body" }, body) : null,
@@ -53,7 +70,9 @@ export function emptyState({ mark = "◌", title, body, hint, actions = [] } = {
 }
 
 export function loadingView(line = "Composing…") {
-  return el("div", { class: "screen-loading", role: "status" },
+  return el(
+    "div",
+    { class: "screen-loading", role: "status" },
     el("span", { class: "screen-loading__rule", aria: { hidden: "true" } }),
     el("p", { class: "screen-loading__line" }, line),
   );
@@ -61,15 +80,36 @@ export function loadingView(line = "Composing…") {
 
 export function errorView(err, { retry } = {}) {
   const isUnreachable = err?.code === "UNREACHABLE";
-  return el("div", { class: "empty-state" },
-    el("p", { class: "empty-state__mark empty-state__mark--signal", aria: { hidden: "true" } }, "◌"),
-    el("h2", { class: "empty-state__title" }, isUnreachable ? "The server is not answering." : "This page failed to load."),
+  return el(
+    "div",
+    { class: "empty-state" },
+    el(
+      "p",
+      { class: "empty-state__mark empty-state__mark--signal", aria: { hidden: "true" } },
+      "◌",
+    ),
+    el(
+      "h2",
+      { class: "empty-state__title" },
+      isUnreachable ? "The server is not answering." : "This page failed to load.",
+    ),
     el("p", { class: "empty-state__body" }, String(err?.message ?? err)),
     isUnreachable
-      ? el("p", { class: "empty-state__hint" }, "Start Concord with start.bat — or review the screens with fixtures: ",
-          el("a", { href: "#/dev/screens?fixtures=1" }, "open fixtures mode"), ".")
+      ? el(
+          "p",
+          { class: "empty-state__hint" },
+          "Start Concord with start.bat — or review the screens with fixtures: ",
+          el("a", { href: "#/dev/screens?fixtures=1" }, "open fixtures mode"),
+          ".",
+        )
       : null,
-    retry ? el("p", { class: "empty-state__actions" }, el("button", { class: "btn", type: "button", onclick: retry }, "Try again")) : null,
+    retry
+      ? el(
+          "p",
+          { class: "empty-state__actions" },
+          el("button", { class: "btn", type: "button", onclick: retry }, "Try again"),
+        )
+      : null,
   );
 }
 
@@ -96,7 +136,9 @@ export async function asyncMount(mount, loader, renderFn, loadingLine) {
   } catch (err) {
     if (stale()) return;
     console.error(err);
-    clear(mount).append(errorView(err, { retry: () => asyncMount(mount, loader, renderFn, loadingLine) }));
+    clear(mount).append(
+      errorView(err, { retry: () => asyncMount(mount, loader, renderFn, loadingLine) }),
+    );
   }
 }
 
@@ -138,19 +180,32 @@ export function openSheet({ title, overline, wide = false, onClose } = {}) {
   const foot = el("div", { class: "sheet__foot" });
   let locked = false;
 
-  const closeBtn = el("button", {
-    class: "sheet__close", type: "button", title: "Close",
-    aria: { label: "Close" }, onclick: () => close(),
-  }, "×");
+  const closeBtn = el(
+    "button",
+    {
+      class: "sheet__close",
+      type: "button",
+      title: "Close",
+      aria: { label: "Close" },
+      onclick: () => close(),
+    },
+    "×",
+  );
 
-  const panel = el("div", {
-    class: `sheet__panel${wide ? " sheet__panel--wide" : ""}`,
-    role: "dialog",
-    "aria-modal": "true",
-    aria: { label: title ?? "Sheet" },
-  },
-    el("header", { class: "sheet__head" },
-      el("div", {},
+  const panel = el(
+    "div",
+    {
+      class: `sheet__panel${wide ? " sheet__panel--wide" : ""}`,
+      role: "dialog",
+      "aria-modal": "true",
+      aria: { label: title ?? "Sheet" },
+    },
+    el(
+      "header",
+      { class: "sheet__head" },
+      el(
+        "div",
+        {},
         overline ? el("p", { class: "overline" }, overline) : null,
         el("h2", { class: "sheet__title" }, title ?? ""),
       ),
@@ -160,8 +215,15 @@ export function openSheet({ title, overline, wide = false, onClose } = {}) {
     foot,
   );
 
-  const root = el("div", { class: "sheet" },
-    el("div", { class: "sheet__scrim", onclick: () => { if (!locked) close(); } }),
+  const root = el(
+    "div",
+    { class: "sheet" },
+    el("div", {
+      class: "sheet__scrim",
+      onclick: () => {
+        if (!locked) close();
+      },
+    }),
     panel,
   );
 
@@ -179,12 +241,19 @@ export function openSheet({ title, overline, wide = false, onClose } = {}) {
       if (!locked) close();
     } else if (e.key === "Tab") {
       // soft focus trap — wrap within the panel
-      const focusables = panel.querySelectorAll("button, [href], input, select, textarea, [tabindex]:not([tabindex='-1'])");
+      const focusables = panel.querySelectorAll(
+        "button, [href], input, select, textarea, [tabindex]:not([tabindex='-1'])",
+      );
       if (focusables.length === 0) return;
       const first = focusables[0];
       const last = focusables[focusables.length - 1];
-      if (e.shiftKey && document.activeElement === first) { e.preventDefault(); last.focus(); }
-      else if (!e.shiftKey && document.activeElement === last) { e.preventDefault(); first.focus(); }
+      if (e.shiftKey && document.activeElement === first) {
+        e.preventDefault();
+        last.focus();
+      } else if (!e.shiftKey && document.activeElement === last) {
+        e.preventDefault();
+        first.focus();
+      }
     }
   }
 
@@ -214,7 +283,10 @@ export function openSheet({ title, overline, wide = false, onClose } = {}) {
   document.body.append(root);
   // compose in after first style resolution (timeout, not rAF — hidden tabs)
   setTimeout(() => root.classList.add("sheet--in"), 20);
-  setTimeout(() => panel.querySelector("input, select, textarea, button:not(.sheet__close)")?.focus(), 240);
+  setTimeout(
+    () => panel.querySelector("input, select, textarea, button:not(.sheet__close)")?.focus(),
+    240,
+  );
 
   return { el: root, body, foot, close, setLocked };
 }
@@ -253,9 +325,12 @@ export function buttonBusy(btn, label) {
  */
 export function sheetBusy(s, actionBtn, { label, hint } = {}) {
   const stopBtn = buttonBusy(actionBtn, label);
-  const line = el("span", { class: "busyline", role: "status" },
+  const line = el(
+    "span",
+    { class: "busyline", role: "status" },
     el("span", { class: "busyline__rule", aria: { hidden: "true" } }),
-    hint ? el("span", { class: "busyline__text" }, hint) : null);
+    hint ? el("span", { class: "busyline__text" }, hint) : null,
+  );
   s.foot.replaceChildren(line, actionBtn);
   s.setLocked?.(true);
   return () => {
@@ -277,7 +352,7 @@ export function runDisplayName(project, run) {
   const inst = (project?.instruments ?? []).find((i) => i.id === run.instrumentId) ?? null;
   const corpus = (project?.corpora ?? []).find((c) => c.id === run.corpusId) ?? null;
   const instName = inst?.name ?? run.instrumentId ?? null;
-  const corpusName = corpus ? scopechip.displayName(corpus) : run.corpusId ?? null;
+  const corpusName = corpus ? scopechip.displayName(corpus) : (run.corpusId ?? null);
   if (instName && corpusName) return `${instName} · ${corpusName}`;
   return instName ?? corpusName ?? run.id ?? "";
 }
@@ -287,7 +362,7 @@ export function goldsetDisplayName(project, goldset) {
   if (!goldset) return "";
   if (goldset.name) return goldset.name;
   const construct = (project?.constructs ?? []).find((c) => c.id === goldset.constructId) ?? null;
-  return construct ? `Gold — ${construct.name}` : goldset.id ?? "";
+  return construct ? `Gold — ${construct.name}` : (goldset.id ?? "");
 }
 
 /** Truncate for tight slots (the rail); pair with title= carrying the full text. */
@@ -308,9 +383,11 @@ export function truncate(text, max = 34) {
 export function normalizeQuarantine(quarantine) {
   return (Array.isArray(quarantine) ? quarantine : [])
     .filter((q) => q !== null && q !== undefined)
-    .map((q) => (typeof q === "object"
-      ? { unitId: q.unitId ?? null, code: q.code ?? null, message: q.message ?? null }
-      : { unitId: String(q), code: null, message: null }));
+    .map((q) =>
+      typeof q === "object"
+        ? { unitId: q.unitId ?? null, code: q.code ?? null, message: q.message ?? null }
+        : { unitId: String(q), code: null, message: null },
+    );
 }
 
 /* ---- chips & lines ----------------------------------------------------------------- */
@@ -318,17 +395,26 @@ export function normalizeQuarantine(quarantine) {
 /** Estimate chips: units · calls · $ · eta. Every screen quotes prices the same way. */
 export function estimateChips({ units, calls, usd, usdRange, etaMin } = {}) {
   const chips = [];
-  if (units !== undefined && units !== null) chips.push(el("span", { class: "chip data" }, `${fmtCount(units)} units`));
-  if (calls !== undefined && calls !== null && calls !== units) chips.push(el("span", { class: "chip data" }, `${fmtCount(calls)} calls`));
-  if (usdRange) chips.push(el("span", { class: "chip data" }, `${fmtCost(usdRange[0])}–${fmtCost(usdRange[1])}`));
-  else if (usd !== undefined && usd !== null) chips.push(el("span", { class: "chip data" }, fmtCost(usd)));
-  if (etaMin !== undefined && etaMin !== null) chips.push(el("span", { class: "chip data" }, fmtDuration(etaMin)));
+  if (units !== undefined && units !== null)
+    chips.push(el("span", { class: "chip data" }, `${fmtCount(units)} units`));
+  if (calls !== undefined && calls !== null && calls !== units)
+    chips.push(el("span", { class: "chip data" }, `${fmtCount(calls)} calls`));
+  if (usdRange)
+    chips.push(
+      el("span", { class: "chip data" }, `${fmtCost(usdRange[0])}–${fmtCost(usdRange[1])}`),
+    );
+  else if (usd !== undefined && usd !== null)
+    chips.push(el("span", { class: "chip data" }, fmtCost(usd)));
+  if (etaMin !== undefined && etaMin !== null)
+    chips.push(el("span", { class: "chip data" }, fmtDuration(etaMin)));
   return el("span", { class: "estchips" }, ...chips);
 }
 
 /** A labeled value row for definition lists. */
 export function kv(label, ...value) {
-  return el("div", { class: "kv" },
+  return el(
+    "div",
+    { class: "kv" },
     el("dt", { class: "kv__label overline" }, label),
     el("dd", { class: "kv__value" }, ...value),
   );
@@ -340,7 +426,9 @@ export function kvList(...rows) {
 
 /** A value with its ladder mark — the canonical way a number appears. */
 export function markedValue(text, level, { size = "sm" } = {}) {
-  return el("span", { class: "markedvalue" },
+  return el(
+    "span",
+    { class: "markedvalue" },
     el("span", { class: "data" }, text),
     level ? ladder.render({ level, size }) : null,
   );
@@ -348,14 +436,30 @@ export function markedValue(text, level, { size = "sm" } = {}) {
 
 /** Director-flagged margin annotation, dismissible. */
 export function annotation({ text, by = "director", onDismiss } = {}) {
-  const node = el("aside", { class: "annotation" },
-    by === "director" ? el("span", { class: "annotation__glyph", aria: { hidden: "true" } }, glyph.GLYPH) : null,
+  const node = el(
+    "aside",
+    { class: "annotation" },
+    by === "director"
+      ? el("span", { class: "annotation__glyph", aria: { hidden: "true" } }, glyph.GLYPH)
+      : null,
     el("p", { class: "annotation__text" }, text),
     onDismiss !== false
-      ? el("button", {
-          class: "annotation__dismiss", type: "button", aria: { label: "Dismiss annotation" },
-          onclick: () => { node.classList.add("annotation--leaving"); setTimeout(() => { node.remove(); onDismiss?.(); }, 200); },
-        }, "×")
+      ? el(
+          "button",
+          {
+            class: "annotation__dismiss",
+            type: "button",
+            aria: { label: "Dismiss annotation" },
+            onclick: () => {
+              node.classList.add("annotation--leaving");
+              setTimeout(() => {
+                node.remove();
+                onDismiss?.();
+              }, 200);
+            },
+          },
+          "×",
+        )
       : null,
   );
   return node;
@@ -405,14 +509,22 @@ export function mdBlock(md, { chipFn = null } = {}) {
     }
   };
   const flushList = () => {
-    if (list) { root.append(list); list = null; }
+    if (list) {
+      root.append(list);
+      list = null;
+    }
   };
   for (const line of lines) {
     const t = line.trim();
-    if (t === "") { flushPara(); flushList(); continue; }
+    if (t === "") {
+      flushPara();
+      flushList();
+      continue;
+    }
     const h = t.match(/^(#{1,4})\s+(.*)$/);
     if (h) {
-      flushPara(); flushList();
+      flushPara();
+      flushList();
       const level = Math.min(4, h[1].length + 1); // # → h2 floor inside screens
       root.append(el(`h${level}`, { class: "md__h" }, ...mdInline(h[2], chipFn)));
       continue;
@@ -425,7 +537,8 @@ export function mdBlock(md, { chipFn = null } = {}) {
     }
     para.push(t);
   }
-  flushPara(); flushList();
+  flushPara();
+  flushList();
   return root;
 }
 
@@ -446,16 +559,30 @@ export function downloadText(filename, text, mime = "text/plain") {
 export const LEVEL_PRICE = "~150 units, ~35 min";
 
 export function levelUpNudge({ construct, price = LEVEL_PRICE, onGo } = {}) {
-  return el("footer", { class: "nudge" },
+  return el(
+    "footer",
+    { class: "nudge" },
     el("span", { class: "nudge__mark", aria: { hidden: "true" } }, "◑ → ●"),
-    el("p", { class: "nudge__line" },
-      `Calibrate “${construct}” — ${price} of human coding — to make these numbers publication-grade.`),
-    el("button", { class: "btn btn--quiet nudge__go", type: "button", onclick: onGo }, "Open the Calibration Studio →"),
+    el(
+      "p",
+      { class: "nudge__line" },
+      `Calibrate “${construct}” — ${price} of human coding — to make these numbers publication-grade.`,
+    ),
+    el(
+      "button",
+      { class: "btn btn--quiet nudge__go", type: "button", onclick: onGo },
+      "Open the Calibration Studio →",
+    ),
   );
 }
 
 export function backLink(href, label = "Back") {
-  return el("a", { class: "backlink", href: `#/${String(href).replace(/^#?\/?/, "")}` }, "← ", label);
+  return el(
+    "a",
+    { class: "backlink", href: `#/${String(href).replace(/^#?\/?/, "")}` },
+    "← ",
+    label,
+  );
 }
 
 /** Reading mode: rail recedes, the column owns the page; inspector stays summonable. */

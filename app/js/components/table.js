@@ -39,23 +39,29 @@ export function render({
   const headRow = el("tr", {});
   for (const col of columns) {
     const sortable = col.sortable !== false;
-    const th = el("th", {
-      scope: "col",
-      class: cellClass(col),
-      style: col.width ? { width: col.width } : undefined,
-      aria: { sort: ariaSort(state.sort, col) },
-    },
+    const th = el(
+      "th",
+      {
+        scope: "col",
+        class: cellClass(col),
+        style: col.width ? { width: col.width } : undefined,
+        aria: { sort: ariaSort(state.sort, col) },
+      },
       sortable
-        ? el("button", {
-            class: "table__sortbtn",
-            type: "button",
-            onclick: () => {
-              const dir = state.sort?.key === col.key && state.sort.dir === "asc" ? "desc" : "asc";
-              sortBy(col.key, dir);
+        ? el(
+            "button",
+            {
+              class: "table__sortbtn",
+              type: "button",
+              onclick: () => {
+                const dir =
+                  state.sort?.key === col.key && state.sort.dir === "asc" ? "desc" : "asc";
+                sortBy(col.key, dir);
+              },
             },
-          },
             el("span", {}, col.label),
-            el("span", { class: "table__sortmark", aria: { hidden: "true" } }))
+            el("span", { class: "table__sortmark", aria: { hidden: "true" } }),
+          )
         : el("span", { class: "table__head-label" }, col.label),
     );
     headRow.append(th);
@@ -66,12 +72,20 @@ export function render({
     clear(tbody);
     if (state.rows.length === 0) {
       tbody.append(
-        el("tr", { class: "table__empty-row" },
-          el("td", { colspan: String(columns.length || 1) },
-            el("div", { class: "empty-state empty-state--table" },
+        el(
+          "tr",
+          { class: "table__empty-row" },
+          el(
+            "td",
+            { colspan: String(columns.length || 1) },
+            el(
+              "div",
+              { class: "empty-state empty-state--table" },
               el("p", { class: "empty-state__title" }, empty.title ?? "Nothing to show yet."),
               empty.hint ? el("p", { class: "empty-state__hint" }, empty.hint) : null,
-            ))),
+            ),
+          ),
+        ),
       );
       return;
     }
@@ -79,7 +93,7 @@ export function render({
       const tr = el("tr", {});
       for (const col of columns) {
         const raw = row[col.key];
-        const formatted = col.format ? col.format(raw, row) : raw ?? "—";
+        const formatted = col.format ? col.format(raw, row) : (raw ?? "—");
         const level = col.level ? col.level(row) : null;
         const evidenceIds = col.evidence ? col.evidence(row) : null;
         const content = [
@@ -88,12 +102,20 @@ export function render({
         ];
         const td = el("td", { class: cellClass(col) });
         if (evidenceIds && (Array.isArray(evidenceIds) ? evidenceIds.length : true)) {
-          td.append(el("button", {
-            class: "table__evidence evidence-door",
-            type: "button",
-            dataset: { evidence: Array.isArray(evidenceIds) ? evidenceIds.join(",") : evidenceIds },
-            aria: { label: `Open evidence for ${col.label}` },
-          }, ...content));
+          td.append(
+            el(
+              "button",
+              {
+                class: "table__evidence evidence-door",
+                type: "button",
+                dataset: {
+                  evidence: Array.isArray(evidenceIds) ? evidenceIds.join(",") : evidenceIds,
+                },
+                aria: { label: `Open evidence for ${col.label}` },
+              },
+              ...content,
+            ),
+          );
         } else {
           td.append(...content.filter(Boolean));
         }

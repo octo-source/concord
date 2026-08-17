@@ -17,9 +17,15 @@ export default [
       const body = req.body ?? {};
       const corpusId = body.corpusId ?? project.corpora?.[0]?.id;
       if (!corpusId) {
-        throw new ConcordError("VALIDATION", "the question bar needs a corpus — import data first", {});
+        throw new ConcordError(
+          "VALIDATION",
+          "the question bar needs a corpus — import data first",
+          {},
+        );
       }
-      const plan = await withDirectorSpend(project, () => compileQuestion(project, corpusId, body.question));
+      const plan = await withDirectorSpend(project, () =>
+        compileQuestion(project, corpusId, body.question),
+      );
       return { planId: plan.planId, plan };
     },
   },
@@ -41,7 +47,11 @@ export default [
       for (const instrumentId of approved.instrumentIds) {
         const instrument = (fresh.instruments ?? []).find((i) => i.id === instrumentId);
         const name = instrument ? `${instrument.name} · ${corpusName}` : undefined;
-        const run = await createRun(fresh, { instrumentId, corpusId: plan.corpusId, ...(name ? { name } : {}) });
+        const run = await createRun(fresh, {
+          instrumentId,
+          corpusId: plan.corpusId,
+          ...(name ? { name } : {}),
+        });
         runIds.push(run.id);
       }
       return { ...approved, runIds };

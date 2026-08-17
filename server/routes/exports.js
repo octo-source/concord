@@ -6,7 +6,10 @@
 // renders methods excerpts through the side-effect-free preview path).
 import { ConcordError } from "../core/errors.js";
 import { loadProject } from "../core/store.js";
-import { generate as generateMethods, generatePreview as generateMethodsPreview } from "../reporting/methods.js";
+import {
+  generate as generateMethods,
+  generatePreview as generateMethodsPreview,
+} from "../reporting/methods.js";
 import { build as buildReplication } from "../reporting/replication.js";
 import { render as renderReport } from "../reporting/report.js";
 import { pdirOf, safeId } from "./_shared.js";
@@ -14,10 +17,17 @@ import { pdirOf, safeId } from "./_shared.js";
 function analysisIdsFrom(req, project, { required = true } = {}) {
   const q = req.query.analyses ?? req.query.analysisId ?? req.query.analysisIds;
   const ids = q
-    ? String(q).split(",").map((s) => s.trim()).filter(Boolean)
+    ? String(q)
+        .split(",")
+        .map((s) => s.trim())
+        .filter(Boolean)
     : (project.analyses ?? []).map((a) => a.id);
   if (ids.length === 0 && required) {
-    throw new ConcordError("VALIDATION", "this project has no analyses yet — create one before exporting", {});
+    throw new ConcordError(
+      "VALIDATION",
+      "this project has no analyses yet — create one before exporting",
+      {},
+    );
   }
   // a query-supplied id becomes analyses/<id>.json inside the bundle — reject
   // traversal before it reaches loadAnalysis (project-derived ids are already safe)
@@ -34,7 +44,9 @@ export default [
       const ids = analysisIdsFrom(req, project);
       // export of record for ONE analysis: the most recent unless specified
       const analysisId = req.query.analysisId ?? ids[ids.length - 1];
-      const { markdown, citations } = await generateMethods(project, analysisId, { projectDir: pdirOf(params.p) });
+      const { markdown, citations } = await generateMethods(project, analysisId, {
+        projectDir: pdirOf(params.p),
+      });
       return { analysisId, markdown, citations };
     },
   },
@@ -47,7 +59,9 @@ export default [
       const project = await loadProject(params.p);
       const ids = analysisIdsFrom(req, project);
       const analysisId = req.query.analysisId ?? ids[ids.length - 1];
-      const { markdown, citations } = await generateMethodsPreview(project, analysisId, { projectDir: pdirOf(params.p) });
+      const { markdown, citations } = await generateMethodsPreview(project, analysisId, {
+        projectDir: pdirOf(params.p),
+      });
       return { analysisId, markdown, citations };
     },
   },
@@ -59,8 +73,13 @@ export default [
       const ids = analysisIdsFrom(req, project);
       // gold verbatims ship by default; ?goldText=0 ships labels/π only —
       // the researcher owns the license/PII call, the route owns the wiring
-      const includeGoldText = !["0", "false"].includes(String(req.query.goldText ?? "").toLowerCase());
-      const { zipBuffer } = await buildReplication(project, ids, { projectDir: pdirOf(params.p), includeGoldText });
+      const includeGoldText = !["0", "false"].includes(
+        String(req.query.goldText ?? "").toLowerCase(),
+      );
+      const { zipBuffer } = await buildReplication(project, ids, {
+        projectDir: pdirOf(params.p),
+        includeGoldText,
+      });
       res.writeHead(200, {
         "content-type": "application/zip",
         "content-disposition": `attachment; filename="${project.slug}-replication.zip"`,

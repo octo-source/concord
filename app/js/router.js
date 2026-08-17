@@ -21,10 +21,13 @@ const registry = []; // {pattern, segments, handler}
 
 /** Register a route. Pattern segments starting with ":" capture params. */
 export function register(pattern, handler) {
-  const clean = String(pattern).replace(/^#?\/?/, "").replace(/\/$/, "");
+  const clean = String(pattern)
+    .replace(/^#?\/?/, "")
+    .replace(/\/$/, "");
   const existing = registry.findIndex((r) => r.pattern === clean);
   const entry = { pattern: clean, segments: clean === "" ? [] : clean.split("/"), handler };
-  if (existing >= 0) registry[existing] = entry; // screens may override defaults
+  if (existing >= 0)
+    registry[existing] = entry; // screens may override defaults
   else registry.push(entry);
   return () => {
     const i = registry.indexOf(entry);
@@ -62,7 +65,10 @@ export function matchPath(segments, entries = registry) {
     for (let i = 0; i < segments.length; i++) {
       const pat = entry.segments[i];
       if (pat.startsWith(":")) params[pat.slice(1)] = segments[i];
-      else if (pat !== segments[i]) { hit = false; break; }
+      else if (pat !== segments[i]) {
+        hit = false;
+        break;
+      }
     }
     if (hit) return { entry, params };
   }
@@ -96,7 +102,11 @@ async function resolve() {
   const found = matchPath(segments);
 
   if (activeTeardown) {
-    try { activeTeardown(); } catch (err) { console.error("route teardown threw", err); }
+    try {
+      activeTeardown();
+    } catch (err) {
+      console.error("route teardown threw", err);
+    }
     activeTeardown = null;
   }
   rootEl.replaceChildren();
@@ -137,30 +147,52 @@ export function start({ root }) {
    route; these remain as the floor. */
 
 function welcomeView() {
-  return el("div", { class: "empty-state welcome" },
+  return el(
+    "div",
+    { class: "empty-state welcome" },
     el("p", { class: "empty-state__mark", aria: { hidden: "true" } }, "◌ ◑ ● ◉"),
     el("h2", { class: "empty-state__title" }, "Concord measures qualitative text."),
-    el("p", { class: "empty-state__body" },
+    el(
+      "p",
+      { class: "empty-state__body" },
       "Import a corpus — survey open-ends, interviews, reviews — and Concord codes it into ",
-      "numbers you can trace back to the text. Drop a file anywhere, or open the demo corpus."),
-    el("p", { class: "empty-state__hint" },
-      "Every number shows its evidence level (◌ ◑ ● ◉); click any number to see the units behind it."),
+      "numbers you can trace back to the text. Drop a file anywhere, or open the demo corpus.",
+    ),
+    el(
+      "p",
+      { class: "empty-state__hint" },
+      "Every number shows its evidence level (◌ ◑ ● ◉); click any number to see the units behind it.",
+    ),
   );
 }
 
 function notFoundView(path) {
-  return el("div", { class: "empty-state" },
+  return el(
+    "div",
+    { class: "empty-state" },
     el("p", { class: "empty-state__mark", aria: { hidden: "true" } }, "◌"),
     el("h2", { class: "empty-state__title" }, "Page not found."),
-    el("p", { class: "empty-state__body" },
-      "No screen matches ", el("code", {}, `#/${path}`), ". ",
-      el("a", { href: "#/" }, "Return to the start"), "."),
+    el(
+      "p",
+      { class: "empty-state__body" },
+      "No screen matches ",
+      el("code", {}, `#/${path}`),
+      ". ",
+      el("a", { href: "#/" }, "Return to the start"),
+      ".",
+    ),
   );
 }
 
 function errorView(err) {
-  return el("div", { class: "empty-state" },
-    el("p", { class: "empty-state__mark empty-state__mark--signal", aria: { hidden: "true" } }, "◌"),
+  return el(
+    "div",
+    { class: "empty-state" },
+    el(
+      "p",
+      { class: "empty-state__mark empty-state__mark--signal", aria: { hidden: "true" } },
+      "◌",
+    ),
     el("h2", { class: "empty-state__title" }, "This page failed to load."),
     el("p", { class: "empty-state__body" }, String(err?.message ?? err)),
   );

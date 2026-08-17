@@ -72,9 +72,14 @@ const RATIONALE_FIRST_INSTRUCTION =
 function categoryValues(construct, field) {
   const cats = construct.categories;
   if (!Array.isArray(cats) || cats.length === 0) {
-    throw new ConcordError("VALIDATION", `${construct.type} construct needs categories to derive an output schema`, {
-      constructId: construct.id, field,
-    });
+    throw new ConcordError(
+      "VALIDATION",
+      `${construct.type} construct needs categories to derive an output schema`,
+      {
+        constructId: construct.id,
+        field,
+      },
+    );
   }
   return cats.map((c) => c.value);
 }
@@ -85,9 +90,10 @@ export function outputSchemaFor(construct) {
   }
   switch (construct.type) {
     case "binary": {
-      const cats = Array.isArray(construct.categories) && construct.categories.length === 2
-        ? construct.categories.map((c) => String(c.value))
-        : ["yes", "no"];
+      const cats =
+        Array.isArray(construct.categories) && construct.categories.length === 2
+          ? construct.categories.map((c) => String(c.value))
+          : ["yes", "no"];
       return { type: "binary", options: cats };
     }
     case "nominal":
@@ -95,7 +101,9 @@ export function outputSchemaFor(construct) {
     case "ordinal": {
       const cats = construct.categories ?? [];
       if (cats.length === 0) {
-        throw new ConcordError("VALIDATION", "ordinal construct needs categories", { constructId: construct.id });
+        throw new ConcordError("VALIDATION", "ordinal construct needs categories", {
+          constructId: construct.id,
+        });
       }
       const anchors = {};
       for (const c of cats) anchors[String(c.value)] = c.anchor ?? c.label ?? String(c.value);
@@ -114,7 +122,9 @@ export function outputSchemaFor(construct) {
     case "extraction":
       return { type: "extraction" };
     default:
-      throw new ConcordError("VALIDATION", `unknown construct type "${construct?.type}"`, { type: construct?.type });
+      throw new ConcordError("VALIDATION", `unknown construct type "${construct?.type}"`, {
+        type: construct?.type,
+      });
   }
 }
 
@@ -163,7 +173,9 @@ export function jsonSchemaFor(outputSchema) {
       base.properties.spans = { type: "array", items: { type: "string" } };
       break;
     default:
-      throw new ConcordError("VALIDATION", `unknown output schema type "${outputSchema?.type}"`, { outputSchema });
+      throw new ConcordError("VALIDATION", `unknown output schema type "${outputSchema?.type}"`, {
+        outputSchema,
+      });
   }
   base.properties.confidence = { type: "number", minimum: 0, maximum: 1 }; // optional: absent → null, never invented
   return base;
@@ -179,7 +191,8 @@ function renderCriteria(construct) {
   const lines = [];
   if (inc.length) lines.push("Include when:", ...inc.map((c) => `- ${c}`));
   if (exc.length) lines.push("Exclude when:", ...exc.map((c) => `- ${c}`));
-  if (construct.edgeCases?.length) lines.push("Edge cases:", ...construct.edgeCases.map((c) => `- ${c}`));
+  if (construct.edgeCases?.length)
+    lines.push("Edge cases:", ...construct.edgeCases.map((c) => `- ${c}`));
   return lines.length ? lines.join("\n") : "(no explicit criteria provided)";
 }
 
@@ -233,8 +246,9 @@ export function assemble(construct, judgePayload, unit) {
     throw new ConcordError("VALIDATION", "assemble requires a unit with text", { unit });
   }
   const outputSchema = judgePayload?.schema ?? outputSchemaFor(construct);
-  const template = (judgePayload?.promptTemplate?.trim() ? judgePayload.promptTemplate : DEFAULT_TEMPLATE)
-    .replaceAll("<unit>{{unit}}</unit>", "{{unit}}"); // legacy template-side wrapper → assemble's own
+  const template = (
+    judgePayload?.promptTemplate?.trim() ? judgePayload.promptTemplate : DEFAULT_TEMPLATE
+  ).replaceAll("<unit>{{unit}}</unit>", "{{unit}}"); // legacy template-side wrapper → assemble's own
 
   const filled = template
     .replaceAll("{{definition}}", construct.definition || "(no definition provided)")
@@ -286,8 +300,10 @@ export async function judgeUnit(adapter, construct, judgePayload, unit) {
   // a stored pre-bounds schema on a scaled construct inherits the construct's
   // declared bounds, so prompt text and JSON enforcement always agree
   if (
-    outputSchema.type === "score0to100" && outputSchema.min === undefined &&
-    typeof construct?.scale?.min === "number" && typeof construct?.scale?.max === "number"
+    outputSchema.type === "score0to100" &&
+    outputSchema.min === undefined &&
+    typeof construct?.scale?.min === "number" &&
+    typeof construct?.scale?.max === "number"
   ) {
     outputSchema = { ...outputSchema, min: construct.scale.min, max: construct.scale.max };
   }
