@@ -10,22 +10,7 @@
     <link rel="stylesheet" href="css/components.css" />
     <link rel="stylesheet" href="css/screens.css" />
     <link rel="stylesheet" href="css/print.css" />
-    <script>
-      // theme boots before first paint: stored choice, else the system's
-      (function () {
-        try {
-          var t = localStorage.getItem("concord-theme");
-          if (
-            t === "dark" ||
-            (t !== "light" && matchMedia("(prefers-color-scheme: dark)").matches)
-          ) {
-            document.documentElement.setAttribute("data-theme", "dark");
-          }
-        } catch (e) {
-          /* storage unavailable — stay on paper */
-        }
-      })();
-    </script>
+    <script src="js/theme-boot.js"></script>
   </head>
   <body>
     <a class="skip-link" href="#workspace">Skip to workspace</a>

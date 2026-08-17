@@ -304,6 +304,18 @@ export function createRouter({ appDir, maxJsonBody = DEFAULT_MAX_JSON_BODY, fsIm
         error: { code: "BAD_HOST", message: "Concord only answers local requests" },
       });
     }
+    // Insurance against XSS regressions: the UI never injects raw HTML today
+    // (see app/js/dom.js), but this keeps it true even if that ever slips.
+    // style-src allows inline: dom.js's el() sets per-element styles via
+    // node.style.setProperty (chart bars, confidence meters, swatches) —
+    // that's dynamic layout, not a script-injection vector, so unlike
+    // script-src it doesn't need to be locked to 'self'. img-src allows
+    // data: for the inline SVG hatch patterns charts use to fill naive
+    // (uncorrected) bars.
+    res.setHeader(
+      "Content-Security-Policy",
+      "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data:; object-src 'none'; base-uri 'self'; frame-ancestors 'self'",
+    );
     req.query = Object.fromEntries(url.searchParams);
     const found = match(req.method, url.pathname);
     if (found) {
