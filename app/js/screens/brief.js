@@ -9,6 +9,7 @@
 import { el, clear } from "../dom.js";
 import api from "../api.js";
 import * as router from "../router.js";
+import { store } from "../state.js";
 import * as toast from "../components/toast.js";
 import * as quotecard from "../components/quotecard.js";
 import * as glyph from "../components/glyph.js";
@@ -294,7 +295,18 @@ async function renderStored(column, params, project) {
             {
               class: "btn btn--primary",
               type: "button",
-              onclick: () => router.navigate(`p/${params.slug}/constructs`),
+              onclick: () => {
+                // the sheet opens on the CONSTRUCTS screen, after navigation —
+                // any sheet mounted here would close itself the instant this
+                // navigate() fires (openSheet closes on every route:changed).
+                // Stashed once, consumed once: the constructs screen reads
+                // and clears this on mount.
+                store.set("ui.pendingThemes", {
+                  themes: brief.themes,
+                  titleLine: "From the Corpus Brief",
+                });
+                router.navigate(`p/${params.slug}/constructs`);
+              },
             },
             "Open the codebook",
           ),

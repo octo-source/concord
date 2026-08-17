@@ -183,6 +183,16 @@ export function render(mount, params, query) {
           }),
         );
       }
+
+      // Handoff from the Brief's "Open the codebook" CTA: themes stashed
+      // there (a sheet can't survive the navigate() that lands here — see
+      // brief.js) are consumed exactly once, so revisiting this screen later
+      // never reopens a stale sheet.
+      const pending = store.get("ui.pendingThemes");
+      if (pending?.themes?.length) {
+        store.set("ui.pendingThemes", null);
+        themesSheet(params, { themes: pending.themes }, pending.titleLine ?? "Candidate themes");
+      }
     },
     "Opening the codebook…",
   );
