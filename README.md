@@ -12,7 +12,7 @@ And **every number is a door**. Click any count, bar, cell, or coefficient and t
 
 ## Quickstart (no API keys needed)
 
-Prerequisite: **Node.js 20.10 or newer** on your PATH (`node --version`).
+Prerequisite: **Node.js 22.13 or newer** on your PATH (`node --version`).
 
 1. **Windows: double-click `start.bat`** (first run installs dependencies — pure JavaScript, nothing compiles). Your browser opens `http://localhost:7341`. **Mac/Linux:** `npm install` then `npm start`, and open `http://localhost:7341` yourself.
 2. **Create a project** (any name; privacy mode "no-training" is a fine default), then **drop `demo/techcorp-exit-survey.csv`** anywhere — 2,500 synthetic exit-survey responses.
